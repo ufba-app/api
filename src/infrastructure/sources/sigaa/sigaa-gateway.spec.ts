@@ -5,11 +5,7 @@ import type {
 } from './http-client';
 import { parseHistoryMenuPostback, parseStudentProfile } from './parsers';
 import { SigaaGateway } from './sigaa-gateway';
-import {
-  SigaaInvalidCredentialsError,
-  SigaaLoginUnavailableError,
-  SigaaSessionExpiredError,
-} from './session';
+import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 
 const PASSWORD = 'senha-sintetica-123';
 
@@ -86,72 +82,73 @@ describe('parsers', () => {
   });
 });
 
-describe('SigaaGateway', () => {
-  it('login → perfil + PDF do histórico, forma do contrato', async () => {
-    const { http, requests } = fakeSigaa();
-    const out = await new SigaaGateway(http).fetch({
-      credentials: { login: 'u', password: PASSWORD },
-    });
-    expect(out.items).toEqual([]);
-    expect(out.courseSpaces).toEqual([]);
-    expect(out.events).toEqual([]);
-    expect(out.profile?.entryTerm).toBe('2024.1');
-    expect(out.transcriptPdf?.equals(PDF)).toBe(true);
 
+const ctx = (password = PASSWORD): SourceContext => ({
+  userId: 'u1',
+  accountKey: 'sigaa',
+  credentials: { kind: 'password', username: 'u', password },
+});
+const codeOf = async (p: Promise<unknown>) =>
+  p.then(
+    () => 'ok',
+    (e: unknown) => (e instanceof SourceError ? e.code : String(e)),
+  );
+
+describe('SigaaGateway (SourceGateway)', () => {
+  it('declara provider SIGAA e segredo por requisição', () => {
+    const g = new SigaaGateway(fakeSigaa().http);
+    expect(g.provider).toBe('SIGAA');
+    expect(g.auth).toBe('segredo-por-requisicao');
+  });
+
+  it('fetch: só perfil; sem items/courseSpaces/events (a fonte não os tem)', async () => {
+    const { http, requests } = fakeSigaa();
+    const out = await new SigaaGateway(http).fetch(ctx(), { kind: 'tudo' });
+    expect(out).toEqual({
+      profile: { registration: '000000001', programName: 'CURSO FICTICIO', entryTerm: '2024.1' },
+    });
+    expect(out.items).toBeUndefined();
+    expect(requests.some((r) => r.method === 'POST' && r.path.includes('discente.jsf'))).toBe(false);
     const login = requests.find((r) => r.path.startsWith('/sigaa/logar.do'));
     expect(login?.body).toMatchObject({ 'user.login': 'u', 'user.senha': PASSWORD, token: 't0k' });
-    const postback = requests.at(-1);
-    expect(postback?.body).toMatchObject({ id: '4242', 'javax.faces.ViewState': 'vs1' });
   });
 
-  it('escopo profile não baixa o PDF', async () => {
+  it('fetchSnapshot baixa o PDF do histórico', async () => {
     const { http, requests } = fakeSigaa();
-    const out = await new SigaaGateway(http).fetch(
-      { credentials: { login: 'u', password: PASSWORD } },
-      'profile',
-    );
-    expect(out.transcriptPdf).toBeUndefined();
-    expect(requests.some((r) => r.method === 'POST' && r.path.includes('discente.jsf'))).toBe(false);
+    const snap = await new SigaaGateway(http).fetchSnapshot(ctx(), { transcript: true });
+    expect(snap.transcriptPdf?.equals(PDF)).toBe(true);
+    expect(requests.at(-1)?.body).toMatchObject({ id: '4242', 'javax.faces.ViewState': 'vs1' });
   });
 
-  it('senha errada (SIGAA diz) vs login indisponível (formulário mudo)', async () => {
+  it('alcance diferente de tudo e credencial que não é senha', async () => {
+    const g = new SigaaGateway(fakeSigaa().http);
+    expect(await codeOf(g.fetch(ctx(), { kind: 'curso', courseExternalId: 'x' }))).toBe('UNSUPPORTED_SCOPE');
+    expect(
+      await codeOf(g.fetch({ ...ctx(), credentials: { kind: 'token', token: 't' } }, { kind: 'tudo' })),
+    ).toBe('CREDENTIAL_REJECTED');
+  });
+
+  it('mapeia erros: senha errada, login mudo, sessão expirada', async () => {
     const wrong = fakeSigaa({ loginOk: false, loginBody: '<html>Usuário e/ou senha inválidos</html>' });
-    await expect(
-      new SigaaGateway(wrong.http).fetch({ credentials: { login: 'u', password: PASSWORD } }),
-    ).rejects.toBeInstanceOf(SigaaInvalidCredentialsError);
-
+    expect(await codeOf(new SigaaGateway(wrong.http).fetch(ctx(), { kind: 'tudo' }))).toBe('CREDENTIAL_REJECTED');
     const mute = fakeSigaa({ loginOk: false });
-    await expect(
-      new SigaaGateway(mute.http).fetch({ credentials: { login: 'u', password: PASSWORD } }),
-    ).rejects.toBeInstanceOf(SigaaLoginUnavailableError);
-  });
-
-  it('sessão expirada não tenta novo login (a senha não foi guardada)', async () => {
-    const { http, requests } = fakeSigaa({ expireAfterLogin: true });
-    await expect(
-      new SigaaGateway(http).fetch({ credentials: { login: 'u', password: PASSWORD } }),
-    ).rejects.toBeInstanceOf(SigaaSessionExpiredError);
-    expect(requests.filter((r) => r.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
+    expect(await codeOf(new SigaaGateway(mute.http).fetch(ctx(), { kind: 'tudo' }))).toBe('BLOCKED');
+    const expired = fakeSigaa({ expireAfterLogin: true });
+    expect(await codeOf(new SigaaGateway(expired.http).fetch(ctx(), { kind: 'tudo' }))).toBe('REAUTH_NEEDED');
+    // sem senha guardada: nenhum segundo login
+    expect(expired.requests.filter((q) => q.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
   });
 
   it('recusa HTML no lugar do PDF', async () => {
     const { http } = fakeSigaa({ pdf: Buffer.from('<html>erro</html>') });
-    await expect(
-      new SigaaGateway(http).fetch({ credentials: { login: 'u', password: PASSWORD } }),
-    ).rejects.toThrow(/PDF/);
+    expect(await codeOf(new SigaaGateway(http).fetchSnapshot(ctx(), { transcript: true }))).toBe('UNAVAILABLE');
   });
 
-  it('nunca expõe a senha em mensagens de erro nem no resultado', async () => {
+  it('nunca expõe a senha em erros nem no resultado', async () => {
     const wrong = fakeSigaa({ loginOk: false });
-    const err = await new SigaaGateway(wrong.http)
-      .fetch({ credentials: { login: 'u', password: PASSWORD } })
-      .catch((e: Error) => e);
-    expect(String((err as Error).message)).not.toContain(PASSWORD);
-
-    const ok = fakeSigaa();
-    const out = await new SigaaGateway(ok.http).fetch({
-      credentials: { login: 'u', password: PASSWORD },
-    });
+    const err = await new SigaaGateway(wrong.http).fetch(ctx(), { kind: 'tudo' }).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain(PASSWORD);
+    const out = await new SigaaGateway(fakeSigaa().http).fetchSnapshot(ctx(), { transcript: true });
     expect(JSON.stringify(out)).not.toContain(PASSWORD);
   });
 });

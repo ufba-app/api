@@ -1,4 +1,14 @@
 import {
+  SourceError,
+  type AuthMode,
+  type Provider,
+  type SourceContext,
+  type SourceFetchResult,
+  type SourceGateway,
+  type SyncScope,
+} from '../../../application/ports/source-gateway';
+import {
+  SigaaRateLimitedError,
   createSigaaHttpClient,
   type SigaaHttpClient,
 } from './http-client';
@@ -7,67 +17,107 @@ import {
   parseStudentProfile,
   type StudentProfile,
 } from './parsers';
-import { SigaaSession, type SigaaCredentials } from './session';
+import {
+  SigaaInvalidCredentialsError,
+  SigaaLoginUnavailableError,
+  SigaaSession,
+  SigaaSessionExpiredError,
+  type SigaaCredentials,
+} from './session';
 
 const PORTAL_HOME_PATH = '/sigaa/portais/discente/discente.jsf';
 
-export interface SigaaFetchContext {
-  /** Vem da requisição de `sincronizar`; usada em memória e descartada. Nunca guardar nem logar. */
-  credentials: SigaaCredentials;
-}
-
-export type SigaaScope = 'all' | 'profile' | 'transcript';
-
-/**
- * Forma do CONTRATO (`fetch(ctx, scope) -> {items, courseSpaces, events...}`) até a porta
- * SourceGateway existir. O SIGAA não tem boletim da turma atual, então `items`, `courseSpaces` e
- * `events` vêm vazios; entrega o perfil e o PDF do histórico (que o extrator transforma em dados).
- */
-export interface SigaaFetchResult {
-  items: never[];
-  courseSpaces: never[];
-  events: never[];
-  profile?: StudentProfile;
+export interface SigaaSnapshot {
+  profile: StudentProfile;
+  /** Presente só quando pedido; o PDF nunca é logado nem gravado aqui. */
   transcriptPdf?: Buffer;
 }
 
-/** Como a fonte autentica: segredo por requisição, nunca guardado (ARQUITETURA §2.3). */
-export const SIGAA_AUTH_MODE = 'segredo-por-requisição' as const;
+function credentialsOf(ctx: SourceContext): SigaaCredentials {
+  if (ctx.credentials.kind !== 'password') {
+    throw new SourceError(
+      'CREDENTIAL_REJECTED',
+      'O SIGAA exige usuário e senha por requisição',
+    );
+  }
+  return {
+    login: ctx.credentials.username,
+    password: ctx.credentials.password,
+  };
+}
 
-export class SigaaGateway {
-  readonly source = 'sigaa' as const;
-  readonly authMode = SIGAA_AUTH_MODE;
+/** Erros da sessão viram códigos estáveis; a mensagem nunca carrega senha nem corpo de resposta. */
+function toSourceError(error: unknown): unknown {
+  if (error instanceof SigaaInvalidCredentialsError) {
+    return new SourceError('CREDENTIAL_REJECTED', error.message);
+  }
+  if (error instanceof SigaaSessionExpiredError) {
+    return new SourceError('REAUTH_NEEDED', error.message);
+  }
+  if (error instanceof SigaaLoginUnavailableError) {
+    return new SourceError('BLOCKED', error.message);
+  }
+  if (error instanceof SigaaRateLimitedError) {
+    return new SourceError('UNAVAILABLE', error.message);
+  }
+  return error;
+}
+
+/**
+ * Gateway do SIGAA. Segredo por requisição: a senha vem no contexto, vive só na chamada e nunca
+ * é guardada nem logada. O SIGAA não tem boletim da turma atual, então `fetch` entrega só o
+ * perfil; itens, espaços e eventos não existem nesta fonte (lista ausente, não "tudo removido").
+ * O PDF do histórico sai por `fetchSnapshot`, para o caso de uso de importação do histórico.
+ */
+export class SigaaGateway implements SourceGateway {
+  readonly provider: Provider = 'SIGAA';
+  readonly auth: AuthMode = 'segredo-por-requisicao';
 
   constructor(
     private readonly http: SigaaHttpClient = createSigaaHttpClient(),
   ) {}
 
-  async fetch(
-    ctx: SigaaFetchContext,
-    scope: SigaaScope = 'all',
-  ): Promise<SigaaFetchResult> {
-    // Uma sessão por chamada, só em memória, descartada ao sair.
-    const session = new SigaaSession(this.http);
-    await session.login(ctx.credentials);
-
-    // Um postback JSF só vale contra uma view que o servidor já renderizou nesta sessão.
-    const portalHtml = await session.get(PORTAL_HOME_PATH);
-    const result: SigaaFetchResult = {
-      items: [],
-      courseSpaces: [],
-      events: [],
-    };
-
-    if (scope === 'all' || scope === 'profile') {
-      result.profile = parseStudentProfile(portalHtml);
-    }
-    if (scope === 'all' || scope === 'transcript') {
-      result.transcriptPdf = await this.downloadTranscript(
-        session,
-        portalHtml,
+  async fetch(ctx: SourceContext, scope: SyncScope): Promise<SourceFetchResult> {
+    if (scope.kind !== 'tudo') {
+      throw new SourceError(
+        'UNSUPPORTED_SCOPE',
+        'O SIGAA só sincroniza o alcance "tudo"',
       );
     }
-    return result;
+    const { profile } = await this.fetchSnapshot(ctx, { transcript: false });
+    return {
+      profile: {
+        registration: profile.registration ?? undefined,
+        programName: profile.program ?? undefined,
+        entryTerm: profile.entryTerm ?? undefined,
+      },
+    };
+  }
+
+  /** Login + perfil e, opcionalmente, o PDF do histórico. Uma sessão por chamada, descartada ao sair. */
+  async fetchSnapshot(
+    ctx: SourceContext,
+    options: { transcript: boolean },
+  ): Promise<SigaaSnapshot> {
+    const credentials = credentialsOf(ctx);
+    try {
+      const session = new SigaaSession(this.http);
+      await session.login(credentials);
+      // Um postback JSF só vale contra uma view que o servidor já renderizou nesta sessão.
+      const portalHtml = await session.get(PORTAL_HOME_PATH);
+      const snapshot: SigaaSnapshot = {
+        profile: parseStudentProfile(portalHtml),
+      };
+      if (options.transcript) {
+        snapshot.transcriptPdf = await this.downloadTranscript(
+          session,
+          portalHtml,
+        );
+      }
+      return snapshot;
+    } catch (error) {
+      throw toSourceError(error);
+    }
   }
 
   private async downloadTranscript(
@@ -82,7 +132,8 @@ export class SigaaGateway {
     });
     // Falhas (sessão perdida, sem vínculo) voltam como HTML 200: nunca entregar isso como documento.
     if (!pdf.subarray(0, 5).toString('latin1').startsWith('%PDF')) {
-      throw new Error(
+      throw new SourceError(
+        'UNAVAILABLE',
         `Esperava um PDF do histórico, vieram ${pdf.length} bytes que não começam com %PDF`,
       );
     }
