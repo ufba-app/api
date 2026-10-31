@@ -1,5 +1,14 @@
 import { GoogleHttp } from '../google/google-http';
-import { emptyResult, type FetchResult, type SourceContext, type SyncScope } from '../google/types';
+import type {
+  FetchedCourseSpace,
+  FetchedGrade,
+  FetchedItem,
+  SourceContext,
+  SourceFetchResult,
+  SourceGateway,
+  SyncScope,
+} from '../../../application/ports/source-gateway';
+import { refreshTokenOf, translateErrors } from '../google/google-errors';
 import {
   mapAnnouncement,
   mapCourse,
@@ -25,36 +34,40 @@ export const CLASSROOM_SCOPES = [
 ];
 
 /** Fonte Google Classroom. Autenticação: refresh token guardado (cifrado). */
-export class ClassroomGateway {
-  readonly source = 'CLASSROOM';
+export class ClassroomGateway implements SourceGateway {
+  readonly provider = 'CLASSROOM' as const;
   readonly auth = 'token-guardado' as const;
 
   constructor(private readonly http: GoogleHttp) {}
 
-  async fetch(ctx: SourceContext, scope: SyncScope = { type: 'all' }): Promise<FetchResult> {
-    const rt = ctx.refreshToken;
-    const result = emptyResult();
+  async fetch(ctx: SourceContext, scope: SyncScope = { kind: 'tudo' }): Promise<SourceFetchResult> {
+    return translateErrors(() => this.doFetch(ctx, scope));
+  }
+
+  private async doFetch(ctx: SourceContext, scope: SyncScope): Promise<SourceFetchResult> {
+    const rt = refreshTokenOf(ctx);
+    const result = { courseSpaces: [] as FetchedCourseSpace[], items: [] as FetchedItem[], grades: [] as FetchedGrade[] };
 
     const courses =
-      scope.type === 'all'
+      scope.kind === 'tudo'
         ? await this.http.list<GcCourse>(rt, `${BASE}/courses`, 'courses', {
             courseStates: 'ACTIVE',
             studentId: 'me',
           })
-        : [await this.http.getJson<GcCourse>(rt, `${BASE}/courses/${enc(scope.courseId)}`)];
+        : [await this.http.getJson<GcCourse>(rt, `${BASE}/courses/${enc(scope.courseExternalId)}`)];
 
     for (const course of courses) {
       result.courseSpaces.push(mapCourse(course));
       await this.fetchCourse(rt, course.id, result);
     }
 
-    if (scope.type === 'item') {
-      result.items = result.items.filter((i) => i.externalId === scope.itemId);
+    if (scope.kind === 'item') {
+      result.items = result.items.filter((i) => i.externalId === scope.itemExternalId);
     }
     return result;
   }
 
-  private async fetchCourse(rt: string, courseId: string, out: FetchResult): Promise<void> {
+  private async fetchCourse(rt: string, courseId: string, out: { items: FetchedItem[]; grades: FetchedGrade[] }): Promise<void> {
     const c = `${BASE}/courses/${enc(courseId)}`;
     const [announcements, work, materials, submissions] = await Promise.all([
       this.http.list<GcAnnouncement>(rt, `${c}/announcements`, 'announcements'),

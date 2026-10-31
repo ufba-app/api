@@ -1,9 +1,9 @@
 import type {
-  NormalizedAttachment,
-  NormalizedCourseSpace,
-  NormalizedGrade,
-  NormalizedItem,
-} from '../google/types';
+  FetchedAttachment,
+  FetchedCourseSpace,
+  FetchedGrade,
+  FetchedItem,
+} from '../../../application/ports/source-gateway';
 
 /** Subconjunto das respostas da Classroom API v1 que usamos. */
 export interface GcMaterial {
@@ -74,57 +74,45 @@ export interface GcSubmission {
   updateTime?: string;
 }
 
-const date = (s?: string): Date | null => (s ? new Date(s) : null);
 
-function dueAt(d?: GcDate, t?: GcTime): Date | null {
-  if (!d?.year || !d.month || !d.day) return null;
+const date = (s?: string): Date | undefined => (s ? new Date(s) : undefined);
+
+function dueAt(d?: GcDate, t?: GcTime): Date | undefined {
+  if (!d?.year || !d.month || !d.day) return undefined;
   // dueTime é UTC; sem horário, vale o fim do dia.
   return new Date(Date.UTC(d.year, d.month - 1, d.day, t?.hours ?? 23, t?.minutes ?? 59, t?.seconds ?? 0));
 }
 
-export function mapMaterials(materials: GcMaterial[] = []): NormalizedAttachment[] {
-  const out: NormalizedAttachment[] = [];
+export function mapMaterials(materials: GcMaterial[] = []): FetchedAttachment[] {
+  const out: FetchedAttachment[] = [];
   for (const m of materials) {
     if (m.driveFile?.driveFile) {
       const f = m.driveFile.driveFile;
-      out.push({
-        externalId: f.id ?? null,
-        name: f.title ?? 'arquivo',
-        mimeType: null, // a Classroom não informa o mime; é descoberto no Drive ao baixar
-        sourceUrl: f.alternateLink ?? null,
-        extra: { type: 'drive', driveId: f.id },
-      });
+      // A Classroom não informa o mime; é descoberto no Drive ao baixar. O driveId é o externalId.
+      out.push({ externalId: f.id, name: f.title ?? 'arquivo', sourceUrl: f.alternateLink });
     } else if (m.youTubeVideo) {
       const v = m.youTubeVideo;
-      out.push({
-        externalId: v.id ?? null,
-        name: v.title ?? 'vídeo',
-        mimeType: 'video/youtube',
-        sourceUrl: v.alternateLink ?? null,
-        extra: { type: 'youtube' },
-      });
+      out.push({ externalId: v.id, name: v.title ?? 'vídeo', mimeType: 'video/youtube', sourceUrl: v.alternateLink });
     } else if (m.link) {
       out.push({
-        externalId: m.link.url ?? null,
+        externalId: m.link.url,
         name: m.link.title ?? m.link.url ?? 'link',
         mimeType: 'text/uri-list',
-        sourceUrl: m.link.url ?? null,
-        extra: { type: 'link' },
+        sourceUrl: m.link.url,
       });
     } else if (m.form) {
       out.push({
-        externalId: m.form.formUrl ?? null,
+        externalId: m.form.formUrl,
         name: m.form.title ?? 'formulário',
         mimeType: 'application/vnd.google-apps.form',
-        sourceUrl: m.form.formUrl ?? null,
-        extra: { type: 'form' },
+        sourceUrl: m.form.formUrl,
       });
     }
   }
   return out;
 }
 
-export function mapCourse(c: GcCourse): NormalizedCourseSpace {
+export function mapCourse(c: GcCourse): FetchedCourseSpace {
   return {
     externalId: c.id,
     name: c.name,
@@ -137,54 +125,52 @@ export function mapCourse(c: GcCourse): NormalizedCourseSpace {
   };
 }
 
-export function mapAnnouncement(courseId: string, a: GcAnnouncement): NormalizedItem {
+export function mapAnnouncement(courseId: string, a: GcAnnouncement): FetchedItem {
   const text = a.text ?? '';
   return {
-    externalId: a.id,
     courseExternalId: courseId,
     kind: 'ANNOUNCEMENT',
+    externalId: a.id,
     title: text.split('\n')[0].slice(0, 120) || 'Aviso',
-    body: text || null,
-    url: a.alternateLink ?? null,
+    body: text || undefined,
     publishedAt: date(a.creationTime),
-    dueAt: null,
+    state: a.state,
+    extra: { url: a.alternateLink ?? null, updatedAt: a.updateTime ?? null },
     attachments: mapMaterials(a.materials),
-    extra: { state: a.state ?? null, updatedAt: a.updateTime ?? null },
   };
 }
 
-export function mapCourseWork(courseId: string, w: GcCourseWork): NormalizedItem {
+export function mapCourseWork(courseId: string, w: GcCourseWork): FetchedItem {
   return {
-    externalId: w.id,
     courseExternalId: courseId,
     kind: 'ASSIGNMENT',
+    externalId: w.id,
     title: w.title ?? 'Tarefa',
-    body: w.description ?? null,
-    url: w.alternateLink ?? null,
+    body: w.description,
     publishedAt: date(w.creationTime),
     dueAt: dueAt(w.dueDate, w.dueTime),
-    attachments: mapMaterials(w.materials),
+    state: w.state,
     extra: {
-      state: w.state ?? null,
+      url: w.alternateLink ?? null,
       workType: w.workType ?? null,
       maxPoints: w.maxPoints ?? null,
       updatedAt: w.updateTime ?? null,
     },
+    attachments: mapMaterials(w.materials),
   };
 }
 
-export function mapMaterialPost(courseId: string, m: GcMaterialPost): NormalizedItem {
+export function mapMaterialPost(courseId: string, m: GcMaterialPost): FetchedItem {
   return {
-    externalId: m.id,
     courseExternalId: courseId,
     kind: 'MATERIAL',
+    externalId: m.id,
     title: m.title ?? 'Material',
-    body: m.description ?? null,
-    url: m.alternateLink ?? null,
+    body: m.description,
     publishedAt: date(m.creationTime),
-    dueAt: null,
+    state: m.state,
+    extra: { url: m.alternateLink ?? null, updatedAt: m.updateTime ?? null },
     attachments: mapMaterials(m.materials),
-    extra: { state: m.state ?? null, updatedAt: m.updateTime ?? null },
   };
 }
 
@@ -193,15 +179,15 @@ export function mapSubmission(
   courseId: string,
   s: GcSubmission,
   work?: { title?: string; maxPoints?: number },
-): NormalizedGrade | null {
+): FetchedGrade | null {
   if (s.assignedGrade === undefined) return null;
   return {
-    externalId: s.id,
     courseExternalId: courseId,
-    itemExternalId: s.courseWorkId ?? null,
+    itemExternalId: s.courseWorkId,
+    externalId: s.id,
     label: work?.title ?? 'Tarefa',
     score: s.assignedGrade,
-    maxScore: work?.maxPoints ?? null,
+    maxScore: work?.maxPoints,
     gradedAt: date(s.updateTime),
   };
 }

@@ -19,12 +19,12 @@ describe('CalendarGateway', () => {
     ]);
     const http = new GoogleHttp(new GoogleAuth({ clientId: 'i', clientSecret: 's', fetchFn: f }), f);
     const gw = new CalendarGateway(http, { now: () => new Date('2026-10-31T00:00:00Z') });
-    const r = await gw.fetch({ refreshToken: 'RT' });
+    const r = await gw.fetch({ userId: 'u', accountKey: 'a@x', credentials: { kind: 'token', token: 'RT' } }, { kind: 'tudo' });
 
-    expect(r.events).toHaveLength(2);
-    expect(r.events[0]).toMatchObject({ externalId: 'e1', title: 'Prova', allDay: false, location: 'PAF' });
-    expect(r.events[0].startsAt.toISOString()).toBe('2026-11-03T16:00:00.000Z');
-    expect(r.events[1]).toMatchObject({ externalId: 'e2', allDay: true });
+    expect(r.events!).toHaveLength(2);
+    expect(r.events![0]).toMatchObject({ externalId: 'e1', title: 'Prova', allDay: false, location: 'PAF' });
+    expect(r.events![0].startsAt.toISOString()).toBe('2026-11-03T16:00:00.000Z');
+    expect(r.events![1]).toMatchObject({ externalId: 'e2', allDay: true });
 
     const url = String(f.mock.calls.find(([u]) => String(u).includes('/events'))![0]);
     expect(url).toContain('timeMin=2026-10-31T00%3A00%3A00.000Z');
