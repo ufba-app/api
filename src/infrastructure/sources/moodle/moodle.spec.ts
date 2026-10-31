@@ -1,9 +1,14 @@
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
 import { MoodleClient, MoodleError } from './moodle-client';
 import { MoodleGateway } from './moodle.gateway';
-import type { SourceContext } from './source-types';
+import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 
-const ctx: SourceContext = { baseUrl: 'https://moodle.test/', token: 'SEGREDO123' };
+const ctx: SourceContext = {
+  userId: 'u1',
+  accountKey: 'moodle.test:aluno',
+  siteUrl: 'https://moodle.test/',
+  credentials: { kind: 'token', token: 'SEGREDO123' },
+};
 
 const json = (data: unknown) =>
   Promise.resolve(new Response(JSON.stringify(data), { status: 200 }));
@@ -93,17 +98,17 @@ function fakeMoodle(overrides: Record<string, unknown> = {}) {
 describe('MoodleGateway', () => {
   it('declara fonte MOODLE com token guardado', () => {
     const g = new MoodleGateway();
-    expect(g.source).toBe('MOODLE');
+    expect(g.provider).toBe('MOODLE');
     expect(g.auth).toBe('token-guardado');
   });
 
   it('mapeia cursos, itens, anexos, notas e eventos', async () => {
     const { fetchFn, calls } = fakeMoodle();
     const gw = new MoodleGateway(new MoodleClient(fetchFn));
-    const r = await gw.fetch(ctx, { kind: 'all' });
+    const r = await gw.fetch(ctx, { kind: 'tudo' });
 
-    expect(r.courseSpaces.map((c) => c.name)).toEqual(['Cálculo A', 'Física B']);
-    const c10 = r.items.filter((i) => i.courseExternalId === '10');
+    expect(r.courseSpaces!.map((c) => c.name)).toEqual(['Cálculo A', 'Física B']);
+    const c10 = r.items!.filter((i) => i.courseExternalId === '10');
     const kinds = c10.map((i) => i.kind);
     expect(kinds).toEqual(
       expect.arrayContaining(['MATERIAL', 'ASSESSMENT', 'ASSIGNMENT', 'ANNOUNCEMENT', 'FORUM_TOPIC']),
@@ -111,7 +116,7 @@ describe('MoodleGateway', () => {
     expect(c10.find((i) => i.title === 'Oculto')).toBeUndefined();
 
     const material = c10.find((i) => i.title === 'Slides')!;
-    expect(material.attachments[0]).toMatchObject({
+    expect(material.attachments![0]).toMatchObject({
       name: 'aula1.pdf',
       sizeBytes: 2048,
       mimeType: 'application/pdf',
@@ -120,12 +125,11 @@ describe('MoodleGateway', () => {
     const assign = c10.find((i) => i.kind === 'ASSIGNMENT')!;
     expect(assign.dueAt).toEqual(new Date(1800000000 * 1000));
     // token vazado pela fonte é removido do sourceUrl
-    expect(assign.attachments[0].sourceUrl).not.toContain('token=');
+    expect(assign.attachments![0].sourceUrl).not.toContain('token=');
 
     expect(r.grades).toHaveLength(2); // 1 nota por curso; item sem nome descartado
-    expect(r.grades[0]).toMatchObject({ label: 'P1', score: 8.5, maxScore: 10 });
-    expect(r.events[0].title).toBe('Lista 1 vence');
-    expect(r.items.every((i) => i.contentHash.length === 64)).toBe(true);
+    expect(r.grades![0]).toMatchObject({ label: 'P1', score: 8.5, maxScore: 10 });
+    expect(r.events![0].title).toBe('Lista 1 vence');
 
     expect(calls[0].get('wstoken')).toBe('SEGREDO123');
     expect(calls[0].get('moodlewsrestformat')).toBe('json');
@@ -134,10 +138,10 @@ describe('MoodleGateway', () => {
   it('escopo curso só busca o curso pedido e não traz eventos', async () => {
     const { fetchFn } = fakeMoodle();
     const r = await new MoodleGateway(new MoodleClient(fetchFn)).fetch(ctx, {
-      kind: 'course',
+      kind: 'curso',
       courseExternalId: '11',
     });
-    expect(r.courseSpaces.map((c) => c.externalId)).toEqual(['11']);
+    expect(r.courseSpaces!.map((c) => c.externalId)).toEqual(['11']);
     expect(r.events).toEqual([]);
   });
 
@@ -148,24 +152,8 @@ describe('MoodleGateway', () => {
       courseExternalId: '10',
       itemExternalId: 'assign5',
     });
-    expect(r.items.map((i) => i.externalId)).toEqual(['assign5']);
+    expect(r.items!.map((i) => i.externalId)).toEqual(['assign5']);
     expect(r.grades).toEqual([]);
-  });
-
-  it('hash muda quando o conteúdo muda', async () => {
-    const a = await new MoodleGateway(new MoodleClient(fakeMoodle().fetchFn)).fetch(ctx, { kind: 'course', courseExternalId: '10' });
-    const b = await new MoodleGateway(
-      new MoodleClient(
-        fakeMoodle({
-          mod_assign_get_assignments: {
-            courses: [{ id: 10, assignments: [{ id: 5, name: 'Lista 1', duedate: 1800099999 }] }],
-          },
-        }).fetchFn,
-      ),
-    ).fetch(ctx, { kind: 'course', courseExternalId: '10' });
-    const ha = a.items.find((i) => i.externalId === 'assign5')!.contentHash;
-    const hb = b.items.find((i) => i.externalId === 'assign5')!.contentHash;
-    expect(ha).not.toBe(hb);
   });
 
   it('erro do Moodle não vaza o token', async () => {
@@ -177,10 +165,10 @@ describe('MoodleGateway', () => {
       },
     });
     const err = await new MoodleGateway(new MoodleClient(fetchFn))
-      .fetch(ctx, { kind: 'all' })
+      .fetch(ctx, { kind: 'tudo' })
       .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(MoodleError);
-    expect((err as MoodleError).errorCode).toBe('invalidtoken');
+    expect(err).toBeInstanceOf(SourceError);
+    expect((err as SourceError).code).toBe('REAUTH_NEEDED');
     expect((err as Error).message).not.toContain('SEGREDO123');
   });
 });

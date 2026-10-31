@@ -1,11 +1,20 @@
 import { MoodleError, type FetchFn } from './moodle-client';
-import type { AttachmentReader, SourceContext } from './source-types';
+import type { SourceContext } from '../../../application/ports/source-gateway';
+import { accessOf } from './moodle-access';
+
+export interface AttachmentReader {
+  read(
+    ctx: SourceContext,
+    sourceUrl: string,
+  ): Promise<{ content: Buffer; mimeType: string; fileName?: string }>;
+}
 
 /** Baixa o arquivo sob demanda anexando `token=` à URL do Moodle. O token nunca é logado nem devolvido. */
 export class MoodleAttachmentReader implements AttachmentReader {
   constructor(private readonly fetchFn: FetchFn = fetch) {}
 
-  async read(ctx: SourceContext, sourceUrl: string) {
+  async read(sourceCtx: SourceContext, sourceUrl: string) {
+    const ctx = accessOf(sourceCtx);
     const base = new URL(ctx.baseUrl);
     const target = new URL(sourceUrl);
     // O token só pode ir para o Moodle da própria conta.

@@ -1,4 +1,4 @@
-import { MoodleClient } from './moodle-client';
+import { MoodleClient, MoodleError } from './moodle-client';
 import {
   mapAssignment,
   mapContents,
@@ -14,23 +14,38 @@ import {
   type MoodleGradeItem,
   type MoodleSection,
 } from './moodle-mapper';
-import type {
-  FetchedEvent,
-  FetchedGrade,
-  FetchedItem,
-  SourceContext,
-  SourceFetchResult,
-  SourceGateway,
-  SyncScope,
-} from './source-types';
+import {
+  SourceError,
+  type FetchedEvent,
+  type FetchedGrade,
+  type FetchedItem,
+  type Provider,
+  type SourceContext,
+  type SourceFetchResult,
+  type SourceGateway,
+  type SyncScope,
+} from '../../../application/ports/source-gateway';
+import { accessOf, type MoodleAccess } from './moodle-access';
 
 export class MoodleGateway implements SourceGateway {
-  readonly source = 'MOODLE' as const;
+  readonly provider: Provider = 'MOODLE';
   readonly auth = 'token-guardado' as const;
 
   constructor(private readonly client: MoodleClient = new MoodleClient()) {}
 
-  async fetch(ctx: SourceContext, scope: SyncScope): Promise<SourceFetchResult> {
+  async fetch(sourceCtx: SourceContext, scope: SyncScope): Promise<SourceFetchResult> {
+    try {
+      return await this.run(accessOf(sourceCtx), scope);
+    } catch (e) {
+      if (e instanceof MoodleError) {
+        const reauth = e.errorCode === 'invalidtoken' || e.errorCode === 'accessexception';
+        throw new SourceError(reauth ? 'REAUTH_NEEDED' : 'UNAVAILABLE', e.message);
+      }
+      throw e;
+    }
+  }
+
+  private async run(ctx: MoodleAccess, scope: SyncScope): Promise<SourceFetchResult> {
     const site = await this.client.call<{ userid: number }>(
       ctx,
       'core_webservice_get_site_info',
@@ -41,7 +56,7 @@ export class MoodleGateway implements SourceGateway {
       { userid: site.userid },
     );
     const courses =
-      scope.kind === 'all'
+      scope.kind === 'tudo'
         ? all
         : all.filter((c) => String(c.id) === scope.courseExternalId);
 
@@ -61,11 +76,11 @@ export class MoodleGateway implements SourceGateway {
           ? items.filter((i) => i.externalId === scope.itemExternalId)
           : items,
       grades,
-      events: scope.kind === 'all' ? await this.upcoming(ctx) : [],
+      events: scope.kind === 'tudo' ? await this.upcoming(ctx) : [],
     };
   }
 
-  private async courseItems(ctx: SourceContext, courseId: number) {
+  private async courseItems(ctx: MoodleAccess, courseId: number) {
     const items: FetchedItem[] = [];
 
     const sections = await this.client.call<MoodleSection[]>(
@@ -98,7 +113,7 @@ export class MoodleGateway implements SourceGateway {
     return items;
   }
 
-  private async courseGrades(ctx: SourceContext, courseId: number, userId: number) {
+  private async courseGrades(ctx: MoodleAccess, courseId: number, userId: number) {
     const res = await this.client.call<{
       usergrades: { gradeitems: MoodleGradeItem[] }[];
     }>(ctx, 'gradereport_user_get_grade_items', { courseid: courseId, userid: userId });
@@ -107,7 +122,7 @@ export class MoodleGateway implements SourceGateway {
       .filter((g): g is FetchedGrade => !!g);
   }
 
-  private async upcoming(ctx: SourceContext): Promise<FetchedEvent[]> {
+  private async upcoming(ctx: MoodleAccess): Promise<FetchedEvent[]> {
     const res = await this.client.call<{ events: MoodleEvent[] }>(
       ctx,
       'core_calendar_get_calendar_upcoming_view',

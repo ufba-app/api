@@ -1,11 +1,10 @@
-import { contentHash } from '../../../domain/kernel/content-hash';
 import type {
   FetchedAttachment,
   FetchedCourseSpace,
   FetchedEvent,
   FetchedGrade,
   FetchedItem,
-} from './source-types';
+} from '../../../application/ports/source-gateway';
 
 // --- formas (parciais) das respostas do Moodle ---
 export interface MoodleFile {
@@ -101,10 +100,9 @@ export function mapFile(f: MoodleFile): FetchedAttachment {
 
 function item(
   courseId: number,
-  partial: Omit<FetchedItem, 'courseExternalId' | 'contentHash'>,
+  partial: Omit<FetchedItem, 'courseExternalId'>,
 ): FetchedItem {
-  const base = { courseExternalId: String(courseId), ...partial };
-  return { ...base, contentHash: contentHash(base) };
+  return { courseExternalId: String(courseId), ...partial };
 }
 
 export function mapCourse(c: MoodleCourse): FetchedCourseSpace {
@@ -175,7 +173,7 @@ export function mapDiscussion(
 
 export function mapGrade(courseId: number, g: MoodleGradeItem): FetchedGrade | undefined {
   if (!g.itemname) return undefined; // item-síntese (categoria/total) sem nome
-  const base = {
+  return {
     courseExternalId: String(courseId),
     externalId: `gi${g.id}`,
     label: g.itemname,
@@ -184,18 +182,16 @@ export function mapGrade(courseId: number, g: MoodleGradeItem): FetchedGrade | u
     weight: g.weightraw ?? undefined,
     gradedAt: date(g.gradedategraded),
   };
-  return { ...base, contentHash: contentHash(base) };
 }
 
 export function mapEvent(e: MoodleEvent): FetchedEvent {
-  const base = {
-    courseExternalId: e.course ? String(e.course.id) : undefined,
+  return {
+    calendarId: 'moodle',
     externalId: `ev${e.id}`,
     title: e.name,
     description: e.description,
     startsAt: new Date(e.timestart * 1000),
     endsAt: e.timeduration ? new Date((e.timestart + e.timeduration) * 1000) : undefined,
-    kind: e.eventtype,
+    status: e.eventtype,
   };
-  return { ...base, contentHash: contentHash(base) };
 }

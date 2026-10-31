@@ -1,4 +1,4 @@
-import type { SourceContext } from './source-types';
+import type { MoodleAccess } from './moodle-access';
 
 export type FetchFn = typeof fetch;
 
@@ -21,7 +21,7 @@ export class MoodleClient {
   constructor(private readonly fetchFn: FetchFn = fetch) {}
 
   async call<T>(
-    ctx: SourceContext,
+    ctx: MoodleAccess,
     wsfunction: string,
     params: Record<string, string | number> = {},
   ): Promise<T> {
