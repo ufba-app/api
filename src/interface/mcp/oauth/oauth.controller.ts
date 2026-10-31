@@ -8,8 +8,8 @@ import {
   MoodleLinkPort,
   OAUTH_STORE,
   OAuthStore,
-} from './oauth-ports';
-import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from './oauth.service';
+} from '../../../application/oauth/oauth-ports';
+import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
 import { connectPage, errorPage, identifyPage } from './pages';
 import { timingSafeEqual } from 'node:crypto';
 

@@ -2,9 +2,9 @@
 import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { createHash } from 'node:crypto';
-import { McpModule } from '../mcp.module';
-import { isValidRedirectUri } from './oauth.service';
-import { verifyPkceS256 } from './pkce';
+import { McpTestingModule, TEST_API_KEY } from '../testing/mcp-testing.module';
+import { isValidRedirectUri } from '../../../application/oauth/oauth.service';
+import { verifyPkceS256 } from '../../../application/oauth/pkce';
 
 const VERIFIER = 'a'.repeat(50);
 const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
@@ -39,7 +39,7 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
   beforeAll(async () => {
     delete process.env.OAUTH_AUTHORIZE_SECRET;
     delete process.env.PUBLIC_URL;
-    app = await NestFactory.create(McpModule, { logger: false });
+    app = await NestFactory.create(McpTestingModule, { logger: false });
     await app.listen(0);
     base = (await app.getUrl()).replace('[::1]', 'localhost');
   });
@@ -167,7 +167,7 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
-        authorization: 'Bearer chave-de-api-qualquer',
+        authorization: `Bearer ${TEST_API_KEY}`,
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });

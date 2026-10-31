@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
-import { AUTHENTICATORS } from './application/ports/authenticator';
+import { mcpExports, mcpProviders } from './mcp-wiring';
+import { HistoricoController } from './interface/rest/historico.controller';
 import { SecretCipher } from './application/ports/secret-cipher';
 import {
   SourceGateway,
@@ -34,10 +35,13 @@ export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGatew
   return gateways;
 }
 
+// Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
+@Global()
 @Module({
   imports: [PersistenceModule, McpModule],
   controllers: [
     HealthController,
+    HistoricoController,
     UsuariosController,
     SincronizarController,
     LeituraController,
@@ -56,18 +60,16 @@ export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGatew
         return registry;
       },
     },
-    // Autenticadores do Bearer: chave de API estática hoje; o OAuth do serviço (Ponte) acrescenta o seu aqui.
-    {
-      provide: AUTHENTICATORS,
-      useFactory: (identity: IdentityService) => [identity],
-      inject: [IdentityService],
-    },
+    // MCP + OAuth do serviço, AUTHENTICATORS (chave de API + token OAuth), histórico e anexos: ver mcp-wiring.ts.
+    ...mcpProviders,
   ],
   exports: [
     IdentityService,
     SourceRegistry,
     LeituraService,
     SincronizarService,
+    SecretCipher,
+    ...mcpExports,
   ],
 })
 export class AppModule {}

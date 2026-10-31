@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { McpModule } from './mcp.module';
+import { McpTestingModule, TEST_API_KEY } from './testing/mcp-testing.module';
 import { buildMcpServer, FERRAMENTAS_LEITURA } from './mcp-tools';
 import { McpUseCases } from './mcp-ports';
 
@@ -27,6 +27,10 @@ function fakeUseCases(): jest.Mocked<McpUseCases> {
     perfil: jest.fn(leitura),
     historico: jest.fn(leitura),
     insights: jest.fn(leitura),
+    importarHistorico: jest.fn(async () => {
+      await gateway.fetch('sigaa');
+      return { atualizadoEm: 'x', dados: null };
+    }),
     lerAnexo: jest.fn(async (_p, _i) => {
       await gateway.fetch('anexo');
       return { nome: 'a.txt', mimeType: 'text/plain', conteudo: 'oi', codificacao: 'texto' as const };
@@ -58,7 +62,7 @@ describe('ferramentas MCP', () => {
     const client = await connect(fakeUseCases());
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
-      ['agenda', 'historico', 'insights', 'ler_anexo', 'listar_itens', 'mudancas', 'perfil', 'sincronizar'],
+      ['agenda', 'historico', 'importar_historico', 'insights', 'ler_anexo', 'listar_itens', 'mudancas', 'perfil', 'sincronizar'],
     );
   });
 
@@ -72,6 +76,7 @@ describe('ferramentas MCP', () => {
     expect(gateway.fetch).not.toHaveBeenCalled();
     expect(uc.sincronizar).not.toHaveBeenCalled();
     expect(uc.lerAnexo).not.toHaveBeenCalled();
+    expect(uc.importarHistorico).not.toHaveBeenCalled();
     const text = (res.content as { text: string }[])[0].text;
     expect(JSON.parse(text).atualizadoEm).toBe('2026-10-31T10:00:00.000Z');
   });
@@ -115,7 +120,7 @@ describe('POST /mcp (Streamable HTTP)', () => {
   let url: URL;
 
   beforeAll(async () => {
-    app = await NestFactory.create(McpModule, { logger: false });
+    app = await NestFactory.create(McpTestingModule, { logger: false });
     await app.listen(0);
     url = new URL(`${await app.getUrl()}/mcp`.replace('[::1]', 'localhost'));
   });
@@ -132,7 +137,7 @@ describe('POST /mcp (Streamable HTTP)', () => {
   });
 
   it('GET não é suportado (sem sessão)', async () => {
-    const res = await fetch(url, { headers: { authorization: 'Bearer x' } });
+    const res = await fetch(url, { headers: { authorization: 'Bearer nao-e-valido' } });
     expect(res.status).toBe(405);
   });
 
@@ -140,11 +145,11 @@ describe('POST /mcp (Streamable HTTP)', () => {
     const client = new Client({ name: 'teste', version: '0' });
     await client.connect(
       new StreamableHTTPClientTransport(url, {
-        requestInit: { headers: { authorization: 'Bearer chave-qualquer' } },
+        requestInit: { headers: { authorization: `Bearer ${TEST_API_KEY}` } },
       }),
     );
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(9);
     const res = await client.callTool({ name: 'agenda', arguments: {} });
     expect(res.isError).toBeFalsy();
     await client.close();

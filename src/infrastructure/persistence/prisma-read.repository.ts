@@ -50,6 +50,7 @@ export class PrismaReadRepository extends ReadRepository {
       },
       include: {
         courseSpace: { select: { name: true } },
+        attachments: { select: { id: true, name: true, mimeType: true, sizeBytes: true } },
         sourceAccount: { select: { provider: true } },
       },
       orderBy: [{ dueAt: 'asc' }, { publishedAt: 'desc' }],
@@ -66,6 +67,12 @@ export class PrismaReadRepository extends ReadRepository {
       dueAt: r.dueAt,
       publishedAt: r.publishedAt,
       state: r.state,
+      attachments: r.attachments.map((a) => ({
+        id: a.id,
+        name: a.name,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes === null ? null : Number(a.sizeBytes),
+      })),
       lastSeenAt: r.lastSeenAt,
     }));
   }
