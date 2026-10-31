@@ -23,9 +23,14 @@ function json(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
 }
 
+/** Erro de ferramenta: só a mensagem (os casos de uso já não carregam senha nem token). */
 function falha(e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
-  return { isError: true, content: [{ type: 'text' as const, text: msg }] };
+  const code = (e as { code?: unknown })?.code;
+  return {
+    isError: true,
+    content: [{ type: 'text' as const, text: typeof code === 'string' ? `${code}: ${msg}` : msg }],
+  };
 }
 
 async function run<T>(fn: () => Promise<T>) {
@@ -45,13 +50,15 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
     {
       description:
         'ÚNICA ferramenta que vai buscar dados nas fontes (SIGAA, Moodle, Classroom, Calendar) e gravar no banco. ' +
-        'Use quando `atualizadoEm` de uma leitura estiver velho. alcance: "tudo", "curso" (alvoId = id do curso) ou "item" (alvoId = id do item). ' +
-        'A credencial é opcional e só vale para esta chamada (ex.: senha do SIGAA, usada em memória e descartada). ' +
-        'Não peça nem aceite tokens do Moodle/Google aqui: eles são conectados pela tela de autorização.',
+        'Use quando `atualizadoEm` de uma leitura estiver velho. alcance: "tudo", "curso" (cursoId = id do curso na fonte) ' +
+        'ou "item" (cursoId + itemId). O SIGAA só aceita "tudo" e exige `credencial` {usuario, senha}, usada só nesta chamada ' +
+        '(em memória, nunca guardada). Moodle e Google usam o token guardado na conexão; não peça nem aceite tokens aqui, ' +
+        'eles são conectados pela tela de autorização.',
       inputSchema: {
         fonte: FONTE,
         alcance: z.enum(['tudo', 'curso', 'item']).default('tudo'),
-        alvoId: z.string().optional(),
+        cursoId: z.string().optional(),
+        itemId: z.string().optional(),
         credencial: z
           .object({ usuario: z.string().optional(), senha: z.string().optional() })
           .optional(),
@@ -64,12 +71,13 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
     'listar_itens',
     {
       description:
-        'Lista avisos, tarefas, provas, materiais e fóruns das disciplinas. ' + LEITURA,
+        'Lista avisos, tarefas, provas, materiais e fóruns das disciplinas (cada item traz seus `attachments`, ' +
+        'com os ids para `ler_anexo`). ' + LEITURA,
       inputSchema: {
         fonte: FONTE.optional(),
         cursoId: z.string().optional(),
-        tipo: z.enum(['aviso', 'tarefa', 'prova', 'material', 'forum']).optional(),
-        limite: z.number().int().min(1).max(200).optional(),
+        tipo: z.enum(['aviso', 'tarefa', 'prova', 'material', 'forum', 'outro']).optional(),
+        limite: z.number().int().min(1).max(500).optional(),
       },
     },
     (args) => run(() => uc.listarItens(p, args)),
@@ -79,7 +87,8 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
     'agenda',
     {
       description:
-        'Agenda do aluno (eventos, prazos e aulas) num intervalo. `de`/`ate` em ISO 8601. ' + LEITURA,
+        'Agenda do aluno (prazos e eventos) num intervalo; padrão: de agora até 14 dias. `de`/`ate` em ISO 8601. ' +
+        LEITURA,
       inputSchema: { de: z.string().optional(), ate: z.string().optional() },
     },
     (args) => run(() => uc.agenda(p, args)),
@@ -89,10 +98,10 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
     'mudancas',
     {
       description:
-        'O que mudou (novo, alterado, removido) desde um instante, detectado nas sincronizações. ' +
+        'O que mudou (novo, alterado, removido) desde um instante, detectado nas sincronizações; padrão: últimos 7 dias. ' +
         '`desde` em ISO 8601. ' +
         LEITURA,
-      inputSchema: { desde: z.string().optional(), fonte: FONTE.optional() },
+      inputSchema: { desde: z.string().optional() },
     },
     (args) => run(() => uc.mudancas(p, args)),
   );
@@ -100,7 +109,7 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
   server.registerTool(
     'perfil',
     {
-      description: 'Perfil acadêmico do aluno (curso, matrícula, vínculos). ' + LEITURA,
+      description: 'Perfil acadêmico do aluno (matrícula, curso, contas conectadas). ' + LEITURA,
       inputSchema: {},
     },
     () => run(() => uc.perfil(p)),
@@ -109,18 +118,20 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
   server.registerTool(
     'historico',
     {
-      description: 'Histórico acadêmico importado (disciplinas cursadas e pendentes). ' + LEITURA,
-      inputSchema: { incluirPendentes: z.boolean().optional() },
+      description:
+        'Histórico acadêmico já importado (disciplinas cursadas e pendentes). Se for null, ainda não foi importado: ' +
+        'use `importar_historico`. ' + LEITURA,
+      inputSchema: {},
     },
-    (args) => run(() => uc.historico(p, args)),
+    () => run(() => uc.historico(p)),
   );
 
   server.registerTool(
     'insights',
     {
       description:
-        'Análises calculadas sobre o histórico: tipo "cr" (coeficiente de rendimento), ' +
-        '"trajetoria" (progresso no currículo) ou "pendentes" (o que falta cursar). ' +
+        'Análises calculadas sobre o histórico já importado: tipo "cr" (coeficiente de rendimento), ' +
+        '"trajetoria" (desempenho por semestre) ou "pendentes" (o que falta cursar). ' +
         LEITURA,
       inputSchema: { tipo: z.enum(['cr', 'trajetoria', 'pendentes']) },
     },
@@ -128,11 +139,23 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
   );
 
   server.registerTool(
+    'importar_historico',
+    {
+      description:
+        'Importa o histórico acadêmico: entra no SIGAA com usuario/senha (usados só nesta chamada, em memória, nunca ' +
+        'guardados), baixa o PDF do histórico, extrai e valida. Divergências de validação vêm no resultado. ' +
+        'Chame só quando `historico` estiver vazio ou velho; é lento.',
+      inputSchema: { usuario: z.string(), senha: z.string() },
+    },
+    (args) => run(() => uc.importarHistorico(p, args)),
+  );
+
+  server.registerTool(
     'ler_anexo',
     {
       description:
-        'Lê o conteúdo de um anexo de um item (busca na fonte sob demanda, com cache curto; o banco guarda só metadados). ' +
-        'Use os ids obtidos em `listar_itens`.',
+        'Lê o conteúdo de um anexo de um item (busca na fonte sob demanda; o banco guarda só metadados). ' +
+        'Use `itemId` e o `id` do anexo vindos de `listar_itens`. Texto volta como texto; binário, em base64.',
       inputSchema: { itemId: z.string(), anexoId: z.string() },
     },
     (args) => run(() => uc.lerAnexo(p, args)),

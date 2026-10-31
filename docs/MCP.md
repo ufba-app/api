@@ -6,12 +6,13 @@ O serviço expõe as mesmas operações do REST como ferramentas MCP, por **Stre
 
 | Ferramenta | O que faz | Vai à fonte? |
 |---|---|---|
-| `sincronizar(fonte, alcance, alvoId?, credencial?)` | Busca nas fontes e grava no banco. `alcance`: `tudo`, `curso` ou `item`. | **Sim** (único comando) |
+| `sincronizar(fonte, alcance, cursoId?, itemId?, credencial?)` | Busca nas fontes e grava no banco. `alcance`: `tudo`, `curso` ou `item`. SIGAA: só `tudo`, com `credencial` | **Sim** (único comando) |
 | `listar_itens(fonte?, cursoId?, tipo?, limite?)` | Avisos, tarefas, provas, materiais, fóruns | Não |
 | `agenda(de?, ate?)` | Eventos e prazos num intervalo | Não |
-| `mudancas(desde?, fonte?)` | Novo / alterado / removido desde um instante | Não |
+| `mudancas(desde?)` | Novo / alterado / removido desde um instante (padrão: 7 dias) | Não |
 | `perfil()` | Perfil acadêmico | Não |
-| `historico(incluirPendentes?)` | Histórico importado | Não |
+| `historico()` | Histórico importado | Não |
+| `importar_historico(usuario, senha)` | Importa o histórico pelo SIGAA (senha só em memória) + IA | **Sim** (SIGAA) |
 | `insights(tipo)` | `cr`, `trajetoria` ou `pendentes` | Não |
 | `ler_anexo(itemId, anexoId)` | Conteúdo do anexo, buscado sob demanda (cache curto) | Sim, só o anexo |
 
@@ -21,10 +22,10 @@ O serviço expõe as mesmas operações do REST como ferramentas MCP, por **Stre
 
 ## Autenticação
 
-`Authorization: Bearer <token>`, onde o token é um destes:
+`Authorization: Bearer <token>`. Sem token válido: `401`. O token é um destes:
 
 1. **Access token OAuth 2.1** do próprio serviço (fluxo abaixo): o que clientes como o Claude usam.
-2. **Chave de API estática** (atalho para scripts e para configurar o cliente hoje).
+2. **Chave de API** `plt_...` (atalho para scripts e para configurar o cliente hoje; emitida em `POST /usuarios`).
 
 Sem token válido o `/mcp` responde `401` com `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`, que é como o cliente descobre o fluxo OAuth.
 
@@ -89,17 +90,30 @@ Regras: `redirect_uri` só `https` (ou `http` em `localhost`/`127.0.0.1`) e comp
 | `PUBLIC_URL` | URL pública do serviço (atrás de proxy/TLS); sem ela, deduz da requisição |
 | `OAUTH_AUTHORIZE_SECRET` | Senha de acesso exigida na tela de `/authorize` |
 
-## Estado da integração
+## Como está ligado
 
-Os provedores do `McpModule` são **stubs/memória** até o Núcleo e as fontes entregarem as peças. Cada um é uma porta com um token de injeção:
+A composição fica em `src/mcp-wiring.ts` (raiz de `src`, a única que enxerga `interface` e `infrastructure`) e entra no `AppModule`. Não há stubs em produção:
 
-| Token | Porta | Hoje | Quem entrega |
-|---|---|---|---|
-| `MCP_USE_CASES` | `McpUseCases` (`mcp-ports.ts`) | `StubMcpUseCases` (vazio) | Núcleo (`src/application`) |
-| `MCP_AUTH` | `McpAuth` | OAuth + `StubMcpAuth` (aceita qualquer Bearer!) | Núcleo (verificador de chave de API) |
-| `USER_DIRECTORY` | `UserDirectory` | em memória | Núcleo |
-| `OAUTH_STORE` | `OAuthStore` | em memória (some ao reiniciar) | Núcleo (persistência) |
-| `GOOGLE_LINK` | `GoogleLinkPort` | stub | Google |
-| `MOODLE_LINK` | `MoodleLinkPort` | stub | Moodle (spike do redirect aberto) |
+| Peça | Implementação |
+|---|---|
+| Casos de uso das ferramentas | `McpUseCasesImpl` → `SincronizarService`, `LeituraService`, `HistoricoService`, `AnexoService` (os mesmos do REST) |
+| Autenticação do `/mcp` e do REST | `AUTHENTICATORS` = `[IdentityService (chave plt_), OAuthAccessTokenAuthenticator]`. **Bearer ausente ou inválido → 401** (testado em `test/mcp-integration.spec.ts`) |
+| OAuth (clientes, códigos, tokens) e usuários | Postgres (`PrismaOAuthStore`, `PrismaUserDirectory`; migração `20261031120000_oauth`, que só acrescenta tabelas e `users.email`) |
+| Histórico | `HistoricoService.importar`: `SigaaGateway.fetchSnapshot` (PDF) → `importTranscript` (IA + validação) → `transcripts`. `insights` só lê o banco |
+| `ler_anexo` | `AnexoService`: Drive (Classroom) e Moodle, com o token do próprio usuário decifrado na hora; teto de 5 MB inline |
+| Vínculo Google | `GoogleOAuthLink`: OAuth com `GOOGLE_CLIENT_ID/SECRET`, grava o refresh token cifrado em `CLASSROOM` e `CALENDAR` (`IdentityService.conectarConta`) |
+| Vínculo Moodle | `MoodleLink`: **só informa o status**; iniciar o vínculo responde que ainda não está disponível (ver abaixo) |
 
-> O `StubMcpAuth` aceita qualquer Bearer não vazio. **Não exponha este serviço na rede antes de trocá-lo pelo verificador real de chave de API.**
+### Google
+
+O `redirect_uri` é `<PUBLIC_URL>/oauth/callback/google` e **precisa estar cadastrado** no cliente OAuth. Esse fluxo usa o cliente do tipo **Aplicativo da Web** (o tipo Desktop de `docs/GOOGLE.md` serve só ao script de refresh token). Sem `GOOGLE_CLIENT_ID/SECRET`, o botão "Conectar Google" mostra o erro na própria tela e a autorização segue.
+
+### Moodle: pendente
+
+O SSO pelo servidor (`docs/MOODLE.md`, Spike 2) **ainda não foi executado contra o AVA real**, e o redirect `https://` (Spike 1) foi descartado. Por isso "Conectar Moodle" não conecta nada hoje e **não existe campo para colar token**. Quando o spike validar o fluxo, basta implementar `MoodleLinkPort.startUrl/handleReturn` em `MoodleLink`; a tela e as rotas (`/oauth/connect/moodle`, `/oauth/return/moodle`) já existem.
+
+### Outras decisões
+
+- `GET /insights?tipo=` e `POST /historico/importar` existem no REST para manter a paridade com o MCP.
+- `listar_itens` agora devolve `attachments` (id, nome, tipo, tamanho) de cada item, que são os ids de `ler_anexo`.
+- Os testes do transporte usam `src/interface/mcp/testing/` (stubs e memória), que nunca entra no `AppModule`.

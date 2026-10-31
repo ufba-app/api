@@ -8,7 +8,7 @@ import {
   PendingAuthorization,
   TokenRecord,
   UserDirectory,
-} from './oauth-ports';
+} from '../../../application/oauth/oauth-ports';
 
 /** Store em memória: some ao reiniciar (clientes e tokens precisam ser refeitos). Trocar por persistência do Núcleo. */
 export class MemoryOAuthStore implements OAuthStore {

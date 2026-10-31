@@ -6,7 +6,7 @@ import {
   UserDirectory,
 } from './oauth-ports';
 import { randomToken, sha256Base64Url, verifyPkceS256 } from './pkce';
-import { McpPrincipal } from '../mcp-ports';
+import type { Authenticator } from '../ports/authenticator';
 
 export const ACCESS_TTL_S = 60 * 60;
 export const REFRESH_TTL_S = 60 * 60 * 24 * 30;
@@ -201,8 +201,17 @@ export class OAuthService {
   }
 
   /** Resolve um access token OAuth; null se não for um (o chamador tenta a chave de API). */
-  async verifyAccessToken(token: string): Promise<McpPrincipal | null> {
+  async verifyAccessToken(token: string): Promise<{ userId: string } | null> {
     const rec = await this.store.getToken(sha256Base64Url(token));
     return rec && rec.kind === 'access' ? { userId: rec.userId } : null;
+  }
+}
+
+/** Autenticador do Bearer para tokens de acesso OAuth do serviço (entra em AUTHENTICATORS ao lado da chave de API). */
+export class OAuthAccessTokenAuthenticator implements Authenticator {
+  constructor(private readonly oauth: OAuthService) {}
+
+  authenticate(token: string): Promise<{ userId: string } | null> {
+    return this.oauth.verifyAccessToken(token);
   }
 }

@@ -150,6 +150,14 @@ export abstract class SyncRepository {
 
 // ── Leitura (só banco) ──────────────────────────────────────────────────────
 
+/** Metadados de um anexo (o conteúdo só sai por `ler_anexo`, sob demanda). */
+export interface AttachmentView {
+  id: string;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+}
+
 export interface ItemView {
   id: string;
   provider: Provider;
@@ -161,6 +169,7 @@ export interface ItemView {
   dueAt: Date | null;
   publishedAt: Date | null;
   state: string | null;
+  attachments?: AttachmentView[];
   lastSeenAt: Date;
 }
 

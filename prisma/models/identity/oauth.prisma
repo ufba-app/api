@@ -1,0 +1,58 @@
+// Servidor OAuth 2.1 do serviço (clientes MCP como o Claude). Códigos e tokens só são guardados como hash.
+
+// Cliente registrado dinamicamente (RFC 7591). Sempre público (sem segredo): a segurança vem do PKCE.
+model OAuthClient {
+  clientId     String   @id @map("client_id")
+  clientName   String?  @map("client_name")
+  redirectUris String[] @map("redirect_uris")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_clients")
+}
+
+// Pedido de autorização em andamento (entre as telas de /authorize). Dura minutos.
+model OAuthPending {
+  id            String   @id
+  clientId      String   @map("client_id")
+  redirectUri   String   @map("redirect_uri")
+  state         String?
+  codeChallenge String   @map("code_challenge")
+  scope         String?
+  userId        String?  @map("user_id") @db.Uuid
+  expiresAt     DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("oauth_pending")
+}
+
+// Authorization code (uso único, 5 minutos). `codeHash` = SHA-256 do code.
+model OAuthCode {
+  codeHash      String   @id @map("code_hash")
+  clientId      String   @map("client_id")
+  redirectUri   String   @map("redirect_uri")
+  codeChallenge String   @map("code_challenge")
+  scope         String?
+  expiresAt     DateTime @map("expires_at")
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("oauth_codes")
+}
+
+// Access e refresh tokens do serviço. `tokenHash` = SHA-256 do token (o valor em claro nunca é guardado).
+model OAuthToken {
+  tokenHash String   @id @map("token_hash")
+  kind      String // 'access' | 'refresh'
+  clientId  String   @map("client_id")
+  scope     String?
+  expiresAt DateTime @map("expires_at")
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("oauth_tokens")
+}
