@@ -36,9 +36,37 @@ O token **nunca é colado pelo usuário** (nem entra por ferramenta MCP). O flux
 
 As funções são puras (`token-launch.ts`, com testes); a captura do redirect e a gravação da conta pertencem à tela e ao Núcleo.
 
-### Dúvida em aberto do spike
+### Spike do redirect em página web
 
-O app antigo usa um esquema nativo (`ufba-app://`) capturado dentro de uma WebView. Numa **página web** isso não existe. **Não está definido** se o Moodle da UFBA aceita um redirect `https://` (para uma página nossa) em `urlscheme`, nem como a página capturaria o token. Isso precisa ser testado no AVA real antes de implementar a tela. Até lá, `buildLaunchUrl` recebe o esquema como parâmetro e nada assume a resposta.
+**Pergunta:** o `launch.php` do AVA aceita, em `urlscheme`, um callback `http://localhost` (e, depois, `https://` nosso)? O app antigo usa um esquema nativo (`ufba-app://`) dentro de uma WebView, o que não existe numa página web.
+
+**Status: NÃO EXECUTADO.** O script está pronto; o resultado abaixo continua em branco até alguém rodar o login real. Nada aqui presume a resposta.
+
+`scripts/moodle-spike.mjs` sobe um servidor em `http://localhost:8787/cb`, imprime a URL do `launch.php` (e abre o navegador), e mostra o que chegou no callback: a request-line vista pelo servidor e o `location.href` completo visto pelo navegador (que inclui o fragmento). Confere a assinatura `md5(siteUrl + passport)` com e sem barra final. Só imprime o token mascarado e não grava nada em disco.
+
+Rodar uma variante por vez (faz o login CAFe no navegador que abrir):
+
+```
+node scripts/moodle-spike.mjs --variant 1
+```
+
+| Variante | `urlscheme` enviado | O que se espera observar |
+|---|---|---|
+| 1 | `http://localhost:8787/cb` codificado uma vez | o Moodle monta `<urlscheme>://token=…`, então talvez chegue `/cb://token=…` |
+| 2 | o mesmo, codificado duas vezes | ver se o Moodle decodifica de novo |
+| 3 | termina em `?` | token cairia na query |
+| 4 | termina em `#` | token cairia no fragmento (só o navegador vê) |
+
+Resultado (preencher):
+
+| Variante | Moodle aceitou? | O que chegou | Assinatura confere? |
+|---|---|---|---|
+| 1 | | | |
+| 2 | | | |
+| 3 | | | |
+| 4 | | | |
+
+Se nenhuma variante chegar ao callback, a alternativa a investigar é outro caminho para páginas web (por exemplo capturar o redirect numa WebView/app), e não inventar um `https://` que o Moodle não aceite.
 
 ## Testes
 
@@ -46,5 +74,4 @@ O app antigo usa um esquema nativo (`ufba-app://`) capturado dentro de uma WebVi
 
 ## Pendências
 
-- Trocar `source-types.ts` pelos tipos da porta `SourceGateway` do Núcleo, quando existir (`application/ports/source-gateway.ts`).
 - Paginação de discussões de fórum (`page`/`perpage`) e `state` de entrega das tarefas (`mod_assign_get_submission_status`) ficaram fora deste primeiro corte.
