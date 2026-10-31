@@ -8,6 +8,9 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url: env('DATABASE_URL'),
+    // `prisma generate` nao conecta ao banco: aceita a ausencia da variavel (build sem .env).
+    url: process.argv.includes('generate')
+      ? (process.env.DATABASE_URL ?? 'postgresql://localhost:5432/platform')
+      : env('DATABASE_URL'),
   },
 });
