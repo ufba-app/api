@@ -26,47 +26,52 @@ O banco guarda só metadados + `sourceUrl` (sem token). `MoodleAttachmentReader.
 
 ## Como o token é obtido
 
-O token **nunca é colado pelo usuário** (nem entra por ferramenta MCP). O fluxo é o SSO do Moodle (`admin/tool/mobile/launch.php`), com captura automática do redirect, como no app antigo (`mobile/src/lib/moodle-auth.ts`):
+O token **nunca é colado pelo usuário** (nem entra por ferramenta MCP). O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:
 
-1. A tela gera um `passport` novo (`newPassport`) e abre `buildLaunchUrl(siteUrl, passport, urlScheme)`.
-2. A pessoa faz o login institucional (CAFe) no Moodle.
-3. O Moodle redireciona para `<urlscheme>://token=<base64>`; a tela captura o redirect (`extractReturnedToken`).
-4. `parseReturnedToken` decodifica `<assinatura>:::<wstoken>[:::<privatetoken>]` e `verifyPassport` confere `md5(siteUrl + passport)` **antes** de confiar no token.
-5. A plataforma guarda o `wstoken` cifrado e o gateway passa a recebê-lo em `SourceContext`.
+- **App antigo:** WebView que captura o redirect nativo (`ufba-app://`).
+- **Plataforma (descartado):** redirect `https://` para página nossa. O Moodle valida o `urlscheme`, então não serve (ver "Spike 1").
+- **Plataforma (hipótese atual):** o **servidor** faz o SSO CAFe/Shibboleth com usuário e senha recebidos na requisição (senha só em memória, nunca guardada nem logada, como no SIGAA) e lê o header `Location: moodlemobile://token=…` sem seguir esse último redirect. A plataforma guarda só o `wstoken`, cifrado. Ver "Spike 2".
 
-As funções são puras (`token-launch.ts`, com testes); a captura do redirect e a gravação da conta pertencem à tela e ao Núcleo.
+### Spike 1 — redirect para localhost/https: DESCARTADO
 
-### Spike do redirect em página web
+O Moodle valida o `urlscheme`; um callback `http(s)://` não é aceito. `scripts/moodle-spike.mjs` ficou no repositório só como registro e não precisa ser executado.
 
-**Pergunta:** o `launch.php` do AVA aceita, em `urlscheme`, um callback `http://localhost` (e, depois, `https://` nosso)? O app antigo usa um esquema nativo (`ufba-app://`) dentro de uma WebView, o que não existe numa página web.
+### Spike 2 — SSO feito pelo servidor
 
-**Status: NÃO EXECUTADO.** O script está pronto; o resultado abaixo continua em branco até alguém rodar o login real. Nada aqui presume a resposta.
+**Status: NÃO EXECUTADO contra o AVA real.** O script está pronto e foi testado apenas contra um servidor falso local (login, formulário SAML automático, redirect do app, senha errada). Nada abaixo presume que o CAFe da UFBA permita isso.
 
-`scripts/moodle-spike.mjs` sobe um servidor em `http://localhost:8787/cb`, imprime a URL do `launch.php` (e abre o navegador), e mostra o que chegou no callback: a request-line vista pelo servidor e o `location.href` completo visto pelo navegador (que inclui o fragmento). Confere a assinatura `md5(siteUrl + passport)` com e sem barra final. Só imprime o token mascarado e não grava nada em disco.
+`scripts/moodle-sso-spike.mjs` (sem dependências novas; requer `npm run build`, porque reaproveita `parseReturnedToken`/`verifyPassport` de `dist/`):
 
-Rodar uma variante por vez (faz o login CAFe no navegador que abrir):
+1. `GET launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`, com cookie jar manual e redirects manuais.
+2. Segue os redirects até o IdP (`cafe.ufba.br`); se a página do AVA só tiver um botão/link de login federado, segue o link.
+3. Lê o formulário de login (campos hidden, `action`) e envia `MOODLE_USER`/`MOODLE_PASSWORD` (variáveis de ambiente).
+4. Trata o POST automático de volta (`SAMLResponse`/`RelayState`) para o SP do AVA, e telas de continuação/consentimento do IdP.
+5. Captura o `Location` com o esquema `moodlemobile://` (ou, se vier no corpo de uma página intermediária, avisa) e passa por `parseReturnedToken`/`verifyPassport`.
+6. Valida com `core_webservice_get_site_info`.
+
+Só imprime o passo atingido e o resultado (token mascarado; query strings de URL e o nome do usuário são omitidos). Nunca imprime senha, cookies nem HTML, e não grava nada em disco.
+
+**Quando para** (e diz o passo e o motivo): captcha na página; segundo fator (campo/texto de código OTP); página que depende de JavaScript, sem formulário nem link utilizável; formulário de login que volta depois do envio (credencial rejeitada ou exigência extra); mais de 40 redirects; assinatura do passport que não confere.
+
+Comando (bash), depois de `npm run build`:
 
 ```
-node scripts/moodle-spike.mjs --variant 1
+MOODLE_USER='<usuario>' MOODLE_PASSWORD='<senha>' node scripts/moodle-sso-spike.mjs --verbose
 ```
 
-| Variante | `urlscheme` enviado | O que se espera observar |
-|---|---|---|
-| 1 | `http://localhost:8787/cb` codificado uma vez | o Moodle monta `<urlscheme>://token=…`, então talvez chegue `/cb://token=…` |
-| 2 | o mesmo, codificado duas vezes | ver se o Moodle decodifica de novo |
-| 3 | termina em `?` | token cairia na query |
-| 4 | termina em `#` | token cairia no fragmento (só o navegador vê) |
+`--verbose` lista cada salto como `host+caminho -> status`. Usar uma conta de teste, se possível; o histórico do shell guarda a linha acima, então prefira definir as variáveis sem gravar no histórico.
 
 Resultado (preencher):
 
-| Variante | Moodle aceitou? | O que chegou | Assinatura confere? |
-|---|---|---|---|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-| 4 | | | |
+| Item | Resultado |
+|---|---|
+| Passo atingido | |
+| Houve captcha / JS obrigatório / segundo fator? | |
+| `Location: moodlemobile://` capturado? | |
+| Assinatura confere? | |
+| `core_webservice_get_site_info` OK? | |
 
-Se nenhuma variante chegar ao callback, a alternativa a investigar é outro caminho para páginas web (por exemplo capturar o redirect numa WebView/app), e não inventar um `https://` que o Moodle não aceite.
+Se funcionar, o fluxo vira um caso de uso do servidor (credencial `segredo-por-requisição` só para obter o token, depois `token-guardado`). Se parar num captcha/JS/2FA, a alternativa é interativa (navegador do próprio usuário), e este documento deve registrar o passo exato.
 
 ## Testes
 
