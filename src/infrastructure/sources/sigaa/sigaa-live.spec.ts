@@ -18,7 +18,7 @@ const SENHA = 'senha-falsa-de-teste';
 const ctx: SourceContext = {
   userId: 'u1',
   accountKey: 'sigaa:fulano',
-  sessaoKey: 'u1:cliente1',
+  sessaoKey: 'u1:cliente1:fulano',
   credentials: { kind: 'password', username: 'fulano', password: SENHA },
 };
 

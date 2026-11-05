@@ -204,7 +204,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
     expect(chamadas[0]).toEqual({
       userId: 'u1',
       accountKey: 'sigaa:aluno',
-      sessaoKey: 'u1:c1',
+      sessaoKey: 'u1:c1:aluno',
       credentials: { kind: 'password', username: 'aluno', password: SENHA },
     });
   });

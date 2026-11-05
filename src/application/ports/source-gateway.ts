@@ -37,7 +37,7 @@ export interface SourceContext {
   accountKey: string;
   siteUrl?: string;
   credentials: SourceCredentials;
-  /** Chave da sessão na fonte (SIGAA: `userId:clientId`), para reaproveitar o login entre consultas. */
+  /** Chave da sessão na fonte (SIGAA: `userId:clientId:login`), para reaproveitar o login entre consultas. */
   sessaoKey?: string;
 }
 

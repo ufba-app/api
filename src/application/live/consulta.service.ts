@@ -186,7 +186,8 @@ export class ConsultaService {
     const ctx: SourceContext = {
       userId: quem.userId,
       accountKey: `sigaa:${cred.login}`,
-      sessaoKey: `${quem.userId}:${cliente.clientId}`,
+      // Inclui o login: reautorizar o mesmo cliente com outro login do SIGAA não reaproveita a sessão do anterior.
+      sessaoKey: `${quem.userId}:${cliente.clientId}:${cred.login}`,
       credentials: { kind: 'password', username: cred.login, password: cred.senha },
     };
     try {
