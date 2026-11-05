@@ -13,6 +13,7 @@ model User {
   enrollments    Enrollment[]
   oauthCodes     OAuthCode[]
   oauthTokens    OAuthToken[]
+  sigaaCredentials SigaaCredential[]
 
   @@map("users")
 }

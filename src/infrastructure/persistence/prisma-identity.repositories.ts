@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import {
   ApiKeyRecord,
   ApiKeyRepository,
+  EncryptedSecret,
+  SigaaCredentialRecord,
+  SigaaCredentialRepository,
   SourceAccountRecord,
   SourceAccountRepository,
   UpsertSourceAccountInput,
@@ -137,5 +140,67 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
       where: { id },
       data: { status, statusReason: reason ?? null },
     });
+  }
+}
+
+type SigaaCredentialRow = {
+  id: string;
+  userId: string;
+  clientId: string;
+  login: string;
+  secretCiphertext: string;
+  secretIv: string;
+  secretAuthTag: string;
+  status: 'OK' | 'REAUTH_NEEDED' | 'BLOCKED';
+  createdAt: Date;
+};
+
+function toCredentialRecord(row: SigaaCredentialRow): SigaaCredentialRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    clientId: row.clientId,
+    login: row.login,
+    secret: { ciphertext: row.secretCiphertext, iv: row.secretIv, authTag: row.secretAuthTag },
+    status: row.status === 'OK' ? 'OK' : 'REAUTH_NEEDED',
+    createdAt: row.createdAt,
+  };
+}
+
+@Injectable()
+export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async upsert(input: {
+    userId: string;
+    clientId: string;
+    login: string;
+    secret: EncryptedSecret;
+  }): Promise<SigaaCredentialRecord> {
+    const cols = {
+      login: input.login,
+      secretCiphertext: input.secret.ciphertext,
+      secretIv: input.secret.iv,
+      secretAuthTag: input.secret.authTag,
+    };
+    const row = await this.prisma.sigaaCredential.upsert({
+      where: { userId_clientId: { userId: input.userId, clientId: input.clientId } },
+      create: { userId: input.userId, clientId: input.clientId, ...cols },
+      update: { ...cols, status: 'OK' },
+    });
+    return toCredentialRecord(row);
+  }
+
+  async find(userId: string, clientId: string): Promise<SigaaCredentialRecord | null> {
+    const row = await this.prisma.sigaaCredential.findUnique({
+      where: { userId_clientId: { userId, clientId } },
+    });
+    return row ? toCredentialRecord(row) : null;
+  }
+
+  async setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void> {
+    await this.prisma.sigaaCredential.update({ where: { id }, data: { status } });
   }
 }

@@ -73,3 +73,26 @@ export abstract class SourceAccountRepository {
     reason?: string,
   ): Promise<void>;
 }
+
+// ── Credencial do SIGAA cifrada por cliente OAuth ─────────────────────────────
+
+export interface SigaaCredentialRecord {
+  id: string;
+  userId: string;
+  clientId: string;
+  login: string;
+  secret: EncryptedSecret;
+  status: 'OK' | 'REAUTH_NEEDED';
+  createdAt: Date;
+}
+
+export abstract class SigaaCredentialRepository {
+  abstract upsert(input: {
+    userId: string;
+    clientId: string;
+    login: string;
+    secret: EncryptedSecret;
+  }): Promise<SigaaCredentialRecord>;
+  abstract find(userId: string, clientId: string): Promise<SigaaCredentialRecord | null>;
+  abstract setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void>;
+}
