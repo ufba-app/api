@@ -13,15 +13,16 @@ function res(p: Partial<SigaaHttpResponse>): SigaaHttpResponse {
   return { status: 200, headers: {}, body, bodyBuffer: Buffer.from(body, 'latin1'), ...p };
 }
 
-function fakeSigaa(loginOk: boolean) {
+function fakeSigaa(loginOk: boolean | (() => boolean), fora = false) {
   const requests: SigaaHttpRequest[] = [];
   const http: SigaaHttpClient = {
     async request(req) {
       requests.push(req);
+      if (fora) throw new Error('rede fora');
       if (req.path === '/') return res({ status: 302, headers: { 'set-cookie': 'JSESSIONID=abc; Path=/' } });
       if (req.path === '/sigaa/verTelaLogin.do') return res({ body: LOGIN_PAGE });
       if (req.path.startsWith('/sigaa/logar.do')) {
-        return loginOk
+        return (typeof loginOk === 'function' ? loginOk() : loginOk)
           ? res({ status: 302, headers: { location: '/sigaa/paginaInicial.do' } })
           : res({ body: `${LOGIN_PAGE} Usuário e/ou senha inválidos` });
       }
@@ -42,7 +43,7 @@ describe('SigaaLink', () => {
   it('senha certa: guarda no cofre e faz 1 login + 1 GET do portal', async () => {
     const { http, requests } = fakeSigaa(true);
     const { cofre, aguardar } = fakeCofre();
-    await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA);
+    await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA, 'u1');
     expect(aguardar).toHaveBeenCalledWith('txn-1', { login: 'fulano', senha: SENHA });
     expect(requests.filter((r) => r.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
     expect(requests.filter((r) => r.path === '/sigaa/portais/discente/discente.jsf')).toHaveLength(1);
@@ -51,7 +52,7 @@ describe('SigaaLink', () => {
   it('senha errada: erro amigável, nada guardado, sem a senha na mensagem', async () => {
     const { http } = fakeSigaa(false);
     const { cofre, aguardar } = fakeCofre();
-    const erro = await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA).catch((e: Error) => e);
+    const erro = await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA, 'u1').catch((e: Error) => e);
     expect(erro).toBeInstanceOf(Error);
     expect((erro as Error).message).toContain('usuário ou senha do SIGAA incorretos');
     expect(String((erro as Error).message) + String((erro as Error).stack)).not.toContain(SENHA);
@@ -63,5 +64,77 @@ describe('SigaaLink', () => {
     const link = new SigaaLink(cofre, fakeSigaa(true).http);
     expect(link.pendente('txn-1')).toBe(true);
     expect(link.pendente('outra')).toBe(false);
+  });
+
+  describe('limite de tentativas', () => {
+    const MUITAS = 'Muitas tentativas';
+    const logins = (reqs: SigaaHttpRequest[]) => reqs.filter((r) => r.path.startsWith('/sigaa/logar.do')).length;
+
+    function build(loginOk: boolean | (() => boolean) = false) {
+      let agora = 1_000_000;
+      const sigaa = fakeSigaa(loginOk);
+      const { cofre, aguardar } = fakeCofre();
+      const link = new SigaaLink(cofre, sigaa.http, () => agora);
+      return { link, sigaa, aguardar, avancar: (ms: number) => (agora += ms) };
+    }
+    const tentar = (link: SigaaLink, txn: string, user = 'u1') =>
+      link.conectar(txn, 'fulano', SENHA, user).then(
+        () => null,
+        (e: Error) => e,
+      );
+
+    it('4ª senha errada na mesma transação: recusa sem falar com o SIGAA e sem a senha na mensagem', async () => {
+      const { link, sigaa } = build();
+      for (let i = 0; i < 3; i++) expect((await tentar(link, 'txn-a'))!.message).toContain('incorretos');
+      expect(logins(sigaa.requests)).toBe(3);
+      const antes = sigaa.requests.length;
+      const erro = (await tentar(link, 'txn-a'))!;
+      expect(erro.message).toContain(MUITAS);
+      expect(String(erro.message) + String(erro.stack)).not.toContain(SENHA);
+      expect(sigaa.requests.length).toBe(antes);
+    });
+
+    it('limite por usuário: 5 falhas em transações diferentes bloqueiam a 6ª', async () => {
+      const { link, sigaa } = build();
+      for (const txn of ['t1', 't1', 't2', 't2', 't3']) {
+        expect((await tentar(link, txn))!.message).toContain('incorretos');
+      }
+      const antes = sigaa.requests.length;
+      expect((await tentar(link, 't4'))!.message).toContain(MUITAS);
+      expect(sigaa.requests.length).toBe(antes);
+      // outro usuário não é afetado
+      expect((await tentar(link, 't5', 'u2'))!.message).toContain('incorretos');
+    });
+
+    it('sucesso zera o contador da transação', async () => {
+      let ok = false;
+      const { link, aguardar } = build(() => ok);
+      await tentar(link, 'txn-a');
+      await tentar(link, 'txn-a');
+      ok = true;
+      expect(await tentar(link, 'txn-a')).toBeNull();
+      expect(aguardar).toHaveBeenCalledTimes(1);
+      ok = false;
+      for (let i = 0; i < 2; i++) expect((await tentar(link, 'txn-a'))!.message).toContain('incorretos');
+    });
+
+    it('a janela expira em 15 minutos', async () => {
+      const { link, sigaa, avancar } = build();
+      for (let i = 0; i < 3; i++) await tentar(link, 'txn-a');
+      expect((await tentar(link, 'txn-a'))!.message).toContain(MUITAS);
+      avancar(15 * 60 * 1000 + 1);
+      const antes = logins(sigaa.requests);
+      expect((await tentar(link, 'txn-a'))!.message).toContain('incorretos');
+      expect(logins(sigaa.requests)).toBe(antes + 1);
+    });
+
+    it('SIGAA indisponível não conta como tentativa', async () => {
+      const sigaa = fakeSigaa(false, true);
+      const { cofre } = fakeCofre();
+      const link = new SigaaLink(cofre, sigaa.http, () => 0);
+      for (let i = 0; i < 6; i++) {
+        expect((await tentar(link, 'txn-a'))!.message).toContain('Não consegui falar com o SIGAA');
+      }
+    });
   });
 });

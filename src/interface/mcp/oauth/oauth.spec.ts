@@ -6,6 +6,7 @@ import { McpTestingModule, TEST_API_KEY } from '../testing/mcp-testing.module';
 import { isValidRedirectUri } from '../../../application/oauth/oauth.service';
 import { verifyPkceS256 } from '../../../application/oauth/pkce';
 import { AuthenticatorsMcpAuth } from '../mcp-auth';
+import { SIGAA_LINK, type SigaaLinkPort } from '../../../application/oauth/oauth-ports';
 
 const VERIFIER = 'a'.repeat(50);
 const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
@@ -91,7 +92,14 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     const connect = await ident.text();
     expect(connect).toContain('Conectar Classroom');
     expect(connect).toContain('Conectar Moodle');
-    expect(connect).toContain('name="senha"'); // só o formulário do SIGAA, que não ecoa valores
+    // Só o formulário do SIGAA tem campos digitáveis: 1 usuário + 1 senha, sem `value=` (nada é ecoado).
+    const senhas = connect.match(/<input[^>]*type="password"[^>]*>/g) ?? [];
+    const textos = connect.match(/<input[^>]*type="text"[^>]*>/g) ?? [];
+    expect(senhas).toHaveLength(1);
+    expect(textos).toHaveLength(1);
+    expect(senhas[0]).toContain('name="senha"');
+    expect(textos[0]).toContain('name="login"');
+    for (const campo of [...senhas, ...textos]) expect(campo).not.toContain('value=');
 
     const done = await post('/authorize', { txn, acao: 'concluir' }, true);
     expect(done.status).toBe(303);
@@ -183,6 +191,56 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     const htmlRuim = await ruim.text();
     expect(htmlRuim).toContain('usuário ou senha do SIGAA incorretos');
     expect(htmlRuim).not.toContain('value="errada"');
+  });
+
+  it('POST /oauth/connect/sigaa passa o usuário identificado ao SigaaLink', async () => {
+    const link = app.get<SigaaLinkPort>(SIGAA_LINK);
+    const spy = jest.spyOn(link, 'conectar');
+    try {
+      const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
+      const q = new URLSearchParams({
+        response_type: 'code', client_id, redirect_uri: REDIRECT,
+        code_challenge: CHALLENGE, code_challenge_method: 'S256',
+      });
+      const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
+      await post('/authorize', { txn, acao: 'identificar', email: 'sigaa-user@example.com' }, true);
+      await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'senha-sintetica-123' }, true);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const userId = spy.mock.calls[0][3];
+      expect(typeof userId).toBe('string');
+      expect(userId).not.toBe('');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('POST /oauth/connect/sigaa com txn desconhecida ou sem identificação: página de erro, sem tocar o SIGAA', async () => {
+    const link = app.get<SigaaLinkPort>(SIGAA_LINK);
+    const spy = jest.spyOn(link, 'conectar');
+    try {
+      const desconhecida = await post('/oauth/connect/sigaa', { txn: 'nao-existe', login: 'fulano', senha: 'senha-sintetica-123' }, true);
+      expect(desconhecida.status).toBeGreaterThanOrEqual(400);
+      const html = await desconhecida.text();
+      expect(html).not.toContain('senha-sintetica-123');
+      expect(html).not.toContain('name="senha"');
+
+      // txn válida, mas a pessoa ainda não se identificou
+      const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
+      const q = new URLSearchParams({
+        response_type: 'code', client_id, redirect_uri: REDIRECT,
+        code_challenge: CHALLENGE, code_challenge_method: 'S256',
+      });
+      const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
+      const anonima = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'senha-sintetica-123' }, true);
+      expect(anonima.status).toBe(403);
+      expect(await anonima.text()).not.toContain('senha-sintetica-123');
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(link.pendente('nao-existe')).toBe(false);
+      expect(link.pendente(txn)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('o Bearer de chave de API continua valendo no /mcp', async () => {

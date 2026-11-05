@@ -134,7 +134,10 @@ export interface MoodleLinkPort {
 
 /** SIGAA na tela de autorização: valida login e senha e os guarda em memória até o /token (o cofre cifra então). */
 export interface SigaaLinkPort {
-  /** 1 login real + GET do portal; se ok, guarda em memória até o /token. Erro com mensagem amigável se a senha estiver errada. */
-  conectar(txn: string, login: string, senha: string): Promise<void>;
+  /**
+   * 1 login real + GET do portal; se ok, guarda em memória até o /token. Erro com mensagem amigável se a senha estiver
+   * errada; senhas erradas demais (por transação e por usuário) são recusadas sem falar com o SIGAA.
+   */
+  conectar(txn: string, login: string, senha: string, userId: string): Promise<void>;
   pendente(txn: string): boolean;
 }
