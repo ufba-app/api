@@ -17,6 +17,9 @@ export class StubMcpUseCases implements McpUseCases {
   async verForum() {
     return { discussoes: [] };
   }
+  async verAviso() {
+    return { aviso: null };
+  }
   async baixarAnexo() {
     return { link: 'http://localhost/download/x' };
   }

@@ -3,9 +3,12 @@ import { z } from 'zod/v4';
 import { McpPrincipal, McpUseCases } from './mcp-ports';
 
 const FONTE = z
-  .enum(['moodle', 'classroom'])
+  .enum(['moodle', 'classroom', 'sigaa'])
   .optional()
-  .describe('De onde ler: `moodle` (padrão, AVA da UFBA) ou `classroom` (Google Classroom).');
+  .describe(
+    'De onde ler: `moodle` (padrão, AVA da UFBA), `classroom` (Google Classroom) ou `sigaa` (SIGAA da UFBA, ' +
+      'conectado na tela de autorização deste aplicativo).',
+  );
 
 const CONTA = z
   .string()
@@ -24,6 +27,7 @@ export const FERRAMENTAS = [
   'prazos',
   'ver_curso',
   'ver_forum',
+  'ver_aviso',
   'baixar_anexo',
 ] as const;
 
@@ -111,6 +115,17 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
       inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
     },
     (args) => run(() => uc.verForum(p, args)),
+  );
+
+  server.registerTool(
+    'ver_aviso',
+    {
+      description:
+        'Texto completo de UM aviso/notícia de uma matéria. Hoje só no SIGAA (`fonte: sigaa`). Use o `id` de um ' +
+        'item `tipo: aviso` vindo de `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, avisoId: z.string() },
+    },
+    (args) => run(() => uc.verAviso(p, args)),
   );
 
   server.registerTool(

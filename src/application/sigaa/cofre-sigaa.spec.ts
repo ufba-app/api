@@ -73,7 +73,7 @@ describe('CofreSigaa', () => {
   it('abrir com outra K falha', async () => {
     const { cofre } = montar();
     await guardar(cofre);
-    await expect(cofre.abrir(quem, randomBytes(32))).rejects.toThrow();
+    await expect(cofre.abrir(quem, randomBytes(32))).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
   });
 
   it('a SECRETS_KEY do servidor não abre o cifrado', async () => {
@@ -112,5 +112,14 @@ describe('CofreSigaa', () => {
     const k = await guardar(cofre);
     await cofre.marcarInvalida('cred1');
     await expect(cofre.abrir(quem, k!)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+  });
+
+  it('situacao: login e status sem K e sem decifrar', async () => {
+    const { cofre } = montar();
+    await expect(cofre.situacao(quem)).resolves.toBeNull();
+    await guardar(cofre);
+    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'OK' });
+    await cofre.marcarInvalida('cred1');
+    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'REAUTH_NEEDED' });
   });
 });

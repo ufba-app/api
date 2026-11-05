@@ -5,7 +5,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpTestingModule, TEST_API_KEY } from './testing/mcp-testing.module';
 import { buildMcpServer, FERRAMENTAS } from './mcp-tools';
-import { McpUseCases } from './mcp-ports';
+import { McpPrincipal, McpUseCases } from './mcp-ports';
+import { McpUseCasesImpl } from './mcp-use-cases';
+import { ConsultaService } from '../../application/live/consulta.service';
+import { DownloadLinks } from '../../application/live/download-links';
+import { LiveSources, type LiveSource } from '../../application/ports/live-source';
+import type { SigaaCredentialRepository } from '../../application/ports/repositories';
+import { CofreSigaa } from '../../application/sigaa/cofre-sigaa';
 
 function fakeUseCases(): jest.Mocked<McpUseCases> {
   return {
@@ -13,12 +19,13 @@ function fakeUseCases(): jest.Mocked<McpUseCases> {
     prazos: jest.fn(async () => ({ prazos: [] })),
     verCurso: jest.fn(async () => ({ atividades: [] })),
     verForum: jest.fn(async () => ({ discussoes: [] })),
+    verAviso: jest.fn(async () => ({ aviso: {} })),
     baixarAnexo: jest.fn(async () => ({ link: 'x' })),
   } as unknown as jest.Mocked<McpUseCases>;
 }
 
-async function connect(uc: McpUseCases): Promise<Client> {
-  const server = buildMcpServer(uc, { userId: 'u1', baseUrl: 'http://srv' });
+async function connect(uc: McpUseCases, p: McpPrincipal = { userId: 'u1', baseUrl: 'http://srv' }): Promise<Client> {
+  const server = buildMcpServer(uc, p);
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'teste', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -54,6 +61,91 @@ describe('ferramentas MCP', () => {
     const res = await client.callTool({ name: 'prazos', arguments: {} });
     expect(res.isError).toBe(true);
     expect((res.content as { text: string }[])[0].text).toContain('Moodle não conectado');
+  });
+});
+
+describe('ferramentas MCP com o SIGAA (casos de uso reais, fonte e cofre falsos)', () => {
+  const K = Buffer.alloc(32, 3);
+  const cifra = (k: Buffer) => ({
+    encrypt: (s: string) => ({ ciphertext: `${k.toString('hex')}|${s}`, iv: '', authTag: '' }),
+    decrypt: (e: { ciphertext: string }) => {
+      const [kh, s] = e.ciphertext.split('|');
+      if (kh !== k.toString('hex')) throw new Error('auth');
+      return s;
+    },
+  });
+
+  function montar() {
+    const chamadas: string[] = [];
+    const sigaa = {
+      provider: 'SIGAA',
+      listarCursos: async () => (chamadas.push('listarCursos'), []),
+      prazos: async () => (chamadas.push('prazos'), []),
+      verCurso: async () => (chamadas.push('verCurso'), []),
+      verForum: async () => (chamadas.push('verForum'), []),
+      baixar: async () => (chamadas.push('baixar'), {}) as never,
+      verAviso: async (_c: unknown, id: string) => (chamadas.push('verAviso'), { id, titulo: 'Aviso', anexos: [] }),
+    } as unknown as LiveSource;
+    const live = new LiveSources();
+    live.register(sigaa);
+    const rec = {
+      id: 'cred1',
+      userId: 'u1',
+      clientId: 'c1',
+      login: 'aluno',
+      secret: cifra(K).encrypt('senha-falsa'),
+      status: 'OK' as const,
+      createdAt: new Date(),
+    };
+    const repo = {
+      find: async (u: string, c: string) => (u === rec.userId && c === rec.clientId ? rec : null),
+      setStatus: async () => undefined,
+    } as unknown as SigaaCredentialRepository;
+    const accounts = { findByUserAndProvider: async () => [], listByUser: async () => [], setStatus: jest.fn() } as never;
+    const consulta = new ConsultaService(live, accounts, { decrypt: () => 'x' } as never, new CofreSigaa(repo, cifra));
+    return { uc: new McpUseCasesImpl(consulta, new DownloadLinks()), chamadas };
+  }
+
+  const texto = (res: unknown) => ((res as { content: { text: string }[] }).content)[0].text;
+
+  it('token sem K ou chave plt_ pedindo SIGAA: erro claro, zero chamadas à fonte', async () => {
+    const { uc, chamadas } = montar();
+    for (const p of [{ userId: 'u1' }, { userId: 'u1', cliente: { clientId: 'c1' } }] as McpPrincipal[]) {
+      const client = await connect(uc, p);
+      for (const [name, args] of [
+        ['listar_cursos', { fonte: 'sigaa' }],
+        ['prazos', { fonte: 'sigaa' }],
+        ['ver_curso', { fonte: 'sigaa', cursoId: 't1' }],
+        ['ver_aviso', { fonte: 'sigaa', avisoId: 'av1' }],
+      ] as const) {
+        const res = await client.callTool({ name, arguments: args });
+        expect(res.isError).toBe(true);
+        expect(texto(res)).toContain('SIGAA não conectado neste aplicativo');
+      }
+      const contas = await client.callTool({ name: 'listar_contas', arguments: {} });
+      expect(JSON.parse(texto(contas))).toEqual({ contas: [] });
+    }
+    expect(chamadas).toEqual([]);
+  });
+
+  it('com K no token: listar_contas mostra o SIGAA e ver_aviso lê da fonte', async () => {
+    const { uc, chamadas } = montar();
+    const client = await connect(uc, { userId: 'u1', cliente: { clientId: 'c1', chave: K } });
+    const contas = await client.callTool({ name: 'listar_contas', arguments: {} });
+    expect(JSON.parse(texto(contas))).toEqual({ contas: [{ fonte: 'sigaa', conta: 'aluno' }] });
+    const aviso = await client.callTool({ name: 'ver_aviso', arguments: { fonte: 'sigaa', avisoId: 'av1' } });
+    expect(aviso.isError).toBeFalsy();
+    expect(JSON.parse(texto(aviso))).toMatchObject({ aviso: { id: 'av1', titulo: 'Aviso' } });
+    expect(chamadas).toEqual(['verAviso']);
+  });
+
+  it('baixar_anexo no SIGAA: erro claro, sem link', async () => {
+    const { uc, chamadas } = montar();
+    const client = await connect(uc, { userId: 'u1', cliente: { clientId: 'c1', chave: K } });
+    const res = await client.callTool({ name: 'baixar_anexo', arguments: { fonte: 'sigaa', ref: 'x' } });
+    expect(res.isError).toBe(true);
+    expect(texto(res)).not.toContain('/download/');
+    expect(chamadas).toEqual([]);
   });
 });
 

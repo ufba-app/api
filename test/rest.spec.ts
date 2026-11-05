@@ -13,6 +13,7 @@ import {
   UserRepository,
 } from '../src/application/ports/repositories';
 import { SecretCipher } from '../src/application/ports/secret-cipher';
+import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
 import { SourceError, SourceGateway, SourceRegistry } from '../src/application/ports/source-gateway';
 import { BearerGuard } from '../src/interface/rest/auth.guard';
 import { DownloadController } from '../src/interface/rest/download.controller';
@@ -56,6 +57,7 @@ describe('REST (sem banco, sem rede)', () => {
         BearerGuard,
         ConsultaService,
         DownloadLinks,
+        { provide: CofreSigaa, useValue: { situacao: async () => null } },
         { provide: LiveSources, useValue: live },
         { provide: SecretCipher, useClass: FakeCipher },
         { provide: SourceRegistry, useValue: registry },

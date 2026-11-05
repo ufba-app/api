@@ -37,7 +37,8 @@ export class DownloadController {
       return;
     }
     try {
-      const f = await this.consulta.baixar(t.userId, t.provider, t.conta, t.ref);
+      // O ticket guarda só o usuário (sem cliente nem K): basta para fontes com token guardado.
+      const f = await this.consulta.baixar({ userId: t.userId }, t.provider, t.conta, t.ref);
       res.setHeader('Content-Type', f.mimeType);
       res.setHeader('Content-Disposition', contentDisposition(f.fileName ?? t.nome ?? 'anexo'));
       res.setHeader('X-Content-Type-Options', 'nosniff');

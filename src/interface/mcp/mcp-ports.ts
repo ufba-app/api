@@ -6,7 +6,7 @@
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
 export const MCP_AUTH = Symbol('MCP_AUTH');
 
-export type Fonte = 'moodle' | 'classroom';
+export type Fonte = 'moodle' | 'classroom' | 'sigaa';
 
 /** Quem está chamando; resolvido a partir do Bearer. */
 export interface McpPrincipal {
@@ -43,6 +43,10 @@ export interface VerForumInput extends Alvo {
   forumId: string;
 }
 
+export interface VerAvisoInput extends Alvo {
+  avisoId: string;
+}
+
 export interface BaixarAnexoInput extends Alvo {
   /** Um anexo... */
   ref?: string;
@@ -58,6 +62,8 @@ export interface McpUseCases {
   prazos(p: McpPrincipal, input: PrazosInput): Promise<unknown>;
   verCurso(p: McpPrincipal, input: VerCursoInput): Promise<unknown>;
   verForum(p: McpPrincipal, input: VerForumInput): Promise<unknown>;
+  /** Texto completo de um aviso (hoje só SIGAA). */
+  verAviso(p: McpPrincipal, input: VerAvisoInput): Promise<unknown>;
   /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */
   baixarAnexo(p: McpPrincipal, input: BaixarAnexoInput): Promise<unknown>;
 }

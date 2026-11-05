@@ -76,8 +76,23 @@ export class CofreSigaa {
     const rec = await this.repo.find(quem.userId, quem.clientId);
     if (!rec) return null;
     if (rec.status === 'REAUTH_NEEDED') throw new CredencialSigaaInvalidaError();
-    const senha = this.cifra(k).decrypt(rec.secret);
+    let senha: string;
+    try {
+      senha = this.cifra(k).decrypt(rec.secret);
+    } catch {
+      // K que não abre o cifrado (ex.: token antigo de uma autorização substituída). Sem detalhe do erro.
+      throw new CredencialSigaaInvalidaError();
+    }
     return { login: rec.login, senha, credencialId: rec.id };
+  }
+
+  /** Login e status da credencial do cliente, sem K e sem decifrar nada (para listar as contas). */
+  async situacao(quem: {
+    userId: string;
+    clientId: string;
+  }): Promise<{ login: string; status: 'OK' | 'REAUTH_NEEDED' } | null> {
+    const rec = await this.repo.find(quem.userId, quem.clientId);
+    return rec ? { login: rec.login, status: rec.status } : null;
   }
 
   async marcarInvalida(credencialId: string): Promise<void> {

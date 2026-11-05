@@ -81,6 +81,8 @@ export interface LiveSource {
   verForum(ctx: SourceContext, forumId: string): Promise<DiscussaoViva[]>;
   /** Conteúdo de um anexo (`ref` vindo de `verCurso`/`verForum`). */
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent>;
+  /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
+  verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
 }
 
 /** Fontes com leitura ao vivo disponíveis neste servidor. */
