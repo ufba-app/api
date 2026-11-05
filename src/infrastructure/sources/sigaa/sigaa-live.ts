@@ -65,6 +65,7 @@ export function slugTurma(nome: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+// Duas turmas com o mesmo nome no portal (sem `idTurma`) colidem no slug: vale a primeira.
 const idDaTurma = (t: TurmaVirtualToken) => t.idTurmaSigaa ?? slugTurma(t.nome);
 
 /** `dd/mm/aaaa` + `HH:MM` (ou meia-noite) no fuso da Bahia. Data que não se lê vira `undefined`. */
@@ -208,6 +209,12 @@ export class SigaaLive implements LiveSource {
   /**
    * Avaliações de hoje em diante das primeiras `MAX_TURMAS_PRAZOS` turmas, ordenadas. O SIGAA não tem calendário
    * agregado: portal + (entrada na turma + avaliações) por turma, no máximo 1 + 2×8 requisições.
+   *
+   * RISCO NÃO VALIDADO no SIGAA real: para caber nesse teto, o portal é lido uma vez só. A partir da 2ª turma, o
+   * postback usa os campos do form lido no início, mas o `javax.faces.ViewState` da ÚLTIMA página da sessão (o
+   * `SigaaSession.postback` sobrescreve o do form). Se o SIGAA recusar e devolver o portal, `prazos` falha alto
+   * (`UNAVAILABLE`, "página inesperada"), nunca com lista parcial ou vazia. Alternativas se falhar: reler o portal
+   * antes de cada turma (1 + 3×8) ou mandar o ViewState do próprio form do portal.
    */
   prazos(ctx: SourceContext): Promise<PrazoVivo[]> {
     return this.usar(ctx, async (s) => {
@@ -216,6 +223,8 @@ export class SigaaLive implements LiveSource {
       const desde = inicioDeHojeNaBahia(this.now());
       const prazos: PrazoVivo[] = [];
       for (const t of turmas) {
+        // Da 2ª turma em diante, reaproveita o ViewState da última página (não validado no SIGAA real; ver JSDoc).
+        // Falha aqui derruba `prazos` inteiro: nada de resultado parcial.
         await entrarNaTurma(s, portal, t);
         const html = await s.get(AVALIACOES_PATH);
         const cursoId = idDaTurma(t);
