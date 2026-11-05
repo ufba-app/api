@@ -1,4 +1,5 @@
 import {
+  ChaveDoClientePort,
   OAuthClient,
   OAuthStore,
   PendingAuthorization,
@@ -22,6 +23,21 @@ export class OAuthError extends Error {
   ) {
     super(description);
   }
+}
+
+export interface TokenVerificado {
+  userId: string;
+  clientId: string;
+  chave?: Buffer;
+}
+
+/** Separa `base.K` (K em base64url, 32 bytes). Sufixo ausente ou inválido = sem chave (o token inteiro segue sendo a base). */
+export function splitToken(token: string): { base: string; chave?: Buffer } {
+  const i = token.lastIndexOf('.');
+  if (i < 0) return { base: token };
+  const chave = Buffer.from(token.slice(i + 1), 'base64url');
+  if (chave.length !== 32) return { base: token };
+  return { base: token.slice(0, i), chave };
 }
 
 export interface AuthorizeParams {
@@ -63,6 +79,7 @@ export class OAuthService {
     private readonly store: OAuthStore,
     private readonly users: UserDirectory,
     private readonly now: () => number = Date.now,
+    private readonly chaves?: ChaveDoClientePort,
   ) {}
 
   async registerClient(body: { redirect_uris?: unknown; client_name?: unknown }): Promise<OAuthClient> {
@@ -134,6 +151,7 @@ export class OAuthService {
       scope: p.scope,
       expiresAt: this.now() + CODE_TTL_MS,
     });
+    this.chaves?.vincularCodigo(id, sha256Base64Url(code));
     await this.store.deletePending(id);
     return this.redirectBack(p, { code });
   }
@@ -166,7 +184,11 @@ export class OAuthService {
     if (!p.code_verifier || !verifyPkceS256(p.code_verifier, rec.codeChallenge)) {
       throw new OAuthError('invalid_grant', 'code_verifier não confere');
     }
-    return this.issue(rec.clientId, rec.userId, rec.scope);
+    // Falha ao gravar a chave nunca derruba o /token: emite sem K (o SIGAA pede nova autenticação depois).
+    const chave = await this.chaves
+      ?.gravarNoToken(sha256Base64Url(p.code!), { userId: rec.userId, clientId: rec.clientId })
+      .catch(() => null);
+    return this.issue(rec.clientId, rec.userId, rec.scope, chave ?? undefined);
   }
 
   private async fromRefresh(p: TokenParams) {
@@ -176,12 +198,13 @@ export class OAuthService {
       throw new OAuthError('invalid_grant', 'refresh_token inválido ou expirado');
     }
     await this.store.deleteToken(hash); // rotação: cada refresh vale uma vez
-    return this.issue(rec.clientId, rec.userId, rec.scope);
+    return this.issue(rec.clientId, rec.userId, rec.scope, splitToken(p.refresh_token!).chave);
   }
 
-  private async issue(clientId: string, userId: string, scope?: string) {
-    const access = randomToken();
-    const refresh = randomToken();
+  private async issue(clientId: string, userId: string, scope?: string, chave?: Buffer) {
+    const sufixo = chave ? '.' + chave.toString('base64url') : '';
+    const access = randomToken() + sufixo;
+    const refresh = randomToken() + sufixo;
     const base = { clientId, userId, scope };
     const rec = (kind: TokenRecord['kind'], token: string, ttl: number): TokenRecord => ({
       ...base,
@@ -201,9 +224,11 @@ export class OAuthService {
   }
 
   /** Resolve um access token OAuth; null se não for um (o chamador tenta a chave de API). */
-  async verifyAccessToken(token: string): Promise<{ userId: string } | null> {
+  async verifyAccessToken(token: string): Promise<TokenVerificado | null> {
     const rec = await this.store.getToken(sha256Base64Url(token));
-    return rec && rec.kind === 'access' ? { userId: rec.userId } : null;
+    if (!rec || rec.kind !== 'access') return null;
+    const { chave } = splitToken(token);
+    return { userId: rec.userId, clientId: rec.clientId, ...(chave ? { chave } : {}) };
   }
 }
 
@@ -211,7 +236,7 @@ export class OAuthService {
 export class OAuthAccessTokenAuthenticator implements Authenticator {
   constructor(private readonly oauth: OAuthService) {}
 
-  authenticate(token: string): Promise<{ userId: string } | null> {
+  authenticate(token: string): Promise<TokenVerificado | null> {
     return this.oauth.verifyAccessToken(token);
   }
 }

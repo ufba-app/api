@@ -13,7 +13,11 @@ export class AuthenticatorsMcpAuth implements McpAuth {
     if (!match) return null;
     for (const auth of this.authenticators) {
       const found = await auth.authenticate(match[1]);
-      if (found) return { userId: found.userId };
+      if (found) {
+        return found.clientId
+          ? { userId: found.userId, cliente: { clientId: found.clientId, ...(found.chave ? { chave: found.chave } : {}) } }
+          : { userId: found.userId };
+      }
     }
     return null;
   }

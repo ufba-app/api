@@ -13,6 +13,8 @@ export interface McpPrincipal {
   userId: string;
   /** URL pública do serviço (para montar links de download). */
   baseUrl?: string;
+  /** Cliente OAuth do token e a chave K (só em tokens OAuth emitidos com credencial do SIGAA). */
+  cliente?: { clientId: string; chave?: Buffer };
 }
 
 /** Autenticação do /mcp: os mesmos autenticadores do REST (chave de API `plt_` e token OAuth do serviço). */

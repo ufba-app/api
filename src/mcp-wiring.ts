@@ -4,16 +4,20 @@ import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
 import {
   CLASSROOM_LINK,
+  CHAVE_DO_CLIENTE,
   GOOGLE_LINK,
   MOODLE_LINK,
   OAUTH_STORE,
   USER_DIRECTORY,
+  type ChaveDoClientePort,
   type OAuthStore,
   type UserDirectory,
 } from './application/oauth/oauth-ports';
 import { OAuthAccessTokenAuthenticator, OAuthService } from './application/oauth/oauth.service';
 import { AUTHENTICATORS, type Authenticator } from './application/ports/authenticator';
-import { SourceAccountRepository } from './application/ports/repositories';
+import { SigaaCredentialRepository, SourceAccountRepository } from './application/ports/repositories';
+import { CofreSigaa } from './application/sigaa/cofre-sigaa';
+import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
 import { MoodleLink } from './infrastructure/sources/moodle/moodle-link';
@@ -40,8 +44,15 @@ export const mcpProviders: Provider[] = [
   // OAuth 2.1 do serviço (store e usuários persistentes vêm do PersistenceModule).
   {
     provide: OAUTH_SERVICE,
-    useFactory: (store: OAuthStore, users: UserDirectory) => new OAuthService(store, users),
-    inject: [OAUTH_STORE, USER_DIRECTORY],
+    useFactory: (store: OAuthStore, users: UserDirectory, chaves: ChaveDoClientePort) =>
+      new OAuthService(store, users, Date.now, chaves),
+    inject: [OAUTH_STORE, USER_DIRECTORY, CHAVE_DO_CLIENTE],
+  },
+  {
+    provide: CHAVE_DO_CLIENTE,
+    useFactory: (repo: SigaaCredentialRepository) =>
+      new CofreSigaa(repo, (k) => new AesSecretCipher(k.toString('base64'))),
+    inject: [SigaaCredentialRepository],
   },
   {
     provide: OAUTH_ACCESS_AUTHENTICATOR,

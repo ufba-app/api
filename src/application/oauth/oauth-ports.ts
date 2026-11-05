@@ -8,6 +8,18 @@ export const OAUTH_STORE = Symbol('OAUTH_STORE');
 export const USER_DIRECTORY = Symbol('USER_DIRECTORY');
 export const GOOGLE_LINK = Symbol('GOOGLE_LINK');
 export const MOODLE_LINK = Symbol('MOODLE_LINK');
+export const CHAVE_DO_CLIENTE = Symbol('CHAVE_DO_CLIENTE');
+
+/**
+ * Chave K do cliente (cifra a senha do SIGAA). Nasce no momento do /token e viaja só no sufixo do token do cliente;
+ * o servidor nunca a guarda. Quem implementa é o cofre do SIGAA.
+ */
+export interface ChaveDoClientePort {
+  /** Liga a transação (tela de autorização) ao hash do authorization code emitido. */
+  vincularCodigo(txn: string, codeHash: string): void;
+  /** Troca o code por K (gerada e usada para cifrar a senha); null se não há credencial pendente. */
+  gravarNoToken(codeHash: string, quem: { userId: string; clientId: string }): Promise<Buffer | null>;
+}
 
 export interface OAuthClient {
   clientId: string;

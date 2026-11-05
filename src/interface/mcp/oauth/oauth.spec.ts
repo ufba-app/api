@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { McpTestingModule, TEST_API_KEY } from '../testing/mcp-testing.module';
 import { isValidRedirectUri } from '../../../application/oauth/oauth.service';
 import { verifyPkceS256 } from '../../../application/oauth/pkce';
+import { AuthenticatorsMcpAuth } from '../mcp-auth';
 
 const VERIFIER = 'a'.repeat(50);
 const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
@@ -172,5 +173,19 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('AuthenticatorsMcpAuth', () => {
+  it('repassa clientId e chave ao principal', async () => {
+    const chave = Buffer.alloc(32, 9);
+    const auth = new AuthenticatorsMcpAuth([{ authenticate: async () => ({ userId: 'u1', clientId: 'c1', chave }) }]);
+    const p = await auth.authenticate('Bearer tok');
+    expect(p).toEqual({ userId: 'u1', cliente: { clientId: 'c1', chave } });
+  });
+
+  it('chave de API (sem clientId) não ganha cliente', async () => {
+    const auth = new AuthenticatorsMcpAuth([{ authenticate: async () => ({ userId: 'u1' }) }]);
+    expect(await auth.authenticate('Bearer tok')).toEqual({ userId: 'u1' });
   });
 });
