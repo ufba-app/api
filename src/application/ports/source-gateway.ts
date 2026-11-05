@@ -104,6 +104,13 @@ export interface SourceFetchResult {
   events?: FetchedEvent[];
   grades?: FetchedGrade[];
   profile?: FetchedProfile;
+  /**
+   * Cursos (`courseExternalId`) cujos itens/notas a fonte NÃO conseguiu trazer nesta rodada (ex.: 504 do AVA).
+   * O que já está guardado desses cursos não é tratado como removido.
+   */
+  partial?: { items?: string[]; grades?: string[] };
+  /** Avisos legíveis sobre o que ficou de fora (sem segredos). */
+  warnings?: string[];
 }
 
 export type SourceErrorCode =

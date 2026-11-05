@@ -1,14 +1,8 @@
 import { Global, Module } from '@nestjs/common';
-import {
-  AttachmentLookup,
-  TranscriptRepository,
-} from '../../application/ports/academic-ports';
 import { OAUTH_STORE, USER_DIRECTORY } from '../../application/oauth/oauth-ports';
 import {
   ApiKeyRepository,
-  ReadRepository,
   SourceAccountRepository,
-  SyncRepository,
   UserRepository,
 } from '../../application/ports/repositories';
 import {
@@ -16,12 +10,10 @@ import {
   PrismaSourceAccountRepository,
   PrismaUserRepository,
 } from './prisma-identity.repositories';
-import { PrismaAttachmentLookup, PrismaTranscriptRepository } from './prisma-academic.repositories';
 import { PrismaOAuthStore, PrismaUserDirectory } from './prisma-oauth.repositories';
-import { PrismaReadRepository } from './prisma-read.repository';
-import { PrismaSyncRepository } from './prisma-sync.repository';
 import { PrismaService } from './prisma.service';
 
+/** Só identidade, contas conectadas (token cifrado) e OAuth. Conteúdo das fontes não é gravado (leitura ao vivo). */
 @Global()
 @Module({
   providers: [
@@ -29,23 +21,9 @@ import { PrismaService } from './prisma.service';
     { provide: UserRepository, useClass: PrismaUserRepository },
     { provide: ApiKeyRepository, useClass: PrismaApiKeyRepository },
     { provide: SourceAccountRepository, useClass: PrismaSourceAccountRepository },
-    { provide: SyncRepository, useClass: PrismaSyncRepository },
-    { provide: ReadRepository, useClass: PrismaReadRepository },
-    { provide: TranscriptRepository, useClass: PrismaTranscriptRepository },
-    { provide: AttachmentLookup, useClass: PrismaAttachmentLookup },
     { provide: OAUTH_STORE, useClass: PrismaOAuthStore },
     { provide: USER_DIRECTORY, useClass: PrismaUserDirectory },
   ],
-  exports: [
-    UserRepository,
-    ApiKeyRepository,
-    SourceAccountRepository,
-    SyncRepository,
-    ReadRepository,
-    TranscriptRepository,
-    AttachmentLookup,
-    OAUTH_STORE,
-    USER_DIRECTORY,
-  ],
+  exports: [UserRepository, ApiKeyRepository, SourceAccountRepository, OAUTH_STORE, USER_DIRECTORY],
 })
 export class PersistenceModule {}

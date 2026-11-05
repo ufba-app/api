@@ -88,7 +88,7 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
 
     const ident = await post('/authorize', { txn, acao: 'identificar', email: 'aluno@example.com' }, true);
     const connect = await ident.text();
-    expect(connect).toContain('Conectar Google');
+    expect(connect).toContain('Conectar Classroom');
     expect(connect).toContain('Conectar Moodle');
     expect(connect).not.toMatch(/type="(text|password)"/);
 

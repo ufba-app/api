@@ -1,24 +1,35 @@
 # Servidor MCP
 
-O serviço expõe as mesmas operações do REST como ferramentas MCP, por **Streamable HTTP** em `POST /mcp` (sem sessão: cada requisição é independente; `GET` e `DELETE` respondem 405). O código fica em `src/interface/mcp`; as ferramentas são adaptadores finos sobre os **mesmos casos de uso** do REST (ver `ARQUITETURA.md` §2.1).
+O serviço expõe ferramentas MCP por **Streamable HTTP** em `POST /mcp` (sem sessão: cada requisição é independente; `GET` e `DELETE` respondem 405). O código fica em `src/interface/mcp`.
 
-## Ferramentas
+## Modelo: autenticação + leitura ao vivo, sem banco de conteúdo
 
-| Ferramenta | O que faz | Vai à fonte? |
-|---|---|---|
-| `sincronizar(fonte, alcance, cursoId?, itemId?, credencial?)` | Busca nas fontes e grava no banco. `alcance`: `tudo`, `curso` ou `item`. SIGAA: só `tudo`, com `credencial` | **Sim** (único comando) |
-| `listar_itens(fonte?, cursoId?, tipo?, limite?)` | Avisos, tarefas, provas, materiais, fóruns | Não |
-| `agenda(de?, ate?)` | Eventos e prazos num intervalo | Não |
-| `mudancas(desde?)` | Novo / alterado / removido desde um instante (padrão: 7 dias) | Não |
-| `perfil()` | Perfil acadêmico | Não |
-| `historico()` | Histórico importado | Não |
-| `importar_historico(usuario, senha)` | Importa o histórico pelo SIGAA (senha só em memória) + IA | **Sim** (SIGAA) |
-| `insights(tipo)` | `cr`, `trajetoria` ou `pendentes` | Não |
-| `ler_anexo(itemId, anexoId)` | Conteúdo do anexo, buscado sob demanda (cache curto) | Sim, só o anexo |
+1. **Autenticação e nada mais.** A tela de `/authorize` faz o login (Google @ufba.br) e conecta as fontes; o serviço guarda só o acesso (token cifrado) e, no máximo, faz **uma leitura de teste** para confirmar que ele funciona. Não há sincronização.
+2. **Leitura sob demanda.** Cada ferramenta vai à fonte **na hora da pergunta**, com o token da pessoa, e faz **só as chamadas daquela pergunta**: nunca varre curso por curso. O conteúdo não é gravado.
+3. **Anexos vão para a máquina de quem pergunta**, por link temporário de download.
 
-**Leitura não atualiza.** Toda leitura devolve `atualizadoEm`, e a descrição de cada ferramenta orienta o agente: se o dado estiver velho, chame `sincronizar` antes. Isso é protegido por teste (`src/interface/mcp/mcp.spec.ts`): nenhuma ferramenta de leitura chama o gateway de fonte nem `sincronizar`.
+## Ferramentas (Moodle e Classroom)
 
-**Segredos não passam por ferramentas.** Tokens do Moodle e do Google entram só pela tela de autorização. A única credencial aceita numa ferramenta é a do `sincronizar` (ex.: senha do SIGAA), usada em memória e descartada.
+Toda ferramenta de leitura aceita `fonte` (`moodle`, padrão, ou `classroom`) e `conta`. Cada consulta lê **uma conta de uma fonte**.
+
+| Ferramenta | O que faz | Chamadas: Moodle | Chamadas: Classroom |
+|---|---|---|---|
+| `listar_contas()` | Contas conectadas por fonte (`status: reconectar` quando o acesso foi recusado) | 0 (só banco) | 0 (só banco) |
+| `listar_cursos(todas?)` | Matérias em andamento (`todas: true` inclui passadas/futuras) | 1 | 1 |
+| `prazos()` | Próximos prazos das matérias atuais. Ponto de partida para "o que tenho para hoje" | 1 (calendário) | 1 + 1 por matéria ativa, até 15 (a API não tem calendário agregado) |
+| `ver_curso(cursoId)` | Tarefas (descrição + prazo), materiais, avisos, provas e fóruns de **uma** matéria | 2 | 3 |
+| `ver_forum(forumId)` | Discussões de **um** fórum do Moodle (inclui o de avisos) | 1 | não existe |
+| `baixar_anexo(ref \| anexos[])` | Links de download temporários (uso único, ~10 min) + comandos `curl` prontos. O arquivo é buscado quando o link é usado | 0 (+1 por download) | 0 (+3 por download: confere o anexo no post, metadados e conteúdo do Drive) |
+
+No Classroom, a renovação do access token (cache em memória) é uma chamada extra no máximo a cada hora. Os tetos são protegidos por teste (`test/mcp-integration.spec.ts` com o `MoodleLive` real; `classroom-live.spec.ts`).
+
+**Várias contas na mesma fonte** (ex.: Classroom no gmail pessoal e no @ufba.br): o cliente escolhe. `listar_contas` mostra as contas; as outras ferramentas recebem `conta` e leem só ela. Sem `conta`, vale a única conta da fonte; com mais de uma, a ferramenta responde com erro listando as contas (sem chamar a fonte). Para ler todas, o cliente consulta uma por vez. Os links de `baixar_anexo` guardam a conta de origem.
+
+**Download:** `GET /download/:id`. O id (aleatório, uso único, ~10 min) é a própria credencial, sem Bearer, para funcionar com `curl`/navegador na máquina da pessoa. Os links ficam só em memória (morrem ao reiniciar; não valem entre instâncias).
+
+**Segredos não passam por ferramentas.** Tokens do Moodle e do Google entram só pela tela de autorização; nenhuma ferramenta aceita senha ou token.
+
+**Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.
 
 ## Autenticação
 
@@ -77,10 +88,12 @@ Para OAuth, omita `headers`.
 Regras: `redirect_uri` só `https` (ou `http` em `localhost`/`127.0.0.1`) e comparada exatamente com a registrada; `code` vale uma vez e 5 minutos; access token 1 h, refresh 30 dias; tokens são guardados só como hash SHA-256.
 
 ### Tela de `/authorize`
-
-1. **Identificação**: e-mail (cria ou reconhece o usuário). Se `OAUTH_AUTHORIZE_SECRET` estiver definida, a tela também exige essa senha de acesso. **Defina-a em qualquer deploy exposto**: sem ela, qualquer pessoa que saiba o e-mail de outra assume a conta.
-2. **Conectar Google** (Classroom + Calendar).
-3. **Conectar Moodle** (opcional): SSO institucional pelo `launch.php`, via `MoodleLinkPort`. **Não existe campo para colar token.**
+1. **Entrar com Google** (conta institucional `@ufba.br`, só `openid email profile`; domínio em `GOOGLE_ALLOWED_DOMAIN`). Cria ou reconhece o usuário. Sem `GOOGLE_CLIENT_ID/SECRET`, cai no formulário de e-mail + `OAUTH_AUTHORIZE_SECRET` (só para desenvolvimento).
+2. **Conectar Classroom** (dá para conectar mais de uma conta; antes de guardar, 1 leitura de teste). Escopos `classroom.*.readonly` + `drive.readonly` (para os anexos):
+   - **@ufba.br** → app **interno** do login (sem verificação, sem limite de usuários, sem expiração);
+   - **outra conta (convidados)** → app **externo** em "Testando": só quem estiver na lista de usuários de teste (até 100, adicionados à mão), e o acesso expira em 7 dias.
+   O app é escolhido pelo domínio do e-mail, na conexão e na leitura.
+3. **Conectar Moodle** (opcional): a pessoa faz o login institucional no PRÓPRIO navegador (`launch.php`) e o token volta pelo esquema `web+ufba` (ver abaixo). O servidor confere a assinatura do passport, valida o token no Moodle e guarda só o `wstoken`, cifrado.
 4. **SIGAA**: nada é conectado aqui; a senha nunca é guardada.
 
 ### Variáveis de ambiente
@@ -96,24 +109,32 @@ A composição fica em `src/mcp-wiring.ts` (raiz de `src`, a única que enxerga 
 
 | Peça | Implementação |
 |---|---|
-| Casos de uso das ferramentas | `McpUseCasesImpl` → `SincronizarService`, `LeituraService`, `HistoricoService`, `AnexoService` (os mesmos do REST) |
+| Casos de uso das ferramentas | `McpUseCasesImpl` → `ConsultaService` (resolve a conta, decifra o token em memória, chama a `LiveSource`) e `DownloadLinks` |
+| Leitura ao vivo | `LiveSources` → `MoodleLive` (`src/infrastructure/sources/moodle/moodle-live.ts`). Token recusado marca a conta `REAUTH_NEEDED` e pede para reconectar |
 | Autenticação do `/mcp` e do REST | `AUTHENTICATORS` = `[IdentityService (chave plt_), OAuthAccessTokenAuthenticator]`. **Bearer ausente ou inválido → 401** (testado em `test/mcp-integration.spec.ts`) |
 | OAuth (clientes, códigos, tokens) e usuários | Postgres (`PrismaOAuthStore`, `PrismaUserDirectory`; migração `20261031120000_oauth`, que só acrescenta tabelas e `users.email`) |
-| Histórico | `HistoricoService.importar`: `SigaaGateway.fetchSnapshot` (PDF) → `importTranscript` (IA + validação) → `transcripts`. `insights` só lê o banco |
-| `ler_anexo` | `AnexoService`: Drive (Classroom) e Moodle, com o token do próprio usuário decifrado na hora; teto de 5 MB inline |
-| Vínculo Google | `GoogleOAuthLink`: OAuth com `GOOGLE_CLIENT_ID/SECRET`, grava o refresh token cifrado em `CLASSROOM` e `CALENDAR` (`IdentityService.conectarConta`) |
-| Vínculo Moodle | `MoodleLink`: **só informa o status**; iniciar o vínculo responde que ainda não está disponível (ver abaixo) |
+| Login Google | `GoogleOAuthLink`: app **interno** (`GOOGLE_CLIENT_ID/SECRET`), só identidade @ufba.br; não guarda nada |
+| Vínculo Classroom | `ClassroomLink`: app **externo** (`GOOGLE_CLASSROOM_CLIENT_ID/SECRET`); 1 leitura de teste (`courses?pageSize=1`); grava o refresh token cifrado em `CLASSROOM`, uma conta por e-mail |
+| Leitura do Classroom | `ClassroomLive` (`src/infrastructure/sources/classroom/classroom-live.ts`), com `GoogleAuth` do app do Classroom (o refresh token só renova com o cliente que o emitiu) |
+| Vínculo Moodle | `MoodleLink`: `launchUrl` (passport derivado por HMAC de usuário + transação, sem estado) e `connect` (extrai o token do link colado, `verifyPassport`, valida com `core_webservice_get_site_info`, grava o `wstoken` cifrado) |
 
-### Google
+### Google: dois apps OAuth
 
-O `redirect_uri` é `<PUBLIC_URL>/oauth/callback/google` e **precisa estar cadastrado** no cliente OAuth. Esse fluxo usa o cliente do tipo **Aplicativo da Web** (o tipo Desktop de `docs/GOOGLE.md` serve só ao script de refresh token). Sem `GOOGLE_CLIENT_ID/SECRET`, o botão "Conectar Google" mostra o erro na própria tela e a autorização segue.
+- **Interno** (`GOOGLE_CLIENT_ID/SECRET`, projeto `ufba-platform`, app **Interno** da organização ufba.br): login E Classroom das contas @ufba.br. Redirect `<PUBLIC_URL>/oauth/callback/google` (com usuário identificado = conexão do Classroom; sem = login). Apps internos não passam por verificação, então `drive.readonly` vale sem auditoria. No console: APIs do Classroom e do Drive ativadas; escopos do Classroom + `drive.readonly` em Acesso a dados.
+- **Convidados** (`GOOGLE_CLASSROOM_CLIENT_ID/SECRET`, projeto separado, app **Externo**): turmas em gmail pessoal. Redirect `<PUBLIC_URL>/oauth/callback/classroom`. Fica em **Testando** de propósito:
+  - `drive.readonly` é escopo **restrito** (público exigiria verificação + auditoria CASA anual);
+  - só os usuários de teste (até **100 no ciclo de vida do projeto**, não dá para zerar) conseguem conectar;
+  - o acesso expira em **7 dias** (a conta vira "reconectar" e a pessoa conecta de novo).
+- O Classroom é lido pelo app que emitiu o token, escolhido pelo domínio do e-mail (`appDaConta`). Uma conta @ufba.br não conecta pelo app de convidados, nem o contrário.
+- **Trava do `drive.readonly`**: o `ref` de um anexo do Classroom é `<curso>:<t|m|a>:<post>:<arquivo>`; `baixar` busca o post e só lê do Drive se o arquivo estiver anexado nele.
+- Avaliado e descartado: Picker com `drive.file` (escopo não sensível, mas exige escolher os arquivos numa janela do Google a cada grupo de downloads; protótipo funcionou, UX ruim).
 
-### Moodle: pendente
+Os dois clientes são do tipo **Aplicativo da Web** (o tipo Desktop de `docs/GOOGLE.md` serve só ao script de refresh token).
 
-O SSO pelo servidor (`docs/MOODLE.md`, Spike 2) **ainda não foi executado contra o AVA real**, e o redirect `https://` (Spike 1) foi descartado. Por isso "Conectar Moodle" não conecta nada hoje e **não existe campo para colar token**. Quando o spike validar o fluxo, basta implementar `MoodleLinkPort.startUrl/handleReturn` em `MoodleLink`; a tela e as rotas (`/oauth/connect/moodle`, `/oauth/return/moodle`) já existem.
+### Moodle
+
+O login acontece no navegador da pessoa; o servidor nunca vê a senha. O `launch.php` usa `urlscheme=web+ufba` (o AVA aceita); a tela registra o serviço como tratador desse esquema (`navigator.registerProtocolHandler`) e o navegador entrega o token em `GET /oauth/moodle/capture` (transação num cookie HttpOnly de 15 min). Plano B: colar o link em `POST /oauth/connect/moodle`. Com `moodlemobile://`, no Windows o token ia para o diálogo "Obter um aplicativo" e se perdia. `MOODLE_SITE_URL` (padrão `https://ava.ufba.br`), `MOODLE_URL_SCHEME` (padrão `web+ufba`). O AVA não envia o intermediário TLS; ele fica em `certs/` (ver `src/infrastructure/tls/extra-ca.ts`).
 
 ### Outras decisões
 
-- `GET /insights?tipo=` e `POST /historico/importar` existem no REST para manter a paridade com o MCP.
-- `listar_itens` agora devolve `attachments` (id, nome, tipo, tamanho) de cada item, que são os ids de `ler_anexo`.
 - Os testes do transporte usam `src/interface/mcp/testing/` (stubs e memória), que nunca entra no `AppModule`.

@@ -62,14 +62,29 @@ export class MoodleGateway implements SourceGateway {
 
     const items: FetchedItem[] = [];
     const grades: FetchedGrade[] = [];
+    const partial = { items: [] as string[], grades: [] as string[] };
+    const warnings: string[] = [];
+    // Uma falha do AVA num curso (ex.: 504 no relatório de notas) não derruba os outros; token inválido derruba.
+    const tolerate = async <T>(what: 'items' | 'grades', c: MoodleCourse, fn: () => Promise<T[]>): Promise<T[]> => {
+      try {
+        return await fn();
+      } catch (e) {
+        if (e instanceof MoodleError && (e.errorCode === 'invalidtoken' || e.errorCode === 'accessexception')) throw e;
+        partial[what].push(String(c.id));
+        const label = what === 'items' ? 'conteúdos' : 'notas';
+        warnings.push(`${label} de "${c.fullname ?? c.id}" não vieram: ${e instanceof Error ? e.message : 'erro'}`);
+        return [];
+      }
+    };
     for (const c of courses) {
-      items.push(...(await this.courseItems(ctx, c.id)));
+      items.push(...(await tolerate('items', c, () => this.courseItems(ctx, c.id))));
       if (scope.kind !== 'item') {
-        grades.push(...(await this.courseGrades(ctx, c.id, site.userid)));
+        grades.push(...(await tolerate('grades', c, () => this.courseGrades(ctx, c.id, site.userid))));
       }
     }
 
     return {
+      ...(partial.items.length || partial.grades.length ? { partial, warnings } : {}),
       courseSpaces: courses.map(mapCourse),
       items:
         scope.kind === 'item'

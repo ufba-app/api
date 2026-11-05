@@ -67,7 +67,7 @@ export class IdentityService implements Authenticator {
   }): Promise<SourceAccountRecord> {
     if (input.provider === 'SIGAA' && input.secretPlain !== undefined) {
       throw new InvalidAccountError(
-        'A conta do SIGAA nunca guarda segredo: a senha só viaja no sincronizar.',
+        'A conta do SIGAA nunca guarda segredo: a senha só viaja na consulta, em memória.',
       );
     }
     return this.accounts.upsert({

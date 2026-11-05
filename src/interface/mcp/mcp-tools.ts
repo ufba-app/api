@@ -2,21 +2,29 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { McpPrincipal, McpUseCases } from './mcp-ports';
 
-const FONTE = z.enum(['sigaa', 'moodle', 'classroom', 'calendar']);
+const FONTE = z
+  .enum(['moodle', 'classroom'])
+  .optional()
+  .describe('De onde ler: `moodle` (padrão, AVA da UFBA) ou `classroom` (Google Classroom).');
 
-const LEITURA =
-  'Somente leitura: consulta o banco e NÃO atualiza nada nas fontes. ' +
-  'Confira `atualizadoEm` no resultado; se o dado estiver velho para o que o usuário precisa, ' +
-  'chame antes a ferramenta `sincronizar`.';
+const CONTA = z
+  .string()
+  .optional()
+  .describe(
+    'Conta da fonte a ler (ex.: o e-mail no Classroom), como aparece em `listar_contas`. Pode omitir quando há ' +
+      'uma conta só nessa fonte; com mais de uma, é obrigatória.',
+  );
 
-/** Ferramentas que só leem do banco (o teste garante que nunca tocam em fonte). */
-export const FERRAMENTAS_LEITURA = [
-  'listar_itens',
-  'agenda',
-  'mudancas',
-  'perfil',
-  'historico',
-  'insights',
+const AO_VIVO = 'Consulta a fonte AO VIVO, em UMA conta, com o acesso que a pessoa conectou; não grava nada.';
+
+/** Ferramentas e quantas chamadas cada uma faz à fonte (o teste garante esse teto). */
+export const FERRAMENTAS = [
+  'listar_contas',
+  'listar_cursos',
+  'prazos',
+  'ver_curso',
+  'ver_forum',
+  'baixar_anexo',
 ] as const;
 
 function json(value: unknown) {
@@ -43,122 +51,85 @@ async function run<T>(fn: () => Promise<T>) {
 
 /** Cria um servidor MCP para uma requisição, com ferramentas finas sobre os casos de uso. */
 export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
-  const server = new McpServer({ name: 'platform', version: '0.0.1' });
+  const server = new McpServer({ name: 'platform', version: '0.1.0' });
 
   server.registerTool(
-    'sincronizar',
+    'listar_contas',
     {
       description:
-        'ÚNICA ferramenta que vai buscar dados nas fontes (SIGAA, Moodle, Classroom, Calendar) e gravar no banco. ' +
-        'Use quando `atualizadoEm` de uma leitura estiver velho. alcance: "tudo", "curso" (cursoId = id do curso na fonte) ' +
-        'ou "item" (cursoId + itemId). O SIGAA só aceita "tudo" e exige `credencial` {usuario, senha}, usada só nesta chamada ' +
-        '(em memória, nunca guardada). Moodle e Google usam o token guardado na conexão; não peça nem aceite tokens aqui, ' +
-        'eles são conectados pela tela de autorização.',
+        'Contas conectadas pela pessoa em cada fonte (ex.: Moodle da UFBA; Classroom no gmail pessoal e no @ufba.br). ' +
+        'Use para saber o que passar em `conta` nas outras ferramentas; para ler todas, consulte uma conta por vez. ' +
+        '`status: reconectar` = a fonte recusou o acesso guardado. Não consulta fonte nenhuma.',
+      inputSchema: {},
+    },
+    () => run(() => uc.listarContas(p)),
+  );
+
+  server.registerTool(
+    'listar_cursos',
+    {
+      description:
+        'Lista as matérias da pessoa na fonte (padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
+        'Use o `id` em `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, todas: z.boolean().optional() },
+    },
+    (args) => run(() => uc.listarCursos(p, args)),
+  );
+
+  server.registerTool(
+    'prazos',
+    {
+      description:
+        'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Moodle: uma consulta ao ' +
+        'calendário. Classroom: uma consulta por matéria ativa (com teto). Comece por aqui para perguntas como ' +
+        '"o que tenho para hoje/esta semana"; para uma visão completa, consulte cada conta de `listar_contas`. ' +
+        AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA },
+    },
+    (args) => run(() => uc.prazos(p, args)),
+  );
+
+  server.registerTool(
+    'ver_curso',
+    {
+      description:
+        'Conteúdo de UMA matéria: tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
+        'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`. Classroom: arquivos em `abrirNoNavegador` ' +
+        '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
+        '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
+    },
+    (args) => run(() => uc.verCurso(p, args)),
+  );
+
+  server.registerTool(
+    'ver_forum',
+    {
+      description:
+        'Discussões de UM fórum do Moodle (inclui o fórum de avisos da matéria), com mensagem e anexos. Use o ' +
+        '`forumId` vindo de `ver_curso`. (O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
+    },
+    (args) => run(() => uc.verForum(p, args)),
+  );
+
+  server.registerTool(
+    'baixar_anexo',
+    {
+      description:
+        'Gera links temporários (uso único) para baixar anexos NA MÁQUINA de quem está usando: rode os comandos ' +
+        '`comoBaixar` do resultado. O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
+        'Passe `ref` (e `nome`) de um anexo de `ver_curso`/`ver_forum`, ou `anexos` com vários da mesma conta ' +
+        '(até 20). No Classroom, só arquivos anexados nas matérias são entregues.',
       inputSchema: {
         fonte: FONTE,
-        alcance: z.enum(['tudo', 'curso', 'item']).default('tudo'),
-        cursoId: z.string().optional(),
-        itemId: z.string().optional(),
-        credencial: z
-          .object({ usuario: z.string().optional(), senha: z.string().optional() })
-          .optional(),
+        conta: CONTA,
+        ref: z.string().optional(),
+        nome: z.string().optional(),
+        anexos: z.array(z.object({ ref: z.string(), nome: z.string().optional() })).max(20).optional(),
       },
     },
-    (args) => run(() => uc.sincronizar(p, args)),
-  );
-
-  server.registerTool(
-    'listar_itens',
-    {
-      description:
-        'Lista avisos, tarefas, provas, materiais e fóruns das disciplinas (cada item traz seus `attachments`, ' +
-        'com os ids para `ler_anexo`). ' + LEITURA,
-      inputSchema: {
-        fonte: FONTE.optional(),
-        cursoId: z.string().optional(),
-        tipo: z.enum(['aviso', 'tarefa', 'prova', 'material', 'forum', 'outro']).optional(),
-        limite: z.number().int().min(1).max(500).optional(),
-      },
-    },
-    (args) => run(() => uc.listarItens(p, args)),
-  );
-
-  server.registerTool(
-    'agenda',
-    {
-      description:
-        'Agenda do aluno (prazos e eventos) num intervalo; padrão: de agora até 14 dias. `de`/`ate` em ISO 8601. ' +
-        LEITURA,
-      inputSchema: { de: z.string().optional(), ate: z.string().optional() },
-    },
-    (args) => run(() => uc.agenda(p, args)),
-  );
-
-  server.registerTool(
-    'mudancas',
-    {
-      description:
-        'O que mudou (novo, alterado, removido) desde um instante, detectado nas sincronizações; padrão: últimos 7 dias. ' +
-        '`desde` em ISO 8601. ' +
-        LEITURA,
-      inputSchema: { desde: z.string().optional() },
-    },
-    (args) => run(() => uc.mudancas(p, args)),
-  );
-
-  server.registerTool(
-    'perfil',
-    {
-      description: 'Perfil acadêmico do aluno (matrícula, curso, contas conectadas). ' + LEITURA,
-      inputSchema: {},
-    },
-    () => run(() => uc.perfil(p)),
-  );
-
-  server.registerTool(
-    'historico',
-    {
-      description:
-        'Histórico acadêmico já importado (disciplinas cursadas e pendentes). Se for null, ainda não foi importado: ' +
-        'use `importar_historico`. ' + LEITURA,
-      inputSchema: {},
-    },
-    () => run(() => uc.historico(p)),
-  );
-
-  server.registerTool(
-    'insights',
-    {
-      description:
-        'Análises calculadas sobre o histórico já importado: tipo "cr" (coeficiente de rendimento), ' +
-        '"trajetoria" (desempenho por semestre) ou "pendentes" (o que falta cursar). ' +
-        LEITURA,
-      inputSchema: { tipo: z.enum(['cr', 'trajetoria', 'pendentes']) },
-    },
-    ({ tipo }) => run(() => uc.insights(p, tipo)),
-  );
-
-  server.registerTool(
-    'importar_historico',
-    {
-      description:
-        'Importa o histórico acadêmico: entra no SIGAA com usuario/senha (usados só nesta chamada, em memória, nunca ' +
-        'guardados), baixa o PDF do histórico, extrai e valida. Divergências de validação vêm no resultado. ' +
-        'Chame só quando `historico` estiver vazio ou velho; é lento.',
-      inputSchema: { usuario: z.string(), senha: z.string() },
-    },
-    (args) => run(() => uc.importarHistorico(p, args)),
-  );
-
-  server.registerTool(
-    'ler_anexo',
-    {
-      description:
-        'Lê o conteúdo de um anexo de um item (busca na fonte sob demanda; o banco guarda só metadados). ' +
-        'Use `itemId` e o `id` do anexo vindos de `listar_itens`. Texto volta como texto; binário, em base64.',
-      inputSchema: { itemId: z.string(), anexoId: z.string() },
-    },
-    (args) => run(() => uc.lerAnexo(p, args)),
+    (args) => run(() => uc.baixarAnexo(p, args)),
   );
 
   return server;

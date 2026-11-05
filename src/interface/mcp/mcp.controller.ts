@@ -29,7 +29,7 @@ export class McpController {
       return;
     }
 
-    const server = buildMcpServer(this.useCases, principal);
+    const server = buildMcpServer(this.useCases, { ...principal, baseUrl: baseUrl(req) });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

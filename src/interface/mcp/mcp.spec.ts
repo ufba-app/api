@@ -4,51 +4,21 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpTestingModule, TEST_API_KEY } from './testing/mcp-testing.module';
-import { buildMcpServer, FERRAMENTAS_LEITURA } from './mcp-tools';
+import { buildMcpServer, FERRAMENTAS } from './mcp-tools';
 import { McpUseCases } from './mcp-ports';
 
-/** Gateway de fonte falso: qualquer chamada nele é uma ida à fonte externa. */
-const gateway = { fetch: jest.fn() };
-
-/**
- * Casos de uso falsos no formato do contrato: só `sincronizar` e `lerAnexo` tocam o gateway,
- * como no desenho (ARQUITETURA §2.2). Leituras só devolvem dados do "banco".
- */
 function fakeUseCases(): jest.Mocked<McpUseCases> {
-  const leitura = async (..._args: unknown[]) => ({ atualizadoEm: '2026-10-31T10:00:00.000Z', dados: [] });
   return {
-    sincronizar: jest.fn(async (_p, i) => {
-      await gateway.fetch(i);
-      return { fonte: i.fonte, alcance: i.alcance, novos: 1, alterados: 0, removidos: 0, atualizadoEm: 'x' };
-    }),
-    listarItens: jest.fn(leitura),
-    agenda: jest.fn(leitura),
-    mudancas: jest.fn(leitura),
-    perfil: jest.fn(leitura),
-    historico: jest.fn(leitura),
-    insights: jest.fn(leitura),
-    importarHistorico: jest.fn(async () => {
-      await gateway.fetch('sigaa');
-      return { atualizadoEm: 'x', dados: null };
-    }),
-    lerAnexo: jest.fn(async (_p, _i) => {
-      await gateway.fetch('anexo');
-      return { nome: 'a.txt', mimeType: 'text/plain', conteudo: 'oi', codificacao: 'texto' as const };
-    }),
+    listarCursos: jest.fn(async () => ({ cursos: [{ id: '10', nome: 'Tópicos' }] })),
+    prazos: jest.fn(async () => ({ prazos: [] })),
+    verCurso: jest.fn(async () => ({ atividades: [] })),
+    verForum: jest.fn(async () => ({ discussoes: [] })),
+    baixarAnexo: jest.fn(async () => ({ link: 'x' })),
   } as unknown as jest.Mocked<McpUseCases>;
 }
 
-const ARGS: Record<(typeof FERRAMENTAS_LEITURA)[number], Record<string, unknown>> = {
-  listar_itens: {},
-  agenda: {},
-  mudancas: {},
-  perfil: {},
-  historico: {},
-  insights: { tipo: 'cr' },
-};
-
 async function connect(uc: McpUseCases): Promise<Client> {
-  const server = buildMcpServer(uc, { userId: 'u1' });
+  const server = buildMcpServer(uc, { userId: 'u1', baseUrl: 'http://srv' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'teste', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -56,62 +26,34 @@ async function connect(uc: McpUseCases): Promise<Client> {
 }
 
 describe('ferramentas MCP', () => {
-  beforeEach(() => gateway.fetch.mockClear());
-
-  it('expõe as ferramentas em português', async () => {
+  it('expõe só as ferramentas de leitura ao vivo (nada de sincronizar)', async () => {
     const client = await connect(fakeUseCases());
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(
-      ['agenda', 'historico', 'importar_historico', 'insights', 'ler_anexo', 'listar_itens', 'mudancas', 'perfil', 'sincronizar'],
-    );
+    expect(tools.map((t) => t.name).sort()).toEqual([...FERRAMENTAS].sort());
+    for (const t of tools) expect(t.description).not.toContain('sincroniz');
   });
 
-  it.each(FERRAMENTAS_LEITURA)('%s não chama gateway de fonte nem sincronizar', async (nome) => {
+  it('repassa principal (com baseUrl) e argumentos ao caso de uso', async () => {
     const uc = fakeUseCases();
     const client = await connect(uc);
-
-    const res = await client.callTool({ name: nome, arguments: ARGS[nome] });
-
+    const res = await client.callTool({ name: 'ver_curso', arguments: { cursoId: '10' } });
     expect(res.isError).toBeFalsy();
-    expect(gateway.fetch).not.toHaveBeenCalled();
-    expect(uc.sincronizar).not.toHaveBeenCalled();
-    expect(uc.lerAnexo).not.toHaveBeenCalled();
-    expect(uc.importarHistorico).not.toHaveBeenCalled();
-    const text = (res.content as { text: string }[])[0].text;
-    expect(JSON.parse(text).atualizadoEm).toBe('2026-10-31T10:00:00.000Z');
+    expect(uc.verCurso).toHaveBeenCalledWith({ userId: 'u1', baseUrl: 'http://srv' }, { cursoId: '10' });
   });
 
-  it('descrições de leitura orientam a sincronizar quando velho', async () => {
+  it('ver_curso exige cursoId', async () => {
     const client = await connect(fakeUseCases());
-    const { tools } = await client.listTools();
-    for (const t of tools.filter((x) => (FERRAMENTAS_LEITURA as readonly string[]).includes(x.name))) {
-      expect(t.description).toContain('atualizadoEm');
-      expect(t.description).toContain('sincronizar');
-    }
-  });
-
-  it('sincronizar é o que vai à fonte, repassando a credencial só ao caso de uso', async () => {
-    const uc = fakeUseCases();
-    const client = await connect(uc);
-
-    await client.callTool({
-      name: 'sincronizar',
-      arguments: { fonte: 'sigaa', alcance: 'tudo', credencial: { usuario: 'u', senha: 's' } },
-    });
-
-    expect(gateway.fetch).toHaveBeenCalledTimes(1);
-    expect(uc.sincronizar).toHaveBeenCalledWith(
-      { userId: 'u1' },
-      expect.objectContaining({ fonte: 'sigaa', alcance: 'tudo' }),
-    );
+    const res = await client.callTool({ name: 'ver_curso', arguments: {} });
+    expect(res.isError).toBe(true);
   });
 
   it('erro de caso de uso vira resultado isError', async () => {
     const uc = fakeUseCases();
-    uc.perfil.mockRejectedValue(new Error('falhou'));
+    uc.prazos.mockRejectedValue(new Error('Moodle não conectado'));
     const client = await connect(uc);
-    const res = await client.callTool({ name: 'perfil', arguments: {} });
+    const res = await client.callTool({ name: 'prazos', arguments: {} });
     expect(res.isError).toBe(true);
+    expect((res.content as { text: string }[])[0].text).toContain('Moodle não conectado');
   });
 });
 
@@ -149,8 +91,8 @@ describe('POST /mcp (Streamable HTTP)', () => {
       }),
     );
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(9);
-    const res = await client.callTool({ name: 'agenda', arguments: {} });
+    expect(tools).toHaveLength(FERRAMENTAS.length);
+    const res = await client.callTool({ name: 'prazos', arguments: {} });
     expect(res.isError).toBeFalsy();
     await client.close();
   });

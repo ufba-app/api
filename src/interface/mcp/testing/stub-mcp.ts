@@ -1,32 +1,23 @@
-import type { McpPrincipal, McpUseCases } from '../mcp-ports';
+import type { McpUseCases } from '../mcp-ports';
 
 /** Casos de uso vazios, só para testar o transporte e as rotas sem banco (nunca entram no AppModule). */
 export class StubMcpUseCases implements McpUseCases {
-  async sincronizar() {
-    return { counts: { created: 0, updated: 0, removed: 0, unchanged: 0 } };
+  async listarContas() {
+    return { contas: [] };
   }
-  async listarItens() {
-    return { atualizadoEm: null, dados: [] };
+  async listarCursos() {
+    return { cursos: [] };
   }
-  async agenda() {
-    return { atualizadoEm: null, dados: [] };
+  async prazos() {
+    return { prazos: [] };
   }
-  async mudancas() {
-    return { atualizadoEm: null, dados: [] };
+  async verCurso() {
+    return { atividades: [] };
   }
-  async perfil() {
-    return { atualizadoEm: null, dados: null };
+  async verForum() {
+    return { discussoes: [] };
   }
-  async historico() {
-    return { atualizadoEm: null, dados: null };
-  }
-  async insights() {
-    return { atualizadoEm: null, dados: null };
-  }
-  async importarHistorico(_p: McpPrincipal) {
-    return { atualizadoEm: null, dados: null };
-  }
-  async lerAnexo() {
-    throw new Error('lerAnexo não disponível no stub de teste');
+  async baixarAnexo() {
+    return { link: 'http://localhost/download/x' };
   }
 }

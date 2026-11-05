@@ -2,6 +2,8 @@ import { Body, Controller, Get, Header, HttpCode, Inject, Post, Query, Req, Res 
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
 import {
+  CLASSROOM_LINK,
+  ClassroomLinkPort,
   GOOGLE_LINK,
   GoogleLinkPort,
   MOODLE_LINK,
@@ -10,10 +12,26 @@ import {
   OAuthStore,
 } from '../../../application/oauth/oauth-ports';
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
-import { connectPage, errorPage, identifyPage } from './pages';
+import { connectPage, errorPage, identifyPage, moodlePage } from './pages';
 import { timingSafeEqual } from 'node:crypto';
 
 export const OAUTH_SERVICE = Symbol('OAUTH_SERVICE');
+
+const MOODLE_TXN_COOKIE = 'ufba_moodle_txn';
+
+function readCookie(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.cookie ?? '').split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) {
+      try {
+        return decodeURIComponent(v.join('='));
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
 
 function secretOk(given: string | undefined): boolean {
   const expected = process.env.OAUTH_AUTHORIZE_SECRET;
@@ -30,6 +48,7 @@ export class OAuthController {
     @Inject(OAUTH_STORE) private readonly store: OAuthStore,
     @Inject(GOOGLE_LINK) private readonly google: GoogleLinkPort,
     @Inject(MOODLE_LINK) private readonly moodle: MoodleLinkPort,
+    @Inject(CLASSROOM_LINK) private readonly classroom: ClassroomLinkPort,
   ) {}
 
   // ---- metadados (RFC 9728 e RFC 8414) ----
@@ -82,7 +101,10 @@ export class OAuthController {
     try {
       const p = await this.oauth.begin(q);
       const client = await this.store.getClient(p.clientId);
-      this.html(res, identifyPage(p.id, client?.clientName, !!process.env.OAUTH_AUTHORIZE_SECRET));
+      this.html(
+        res,
+        identifyPage(p.id, client?.clientName, !!process.env.OAUTH_AUTHORIZE_SECRET, undefined, this.google.loginEnabled()),
+      );
     } catch (e) {
       this.htmlError(res, e);
     }
@@ -94,8 +116,16 @@ export class OAuthController {
       if (b.acao === 'negar') return res.redirect(303, await this.oauth.deny(b.txn));
       if (b.acao === 'concluir') return res.redirect(303, await this.oauth.complete(b.txn));
 
-      // identificar
+      // identificar. Com o Google configurado, e-mail digitado não identifica ninguém: só o login Google.
       const pending = await this.oauth.pending(b.txn);
+      if (this.google.loginEnabled()) {
+        const client = await this.store.getClient(pending.clientId);
+        return this.html(
+          res,
+          identifyPage(pending.id, client?.clientName, false, 'Entre com sua conta Google institucional.', true),
+          403,
+        );
+      }
       if (!secretOk(b.secret)) {
         const client = await this.store.getClient(pending.clientId);
         return this.html(res, identifyPage(pending.id, client?.clientName, true, 'Senha de acesso incorreta.'), 403);
@@ -107,16 +137,15 @@ export class OAuthController {
     }
   }
 
-  // ---- conectar Google ----
+  // ---- login com Google (identidade: openid/email/profile, só @ufba.br) ----
 
-  @Get('oauth/connect/google')
-  async googleStart(@Query('txn') txn: string, @Req() req: Request, @Res() res: Response) {
+  @Get('oauth/login/google')
+  async googleLogin(@Query('txn') txn: string, @Req() req: Request, @Res() res: Response) {
     try {
-      const p = await this.identified(txn);
-      const url = await this.google.startUrl(p.userId!, `${baseUrl(req)}/oauth/callback/google`, p.id);
-      res.redirect(303, url);
+      const p = await this.oauth.pending(txn);
+      res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
     } catch (e) {
-      await this.backToConnect(res, txn, e);
+      this.htmlError(res, e);
     }
   }
 
@@ -127,36 +156,154 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    const callbackUrl = `${baseUrl(req)}/oauth/callback/google`;
+    let p;
+    try {
+      p = await this.oauth.pending(txn);
+    } catch (e) {
+      return this.htmlError(res, e);
+    }
+    // Mesmo redirect do app interno para as duas etapas: sem usuário ainda = LOGIN; com usuário = CLASSROOM @ufba.br.
+    if (p.userId) {
+      try {
+        const { email } = await this.classroom.handleCallback('ufba', p.userId, code, callbackUrl);
+        return await this.renderConnect(res, p.id, p.userId, `Classroom conectado (${email}).`);
+      } catch (e) {
+        return await this.backToConnect(res, txn, e);
+      }
+    }
+    try {
+      const { email } = await this.google.handleLoginCallback(code, callbackUrl);
+      const next = await this.oauth.identify(p.id, email);
+      await this.renderConnect(res, next.id, next.userId!);
+    } catch (e) {
+      const client = await this.store.getClient(p.clientId);
+      const msg = e instanceof Error ? e.message : 'Falha ao entrar com o Google';
+      this.html(res, identifyPage(p.id, client?.clientName, false, msg, true), 403);
+    }
+  }
+
+  // ---- conectar Classroom: @ufba.br (app interno, callback acima) ou convidado (app externo, callback abaixo) ----
+
+  @Get('oauth/connect/classroom')
+  async classroomStart(
+    @Query('txn') txn: string,
+    @Query('app') app: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     try {
       const p = await this.identified(txn);
-      await this.google.handleCallback(p.userId!, code, `${baseUrl(req)}/oauth/callback/google`);
-      await this.renderConnect(res, p.id, p.userId!, 'Google conectado.');
+      const qual = app === 'convidado' ? 'convidado' : 'ufba';
+      const callback = `${baseUrl(req)}/oauth/callback/${qual === 'ufba' ? 'google' : 'classroom'}`;
+      res.redirect(303, await this.classroom.startUrl(qual, callback, p.id));
     } catch (e) {
       await this.backToConnect(res, txn, e);
     }
   }
 
-  // ---- conectar Moodle (SSO via MoodleLinkPort; sem campo para colar token) ----
+  @Get('oauth/callback/classroom')
+  async classroomCallback(
+    @Query('code') code: string,
+    @Query('state') txn: string,
+    @Query('error') error: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    try {
+      const p = await this.identified(txn);
+      if (error) throw new Error('Conexão com o Classroom cancelada na tela do Google.');
+      const callbackUrl = `${baseUrl(req)}/oauth/callback/classroom`;
+      const { email } = await this.classroom.handleCallback('convidado', p.userId!, code, callbackUrl);
+      await this.renderConnect(res, p.id, p.userId!, `Classroom conectado (${email}).`);
+    } catch (e) {
+      await this.backToConnect(res, txn, e);
+    }
+  }
+
+  @Get('oauth/connect')
+  async connectHome(@Query('txn') txn: string, @Query('ok') ok: string, @Res() res: Response) {
+    try {
+      const p = await this.identified(txn);
+      await this.renderConnect(res, p.id, p.userId!, ok === 'moodle' ? 'Moodle conectado.' : undefined);
+    } catch (e) {
+      this.htmlError(res, e);
+    }
+  }
+
+  // ---- conectar Moodle: login no navegador da pessoa ----
+  // Caminho principal: o launch.php termina em `web+ufba://token=...`; a tela registra este serviço como tratador
+  // desse esquema (navigator.registerProtocolHandler) e o navegador entrega o endereço em /oauth/moodle/capture.
+  // A transação vem num cookie HttpOnly curto (o endereço do tratador é fixo). Plano B: colar o link na caixa.
+
+  private async renderMoodle(res: Response, req: Request, txn: string, userId: string, error?: string) {
+    const base = baseUrl(req);
+    const secure = base.startsWith('https://') ? '; Secure' : '';
+    res.setHeader(
+      'Set-Cookie',
+      `${MOODLE_TXN_COOKIE}=${encodeURIComponent(txn)}; Path=/oauth; HttpOnly; SameSite=Lax; Max-Age=900${secure}`,
+    );
+    this.html(
+      res,
+      moodlePage({
+        txn,
+        host: this.moodle.host(),
+        launchUrl: await this.moodle.launchUrl(userId, txn),
+        scheme: this.moodle.scheme(),
+        captureUrl: `${base}/oauth/moodle/capture?u=%s`,
+        error,
+      }),
+      error ? 400 : 200,
+    );
+  }
 
   @Get('oauth/connect/moodle')
-  async moodleStart(@Query('txn') txn: string, @Req() req: Request, @Res() res: Response) {
+  async moodleStart(@Query('txn') txn: string, @Query('erro') erro: string, @Req() req: Request, @Res() res: Response) {
     try {
       const p = await this.identified(txn);
-      const url = await this.moodle.startUrl(p.userId!, `${baseUrl(req)}/oauth/return/moodle?txn=${encodeURIComponent(p.id)}`);
-      res.redirect(303, url);
+      await this.renderMoodle(res, req, p.id, p.userId!, erro || undefined);
     } catch (e) {
       await this.backToConnect(res, txn, e);
     }
   }
 
-  @Get('oauth/return/moodle')
-  async moodleReturn(@Query('txn') txn: string, @Query('payload') payload: string, @Res() res: Response) {
+  @Get('oauth/moodle/capture')
+  async moodleCapture(@Query('u') u: string, @Req() req: Request, @Res() res: Response) {
+    const txn = readCookie(req, MOODLE_TXN_COOKIE);
+    let p;
     try {
-      const p = await this.identified(txn);
-      await this.moodle.handleReturn(p.userId!, payload ?? '');
+      p = await this.identified(txn);
+    } catch {
+      return this.html(
+        res,
+        errorPage('Não encontrei o pedido de conexão. Volte à tela "Conectar o Moodle" e tente de novo.'),
+        400,
+      );
+    }
+    const t = encodeURIComponent(p.id);
+    // Sempre redireciona: o endereço com o token sai da barra e do histórico desta aba.
+    try {
+      await this.moodle.connect(p.userId!, p.id, u ?? '');
+      res.redirect(303, `/oauth/connect?txn=${t}&ok=moodle`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar o Moodle';
+      res.redirect(303, `/oauth/connect/moodle?txn=${t}&erro=${encodeURIComponent(msg)}`);
+    }
+  }
+
+  @Post('oauth/connect/moodle')
+  async moodleConnect(@Body() b: Record<string, string>, @Req() req: Request, @Res() res: Response) {
+    let p;
+    try {
+      p = await this.identified(b.txn);
+    } catch (e) {
+      return this.htmlError(res, e);
+    }
+    try {
+      await this.moodle.connect(p.userId!, p.id, b.link ?? '');
       await this.renderConnect(res, p.id, p.userId!, 'Moodle conectado.');
     } catch (e) {
-      await this.backToConnect(res, txn, e);
+      await this.renderMoodle(res, req, p.id, p.userId!, e instanceof Error ? e.message : 'Falha ao conectar o Moodle');
     }
   }
 
@@ -182,8 +329,12 @@ export class OAuthController {
   }
 
   private async renderConnect(res: Response, txn: string, userId: string, notice?: string, error?: string) {
-    const [g, m] = await Promise.all([this.google.status(userId), this.moodle.status(userId)]);
-    this.html(res, connectPage({ txn, google: g.connected, moodle: m.connected, notice, error }));
+    const [contas, m] = await Promise.all([
+      this.classroom.enabled() ? this.classroom.contas(userId) : Promise.resolve(null),
+      this.moodle.status(userId),
+    ]);
+    const classroom = contas === null ? null : { contas, apps: this.classroom.apps() };
+    this.html(res, connectPage({ txn, classroom, moodle: m.connected, notice, error }));
   }
 
   /** Falha num vínculo não derruba a autorização: volta para a tela de conexões com o aviso. */

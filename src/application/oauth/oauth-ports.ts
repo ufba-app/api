@@ -73,23 +73,48 @@ export interface LinkStatus {
   connected: boolean;
 }
 
-/** Vínculo com o Google (OAuth, Classroom + Calendar). Quem implementa é o módulo Google. */
+/** Login do serviço com Google (só identidade, domínio institucional). Quem implementa é o módulo Google. */
 export interface GoogleLinkPort {
-  status(userId: string): Promise<LinkStatus>;
-  /** URL do consentimento do Google; `callbackUrl` é o callback https do serviço. */
-  startUrl(userId: string, callbackUrl: string, state: string): Promise<string>;
-  /** Troca o code pelos tokens e guarda cifrado. */
-  handleCallback(userId: string, code: string, callbackUrl: string): Promise<void>;
+  /** true quando o Google está configurado: aí ele É o login do serviço (sem e-mail/senha digitados). */
+  loginEnabled(): boolean;
+  /** URL do consentimento de LOGIN (só openid/email/profile, restrito ao domínio permitido). */
+  startLoginUrl(callbackUrl: string, state: string): Promise<string>;
+  /** Troca o code e devolve o e-mail verificado do domínio permitido; lança se não for. */
+  handleLoginCallback(code: string, callbackUrl: string): Promise<{ email: string }>;
+}
+
+export const CLASSROOM_LINK = Symbol('CLASSROOM_LINK');
+
+/**
+ * Qual app OAuth conecta o Classroom: `ufba` = o app interno do login (contas do domínio, sem limite);
+ * `convidado` = o app externo em teste (gmail pessoal, só usuários de teste adicionados à mão).
+ */
+export type AppClassroom = 'ufba' | 'convidado';
+
+/** Conectar o Classroom (pode ser mais de uma conta). */
+export interface ClassroomLinkPort {
+  enabled(): boolean;
+  /** Apps configurados neste servidor. */
+  apps(): AppClassroom[];
+  /** E-mails das contas conectadas e válidas. */
+  contas(userId: string): Promise<string[]>;
+  startUrl(app: AppClassroom, callbackUrl: string, state: string): Promise<string>;
+  /** Troca o code, confere o domínio, faz 1 leitura de teste e guarda o refresh token cifrado. */
+  handleCallback(app: AppClassroom, userId: string, code: string, callbackUrl: string): Promise<{ email: string }>;
 }
 
 /**
- * Vínculo com o Moodle por SSO (launch.php do Moodle Mobile). Não existe campo para colar token.
- * Quem implementa é o módulo Moodle (funções puras de token da Maresia); o spike do redirect está aberto.
+ * Vínculo com o Moodle pelo launch.php do Moodle Mobile: a pessoa faz o login no PRÓPRIO navegador e cola na tela o
+ * link de redirecionamento (`moodlemobile://token=...`). Quem implementa é o módulo Moodle.
  */
 export interface MoodleLinkPort {
   status(userId: string): Promise<LinkStatus>;
-  /** URL do launch.php (com passport/urlscheme) para onde mandar o usuário. */
-  startUrl(userId: string, returnUrl: string): Promise<string>;
-  /** Recebe o retorno do launch.php (token em base64), valida e guarda cifrado. */
-  handleReturn(userId: string, payload: string): Promise<void>;
+  /** Host do Moodle (para a tela explicar onde fazer o login). */
+  host(): string;
+  /** Esquema do redirect final do launch.php (ex.: `web+ufba`), que a tela registra como tratador. */
+  scheme(): string;
+  /** URL do launch.php (com passport/urlscheme) que a pessoa abre no próprio navegador. */
+  launchUrl(userId: string, txn: string): Promise<string>;
+  /** Recebe o link colado (`moodlemobile://token=...`), confere a assinatura, valida o token e guarda cifrado. */
+  connect(userId: string, txn: string, pasted: string): Promise<void>;
 }

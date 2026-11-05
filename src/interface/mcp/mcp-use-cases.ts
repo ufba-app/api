@@ -1,131 +1,75 @@
 import { Injectable } from '@nestjs/common';
-import { BadRequestException } from '@nestjs/common';
-import { HistoricoService } from '../../application/academic/historico.service';
-import { AnexoService } from '../../application/read/anexo.service';
-import { LeituraService } from '../../application/read/leitura.service';
-import type { ItemKind, Provider, SyncScope } from '../../application/ports/source-gateway';
-import { SincronizarService } from '../../application/sync/sincronizar.service';
+import { ConsultaService } from '../../application/live/consulta.service';
+import { DownloadLinks } from '../../application/live/download-links';
+import type { Provider } from '../../application/ports/source-gateway';
 import type {
-  AgendaInput,
+  BaixarAnexoInput,
   Fonte,
-  ImportarHistoricoInput,
-  InsightTipo,
-  Leitura,
-  LerAnexoInput,
-  ListarItensInput,
+  ListarCursosInput,
   McpPrincipal,
   McpUseCases,
-  MudancasInput,
-  SincronizarInput,
-  TipoItem,
+  PrazosInput,
+  VerCursoInput,
+  VerForumInput,
 } from './mcp-ports';
 
-const PROVIDERS: Record<Fonte, Provider> = {
-  sigaa: 'SIGAA',
-  moodle: 'MOODLE',
-  classroom: 'CLASSROOM',
-  calendar: 'CALENDAR',
-};
+const PROVIDERS: Record<Fonte, Provider> = { moodle: 'MOODLE', classroom: 'CLASSROOM' };
+const FONTES: Partial<Record<Provider, Fonte>> = { MOODLE: 'moodle', CLASSROOM: 'classroom' };
 
-const KINDS: Record<TipoItem, ItemKind> = {
-  aviso: 'ANNOUNCEMENT',
-  tarefa: 'ASSIGNMENT',
-  prova: 'ASSESSMENT',
-  material: 'MATERIAL',
-  forum: 'FORUM_TOPIC',
-  outro: 'OTHER',
-};
+const provider = (f?: Fonte): Provider => PROVIDERS[f ?? 'moodle'];
 
-const DIA_MS = 86_400_000;
-
-function data(value: string | undefined, nome: string, padrao: Date): Date {
-  if (!value) return padrao;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) throw new BadRequestException(`${nome} inválido (use ISO 8601)`);
-  return d;
-}
-
-function escopo(i: SincronizarInput): SyncScope {
-  if (i.alcance === 'tudo') return { kind: 'tudo' };
-  if (i.alcance === 'curso' && i.cursoId) return { kind: 'curso', courseExternalId: i.cursoId };
-  if (i.alcance === 'item' && i.cursoId && i.itemId) {
-    return { kind: 'item', courseExternalId: i.cursoId, itemExternalId: i.itemId };
-  }
-  throw new BadRequestException(
-    'alcance inválido: "tudo" | "curso" (com cursoId) | "item" (com cursoId e itemId)',
-  );
-}
-
-/**
- * Adapta os serviços de `application/` (os MESMOS do REST) às ferramentas MCP. Sem regra de negócio: só traduz
- * nomes e valida a forma da entrada.
- */
+/** Adapta o `ConsultaService` (leitura ao vivo) às ferramentas MCP. Sem regra de negócio. */
 @Injectable()
 export class McpUseCasesImpl implements McpUseCases {
   constructor(
-    private readonly sincronizarService: SincronizarService,
-    private readonly leitura: LeituraService,
-    private readonly historicoService: HistoricoService,
-    private readonly anexos: AnexoService,
+    private readonly consulta: ConsultaService,
+    private readonly downloads: DownloadLinks,
   ) {}
 
-  async sincronizar(p: McpPrincipal, i: SincronizarInput): Promise<unknown> {
-    const c = i.credencial;
-    const r = await this.sincronizarService.sincronizar({
-      userId: p.userId,
-      provider: PROVIDERS[i.fonte],
-      alcance: escopo(i),
-      senha: c?.usuario && c?.senha ? { username: c.usuario, password: c.senha } : undefined,
+  async listarContas(p: McpPrincipal) {
+    const contas = await this.consulta.contas(p.userId);
+    return {
+      contas: contas.flatMap((c) => {
+        const fonte = FONTES[c.provider];
+        return fonte ? [{ fonte, conta: c.conta, ...(c.status !== 'OK' ? { status: 'reconectar' } : {}) }] : [];
+      }),
+    };
+  }
+
+  async listarCursos(p: McpPrincipal, i: ListarCursosInput) {
+    return { cursos: await this.consulta.listarCursos(p.userId, provider(i.fonte), i.conta, { todas: i.todas }) };
+  }
+
+  async prazos(p: McpPrincipal, i: PrazosInput) {
+    return { prazos: await this.consulta.prazos(p.userId, provider(i.fonte), i.conta) };
+  }
+
+  async verCurso(p: McpPrincipal, i: VerCursoInput) {
+    return { cursoId: i.cursoId, atividades: await this.consulta.verCurso(p.userId, provider(i.fonte), i.conta, i.cursoId) };
+  }
+
+  async verForum(p: McpPrincipal, i: VerForumInput) {
+    return { forumId: i.forumId, discussoes: await this.consulta.verForum(p.userId, provider(i.fonte), i.conta, i.forumId) };
+  }
+
+  async baixarAnexo(p: McpPrincipal, i: BaixarAnexoInput) {
+    // Não toca a fonte aqui (só confere a conta no banco): o arquivo é buscado quando o link for usado.
+    const fonte = provider(i.fonte);
+    const anexos = i.anexos?.length ? i.anexos : i.ref ? [{ ref: i.ref, nome: i.nome }] : [];
+    if (anexos.length === 0) throw new Error('Informe `ref` ou `anexos`');
+    if (anexos.length > 20) throw new Error('No máximo 20 anexos por vez');
+    const conta = (await this.consulta.conta(p.userId, fonte, i.conta)).accountKey;
+    const base = (p.baseUrl ?? process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+
+    const arquivos = anexos.map((a) => {
+      const { id, expiresAt } = this.downloads.criar({ userId: p.userId, provider: fonte, conta, ref: a.ref, nome: a.nome });
+      const link = `${base}/download/${id}`;
+      const arquivo = (a.nome ?? 'anexo').replace(/["\\/]/g, '_');
+      return { nome: a.nome, link, expiraEm: expiresAt, comoBaixar: `curl -fL -o "${arquivo}" "${link}"` };
     });
-    return { fonte: i.fonte, syncRunId: r.syncRunId, counts: r.counts, atualizadoEm: r.atualizadoEm };
-  }
 
-  listarItens(p: McpPrincipal, i: ListarItensInput): Promise<Leitura> {
-    return this.leitura.listarItens({
-      userId: p.userId,
-      provider: i.fonte ? PROVIDERS[i.fonte] : undefined,
-      courseSpaceId: i.cursoId,
-      kind: i.tipo ? KINDS[i.tipo] : undefined,
-      limit: i.limite,
-    });
-  }
-
-  /** Padrão: de agora até +14 dias (igual ao REST). */
-  agenda(p: McpPrincipal, i: AgendaInput): Promise<Leitura> {
-    const de = data(i.de, 'de', new Date());
-    const ate = data(i.ate, 'ate', new Date(de.getTime() + 14 * DIA_MS));
-    return this.leitura.agenda({ userId: p.userId, de, ate });
-  }
-
-  /** Padrão: últimos 7 dias. */
-  mudancas(p: McpPrincipal, i: MudancasInput): Promise<Leitura> {
-    return this.leitura.mudancas({
-      userId: p.userId,
-      desde: data(i.desde, 'desde', new Date(Date.now() - 7 * DIA_MS)),
-    });
-  }
-
-  perfil(p: McpPrincipal): Promise<Leitura> {
-    return this.leitura.perfil(p.userId);
-  }
-
-  historico(p: McpPrincipal): Promise<Leitura> {
-    return this.leitura.historico(p.userId);
-  }
-
-  insights(p: McpPrincipal, tipo: InsightTipo): Promise<Leitura> {
-    return this.historicoService.insights(p.userId, tipo);
-  }
-
-  importarHistorico(p: McpPrincipal, i: ImportarHistoricoInput): Promise<Leitura> {
-    return this.historicoService.importar({
-      userId: p.userId,
-      username: i.usuario,
-      password: i.senha,
-    });
-  }
-
-  lerAnexo(p: McpPrincipal, i: LerAnexoInput): Promise<unknown> {
-    return this.anexos.ler(p.userId, i.itemId, i.anexoId);
+    return anexos.length === 1 && !i.anexos
+      ? { link: arquivos[0].link, expiraEm: arquivos[0].expiraEm, usoUnico: true, comoBaixar: arquivos[0].comoBaixar }
+      : { usoUnico: true, arquivos };
   }
 }

@@ -26,11 +26,11 @@ O banco guarda só metadados + `sourceUrl` (sem token). `MoodleAttachmentReader.
 
 ## Como o token é obtido
 
-O token **nunca é colado pelo usuário** (nem entra por ferramenta MCP). O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:
+O token é obtido pelo login no navegador da pessoa e colado **só na tela de conexão** do /authorize (link de redirecionamento `moodlemobile://token=...`); nunca entra por ferramenta MCP. O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:
 
 - **App antigo:** WebView que captura o redirect nativo (`ufba-app://`).
 - **Plataforma (descartado):** redirect `https://` para página nossa. O Moodle valida o `urlscheme`, então não serve (ver "Spike 1").
-- **Plataforma (hipótese atual):** o **servidor** faz o SSO CAFe/Shibboleth com usuário e senha recebidos na requisição (senha só em memória, nunca guardada nem logada, como no SIGAA) e lê o header `Location: moodlemobile://token=…` sem seguir esse último redirect. A plataforma guarda só o `wstoken`, cifrado. Ver "Spike 2".
+- **Plataforma (adotado):** login no navegador da pessoa + colar o link na tela (ver `MoodleLink`). **Alternativa antiga, não adotada:** o **servidor** faz o SSO CAFe/Shibboleth com usuário e senha recebidos na requisição (senha só em memória, nunca guardada nem logada, como no SIGAA) e lê o header `Location: moodlemobile://token=…` sem seguir esse último redirect. A plataforma guarda só o `wstoken`, cifrado. Ver "Spike 2".
 
 ### Spike 1 — redirect para localhost/https: DESCARTADO
 

@@ -1,5 +1,6 @@
 import {
   AuthCode,
+  ClassroomLinkPort,
   GoogleLinkPort,
   LinkStatus,
   MoodleLinkPort,
@@ -71,14 +72,33 @@ const NAO_LIGADO: LinkStatus = { connected: false };
 
 /** Placeholder: o módulo Google ainda não entregou o vínculo. */
 export class StubGoogleLink implements GoogleLinkPort {
-  async status() {
-    return NAO_LIGADO;
+  loginEnabled(): boolean {
+    return false;
+  }
+  async startLoginUrl(): Promise<string> {
+    throw new Error('Login com Google ainda não disponível');
+  }
+  async handleLoginCallback(): Promise<{ email: string }> {
+    throw new Error('Login com Google ainda não disponível');
+  }
+}
+
+/** Classroom configurado, sem conta conectada. */
+export class StubClassroomLink implements ClassroomLinkPort {
+  enabled() {
+    return true;
+  }
+  apps(): ('ufba' | 'convidado')[] {
+    return ['ufba', 'convidado'];
+  }
+  async contas(): Promise<string[]> {
+    return [];
   }
   async startUrl(): Promise<string> {
-    throw new Error('Vínculo com o Google ainda não disponível');
+    throw new Error('Vínculo com o Classroom ainda não disponível');
   }
-  async handleCallback(): Promise<void> {
-    throw new Error('Vínculo com o Google ainda não disponível');
+  async handleCallback(): Promise<{ email: string }> {
+    throw new Error('Vínculo com o Classroom ainda não disponível');
   }
 }
 
@@ -87,10 +107,16 @@ export class StubMoodleLink implements MoodleLinkPort {
   async status() {
     return NAO_LIGADO;
   }
-  async startUrl(): Promise<string> {
-    throw new Error('Vínculo com o Moodle ainda não disponível');
+  host() {
+    return 'moodle.example';
   }
-  async handleReturn(): Promise<void> {
+  scheme() {
+    return 'web+ufba';
+  }
+  async launchUrl(): Promise<string> {
+    return 'https://moodle.example/admin/tool/mobile/launch.php';
+  }
+  async connect(): Promise<void> {
     throw new Error('Vínculo com o Moodle ainda não disponível');
   }
 }

@@ -1,56 +1,70 @@
 import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
+import { ConsultaService } from './application/live/consulta.service';
+import { DownloadLinks } from './application/live/download-links';
+import { LiveSources } from './application/ports/live-source';
 import { mcpExports, mcpProviders } from './mcp-wiring';
-import { HistoricoController } from './interface/rest/historico.controller';
 import { SecretCipher } from './application/ports/secret-cipher';
-import {
-  SourceGateway,
-  SourceRegistry,
-} from './application/ports/source-gateway';
-import { LeituraService } from './application/read/leitura.service';
-import { SincronizarService } from './application/sync/sincronizar.service';
+import { SourceGateway, SourceRegistry } from './application/ports/source-gateway';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { BearerGuard } from './interface/rest/auth.guard';
+import { DownloadController } from './interface/rest/download.controller';
+import { FontesController } from './interface/rest/fontes.controller';
 import { HealthController } from './interface/rest/health.controller';
-import { LeituraController } from './interface/rest/leitura.controller';
-import { SincronizarController } from './interface/rest/sincronizar.controller';
 import { UsuariosController } from './interface/rest/usuarios.controller';
-import { CalendarGateway } from './infrastructure/sources/calendar/calendar.gateway';
 import { ClassroomGateway } from './infrastructure/sources/classroom/classroom.gateway';
+import { ClassroomLive } from './infrastructure/sources/classroom/classroom-live';
 import { GoogleAuth, GoogleHttp } from './infrastructure/sources/google/google-http';
 import { MoodleGateway } from './infrastructure/sources/moodle/moodle.gateway';
+import { MoodleLive } from './infrastructure/sources/moodle/moodle-live';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
 import { McpModule } from './interface/mcp/mcp.module';
 
+function googleHttp(clientId?: string, clientSecret?: string): GoogleHttp | undefined {
+  return clientId && clientSecret ? new GoogleHttp(new GoogleAuth({ clientId, clientSecret })) : undefined;
+}
+
 /**
- * Fontes registradas. O Google só entra se GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET estiverem definidos.
+ * Clientes HTTP do Classroom, um por app OAuth (o refresh token só renova com o app que o emitiu):
+ * `ufba` = app interno do login (`GOOGLE_CLIENT_ID/SECRET`); `convidado` = app externo em teste
+ * (`GOOGLE_CLASSROOM_CLIENT_ID/SECRET`).
  */
+function classroomClientes(env: NodeJS.ProcessEnv): { ufba?: GoogleHttp; convidado?: GoogleHttp } | null {
+  const ufba = googleHttp(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
+  const convidado = googleHttp(env.GOOGLE_CLASSROOM_CLIENT_ID, env.GOOGLE_CLASSROOM_CLIENT_SECRET);
+  return ufba || convidado ? { ufba, convidado } : null;
+}
+
+/** Fontes registradas. O Classroom só entra se algum app OAuth estiver configurado. */
 export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGateway[] {
   const gateways: SourceGateway[] = [new SigaaGateway(), new MoodleGateway()];
-  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-    const http = new GoogleHttp(GoogleAuth.fromEnv(env));
-    gateways.push(new ClassroomGateway(http), new CalendarGateway(http));
-  }
+  const c = classroomClientes(env);
+  const http = c?.ufba ?? c?.convidado;
+  if (http) gateways.push(new ClassroomGateway(http));
   return gateways;
+}
+
+/** Fontes com leitura ao vivo: Moodle e, se configurado, Classroom. */
+export function buildLiveSources(env: NodeJS.ProcessEnv = process.env): LiveSources {
+  const live = new LiveSources();
+  live.register(new MoodleLive());
+  const c = classroomClientes(env);
+  if (c) live.register(new ClassroomLive(c, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined }));
+  return live;
 }
 
 // Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
 @Global()
 @Module({
   imports: [PersistenceModule, McpModule],
-  controllers: [
-    HealthController,
-    HistoricoController,
-    UsuariosController,
-    SincronizarController,
-    LeituraController,
-  ],
+  controllers: [HealthController, UsuariosController, FontesController, DownloadController],
   providers: [
     IdentityService,
-    SincronizarService,
-    LeituraService,
     BearerGuard,
+    ConsultaService,
+    { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
+    { provide: LiveSources, useFactory: () => buildLiveSources() },
     { provide: SecretCipher, useFactory: () => new AesSecretCipher() },
     {
       provide: SourceRegistry,
@@ -60,15 +74,16 @@ export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGatew
         return registry;
       },
     },
-    // MCP + OAuth do serviço, AUTHENTICATORS (chave de API + token OAuth), histórico e anexos: ver mcp-wiring.ts.
+    // MCP + OAuth do serviço e AUTHENTICATORS (chave de API + token OAuth): ver mcp-wiring.ts.
     ...mcpProviders,
   ],
   exports: [
     IdentityService,
     SourceRegistry,
-    LeituraService,
-    SincronizarService,
     SecretCipher,
+    ConsultaService,
+    DownloadLinks,
+    LiveSources,
     ...mcpExports,
   ],
 })

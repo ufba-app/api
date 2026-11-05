@@ -156,6 +156,35 @@ describe('MoodleGateway', () => {
     expect(r.grades).toEqual([]);
   });
 
+  it('504 nas notas de um curso não derruba a sincronização: o curso vira parcial com aviso', async () => {
+    const calls: URLSearchParams[] = [];
+    const base = fakeMoodle();
+    const fetchFn = ((url: string, init: RequestInit) => {
+      const body = init.body as URLSearchParams;
+      calls.push(body);
+      if (body.get('wsfunction') === 'gradereport_user_get_grade_items' && body.get('courseid') === '10') {
+        return Promise.resolve(new Response('Gateway Timeout', { status: 504 }));
+      }
+      return base.fetchFn(url, init);
+    }) as unknown as typeof fetch;
+
+    const r = await new MoodleGateway(new MoodleClient(fetchFn)).fetch(ctx, { kind: 'tudo' });
+    expect(r.courseSpaces).toHaveLength(2);
+    expect(r.items!.some((i) => i.courseExternalId === '10')).toBe(true); // itens do curso 10 vieram
+    expect(r.grades!.map((g) => g.courseExternalId)).toEqual(['11']); // só as notas do 11
+    expect(r.partial).toEqual({ items: [], grades: ['10'] });
+    expect(r.warnings![0]).toContain('Cálculo A');
+    expect(r.warnings!.join(' ')).not.toContain('SEGREDO123');
+  });
+
+  it('token inválido no meio continua derrubando (vira REAUTH_NEEDED)', async () => {
+    const { fetchFn } = fakeMoodle({
+      gradereport_user_get_grade_items: { exception: 'x', errorcode: 'invalidtoken', message: 'inválido' },
+    });
+    const err = await new MoodleGateway(new MoodleClient(fetchFn)).fetch(ctx, { kind: 'tudo' }).catch((e) => e);
+    expect((err as SourceError).code).toBe('REAUTH_NEEDED');
+  });
+
   it('erro do Moodle não vaza o token', async () => {
     const { fetchFn } = fakeMoodle({
       core_webservice_get_site_info: {

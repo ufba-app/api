@@ -1,104 +1,64 @@
-import type { IdentityService } from '../../../application/identity/identity.service';
-import type { GoogleLinkPort, LinkStatus } from '../../../application/oauth/oauth-ports';
-import type { SourceAccountRepository } from '../../../application/ports/repositories';
+import type { GoogleLinkPort } from '../../../application/oauth/oauth-ports';
 import type { FetchFn } from './google-http';
+import { exchangeCode, GOOGLE_AUTH_URL, GoogleLinkError, userInfo } from './google-oauth-flow';
 
-const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
+export { GoogleLinkError } from './google-oauth-flow';
 
-/** Somente leitura (docs/GOOGLE.md) + e-mail, que vira o `accountKey` da conta. */
-export const GOOGLE_SCOPES = [
-  'openid',
-  'email',
-  'https://www.googleapis.com/auth/classroom.courses.readonly',
-  'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
-  'https://www.googleapis.com/auth/classroom.announcements.readonly',
-  'https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
-];
-
-export class GoogleLinkError extends Error {}
+/** Login: só identidade. O Classroom é conectado à parte, por outro app OAuth (ver `ClassroomLink`). */
+export const GOOGLE_LOGIN_SCOPES = ['openid', 'email', 'profile'];
 
 /**
- * Vínculo com o Google pela tela de /authorize: fluxo OAuth (code) com GOOGLE_CLIENT_ID/SECRET. O refresh token vai
- * cifrado para a conta CLASSROOM e para a CALENDAR (`IdentityService.conectarConta`); nada é logado.
- * O `redirect_uri` (`<PUBLIC_URL>/oauth/callback/google`) precisa estar cadastrado no cliente OAuth do Google.
+ * LOGIN do serviço com Google (app OAuth INTERNO da organização, `GOOGLE_CLIENT_ID/SECRET`): só openid/email/profile
+ * e só o domínio `GOOGLE_ALLOWED_DOMAIN` (padrão ufba.br), conferido aqui no servidor (e-mail verificado + claim `hd`).
+ * Não guarda nada: só identifica a pessoa. Redirect: `<PUBLIC_URL>/oauth/callback/google`.
  */
 export class GoogleOAuthLink implements GoogleLinkPort {
   constructor(
-    private readonly identity: IdentityService,
-    private readonly accounts: SourceAccountRepository,
-    private readonly cfg: { clientId?: string; clientSecret?: string; fetchFn?: FetchFn } = {
+    private readonly cfg: { clientId?: string; clientSecret?: string; allowedDomain?: string; fetchFn?: FetchFn } = {
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      allowedDomain: process.env.GOOGLE_ALLOWED_DOMAIN,
     },
   ) {}
 
-  private credentials(): { clientId: string; clientSecret: string } {
+  private client() {
     if (!this.cfg.clientId || !this.cfg.clientSecret) {
       throw new GoogleLinkError('Google não configurado: defina GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET');
     }
-    return { clientId: this.cfg.clientId, clientSecret: this.cfg.clientSecret };
+    return { clientId: this.cfg.clientId, clientSecret: this.cfg.clientSecret, fetchFn: this.cfg.fetchFn };
   }
 
-  async status(userId: string): Promise<LinkStatus> {
-    const accounts = await this.accounts.findByUserAndProvider(userId, 'CLASSROOM');
-    return { connected: accounts.some((a) => a.secret !== null) };
+  private domain(): string {
+    return (this.cfg.allowedDomain || 'ufba.br').toLowerCase();
   }
 
-  async startUrl(_userId: string, callbackUrl: string, state: string): Promise<string> {
-    const { clientId } = this.credentials();
+  loginEnabled(): boolean {
+    return !!(this.cfg.clientId && this.cfg.clientSecret);
+  }
+
+  async startLoginUrl(callbackUrl: string, state: string): Promise<string> {
     const params = new URLSearchParams({
-      client_id: clientId,
+      client_id: this.client().clientId,
       redirect_uri: callbackUrl,
       response_type: 'code',
-      scope: GOOGLE_SCOPES.join(' '),
-      access_type: 'offline',
-      prompt: 'consent',
+      scope: GOOGLE_LOGIN_SCOPES.join(' '),
+      prompt: 'select_account',
+      hd: this.domain(), // só dica de UI; a checagem de verdade é em handleLoginCallback
       state,
     });
-    return `${AUTH_URL}?${params.toString()}`;
+    return `${GOOGLE_AUTH_URL}?${params.toString()}`;
   }
 
-  async handleCallback(userId: string, code: string, callbackUrl: string): Promise<void> {
-    const { clientId, clientSecret } = this.credentials();
-    if (!code) throw new GoogleLinkError('O Google não devolveu o código de autorização');
-    const f = this.cfg.fetchFn ?? fetch;
-
-    const res = await f(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: callbackUrl,
-        grant_type: 'authorization_code',
-      }),
-    });
-    // Mensagens sem corpo da resposta: ele pode conter o code/tokens.
-    if (!res.ok) throw new GoogleLinkError(`Falha ao trocar o código no Google (${res.status})`);
-    const tok = (await res.json()) as { access_token?: string; refresh_token?: string };
-    if (!tok.refresh_token || !tok.access_token) {
-      throw new GoogleLinkError(
-        'O Google não devolveu refresh token; revogue o acesso em myaccount.google.com/permissions e tente de novo',
-      );
-    }
-
-    const info = await f(USERINFO_URL, { headers: { authorization: `Bearer ${tok.access_token}` } });
-    if (!info.ok) throw new GoogleLinkError(`Falha ao ler o e-mail da conta Google (${info.status})`);
-    const email = ((await info.json()) as { email?: string }).email;
+  async handleLoginCallback(code: string, callbackUrl: string): Promise<{ email: string }> {
+    const c = this.client();
+    const tok = await exchangeCode(c, code, callbackUrl);
+    const info = await userInfo(c, tok.access_token);
+    const email = info.email?.toLowerCase();
     if (!email) throw new GoogleLinkError('Conta Google sem e-mail');
-
-    for (const provider of ['CLASSROOM', 'CALENDAR'] as const) {
-      await this.identity.conectarConta({
-        userId,
-        provider,
-        accountKey: email,
-        secretPlain: tok.refresh_token,
-      });
+    const d = this.domain();
+    if (info.email_verified !== true || info.hd?.toLowerCase() !== d || !email.endsWith(`@${d}`)) {
+      throw new GoogleLinkError(`Use uma conta institucional @${d}`);
     }
+    return { email };
   }
 }

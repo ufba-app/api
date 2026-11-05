@@ -1,19 +1,18 @@
 /**
- * O que as ferramentas MCP precisam dos casos de uso. A implementação (`McpUseCasesImpl`) chama os MESMOS serviços
- * de `application/` que o REST usa; aqui só se fala o idioma das ferramentas (português, ids em texto).
+ * O que as ferramentas MCP precisam dos casos de uso. Tudo é leitura AO VIVO na fonte, com o token guardado da
+ * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte.
  */
 
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
 export const MCP_AUTH = Symbol('MCP_AUTH');
 
-export type Fonte = 'sigaa' | 'moodle' | 'classroom' | 'calendar';
-export type Alcance = 'tudo' | 'curso' | 'item';
-export type TipoItem = 'aviso' | 'tarefa' | 'prova' | 'material' | 'forum' | 'outro';
-export type InsightTipo = 'cr' | 'trajetoria' | 'pendentes';
+export type Fonte = 'moodle' | 'classroom';
 
 /** Quem está chamando; resolvido a partir do Bearer. */
 export interface McpPrincipal {
   userId: string;
+  /** URL pública do serviço (para montar links de download). */
+  baseUrl?: string;
 }
 
 /** Autenticação do /mcp: os mesmos autenticadores do REST (chave de API `plt_` e token OAuth do serviço). */
@@ -22,60 +21,41 @@ export interface McpAuth {
   authenticate(authorizationHeader: string | undefined): Promise<McpPrincipal | null>;
 }
 
-/** Toda leitura devolve `atualizadoEm` (null se nunca sincronizado). */
-export interface Leitura<T = unknown> {
-  atualizadoEm: Date | string | null;
-  dados: T;
-}
-
-export interface SincronizarInput {
-  fonte: Fonte;
-  alcance: Alcance;
-  /** `externalId` do curso (alcance=curso ou item). */
-  cursoId?: string;
-  /** `externalId` do item (alcance=item). */
-  itemId?: string;
-  /** Segredo por requisição (senha do SIGAA). Usado em memória, nunca guardado nem logado. */
-  credencial?: { usuario?: string; senha?: string };
-}
-
-export interface ListarItensInput {
+/** Fonte + conta. Sem `conta`, vale a única conta conectada naquela fonte. */
+export interface Alvo {
   fonte?: Fonte;
-  cursoId?: string;
-  tipo?: TipoItem;
-  limite?: number;
+  conta?: string;
 }
 
-export interface AgendaInput {
-  de?: string;
-  ate?: string;
+export interface ListarCursosInput extends Alvo {
+  todas?: boolean;
 }
 
-export interface MudancasInput {
-  desde?: string;
+export type PrazosInput = Alvo;
+
+export interface VerCursoInput extends Alvo {
+  cursoId: string;
 }
 
-export interface ImportarHistoricoInput {
-  usuario: string;
-  senha: string;
+export interface VerForumInput extends Alvo {
+  forumId: string;
 }
 
-export interface LerAnexoInput {
-  itemId: string;
-  anexoId: string;
+export interface BaixarAnexoInput extends Alvo {
+  /** Um anexo... */
+  ref?: string;
+  nome?: string;
+  /** ...ou vários da mesma conta (no Classroom, liberados de uma vez no seletor do Google). */
+  anexos?: { ref: string; nome?: string }[];
 }
 
 export interface McpUseCases {
-  /** Único comando que vai às fontes. */
-  sincronizar(p: McpPrincipal, input: SincronizarInput): Promise<unknown>;
-  listarItens(p: McpPrincipal, input: ListarItensInput): Promise<Leitura>;
-  agenda(p: McpPrincipal, input: AgendaInput): Promise<Leitura>;
-  mudancas(p: McpPrincipal, input: MudancasInput): Promise<Leitura>;
-  perfil(p: McpPrincipal): Promise<Leitura>;
-  historico(p: McpPrincipal): Promise<Leitura>;
-  insights(p: McpPrincipal, tipo: InsightTipo): Promise<Leitura>;
-  /** Vai ao SIGAA (senha por requisição) e à IA: importa o histórico acadêmico. */
-  importarHistorico(p: McpPrincipal, input: ImportarHistoricoInput): Promise<Leitura>;
-  /** Busca o conteúdo na fonte sob demanda (cache curto); não é leitura do banco. */
-  lerAnexo(p: McpPrincipal, input: LerAnexoInput): Promise<unknown>;
+  /** Contas conectadas por fonte. Não chama fonte nenhuma. */
+  listarContas(p: McpPrincipal): Promise<unknown>;
+  listarCursos(p: McpPrincipal, input: ListarCursosInput): Promise<unknown>;
+  prazos(p: McpPrincipal, input: PrazosInput): Promise<unknown>;
+  verCurso(p: McpPrincipal, input: VerCursoInput): Promise<unknown>;
+  verForum(p: McpPrincipal, input: VerForumInput): Promise<unknown>;
+  /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */
+  baixarAnexo(p: McpPrincipal, input: BaixarAnexoInput): Promise<unknown>;
 }

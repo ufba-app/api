@@ -8,7 +8,7 @@ import {
   UserRecord,
   UserRepository,
 } from '../../application/ports/repositories';
-import type { FetchedProfile, Provider } from '../../application/ports/source-gateway';
+import type { Provider } from '../../application/ports/source-gateway';
 import { PrismaService } from './prisma.service';
 
 @Injectable()
@@ -136,23 +136,6 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
     await this.prisma.sourceAccount.update({
       where: { id },
       data: { status, statusReason: reason ?? null },
-    });
-  }
-
-  async markSynced(id: string, at: Date): Promise<void> {
-    await this.prisma.sourceAccount.update({ where: { id }, data: { lastSyncedAt: at } });
-  }
-
-  async saveProfile(userId: string, profile: FetchedProfile): Promise<void> {
-    const data = {
-      registration: profile.registration ?? null,
-      programName: profile.programName ?? null,
-      entryTerm: profile.entryTerm ?? null,
-    };
-    await this.prisma.studentProfile.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
     });
   }
 }
