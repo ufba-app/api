@@ -18,6 +18,9 @@ import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { MoodleLive } from '../src/infrastructure/sources/moodle/moodle-live';
+import { SessoesSigaa } from '../src/infrastructure/sources/sigaa/sessoes-sigaa';
+import type { SigaaSession } from '../src/infrastructure/sources/sigaa/session';
+import { SigaaLive } from '../src/infrastructure/sources/sigaa/sigaa-live';
 
 /**
  * O AppModule inteiro (rotas, guard, wiring real do MCP/OAuth, MoodleLive real) com repositórios em memória e um
@@ -32,6 +35,13 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
   let userSeq = 0;
   const moodleUsers = new Set<string>();
   const moodleCalls: string[] = [];
+  /** SIGAA falso: só conta o que chegaria a ele (login incluído). Nenhum teste aqui deve tocá-lo. */
+  const sigaaCalls: string[] = [];
+  const fakeSigaa = {
+    login: async () => void sigaaCalls.push('login'),
+    get: async (path: string) => (sigaaCalls.push(`GET ${path}`), ''),
+    postback: async (path: string) => (sigaaCalls.push(`POST ${path}`), ''),
+  } as unknown as SigaaSession;
 
   /** Moodle falso: responde por wsfunction (POST) ou devolve um arquivo (GET pluginfile). */
   const fakeMoodle = (async (url: string | URL, init?: RequestInit) => {
@@ -108,6 +118,7 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
 
     const live = new LiveSources();
     live.register(new MoodleLive(fakeMoodle));
+    live.register(new SigaaLive(new SessoesSigaa(() => fakeSigaa)));
 
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
@@ -316,6 +327,29 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
       expect((r.content as { text: string }[])[0].text).toContain('não conectado');
       expect(moodleCalls).toEqual([]);
       await client.close();
+    });
+
+    it('fonte sigaa sem chave no token: erro claro e zero requisições ao SIGAA', async () => {
+      sigaaCalls.length = 0;
+      // Chave de API (sem cliente) e token OAuth emitido sem SIGAA conectado (sem K): nenhum dos dois abre o SIGAA.
+      for (const token of [await alunoComMoodle(), await oauthToken()]) {
+        const client = await clientWith(token);
+        for (const [name, args] of [
+          ['listar_cursos', {}],
+          ['prazos', {}],
+          ['ver_curso', { cursoId: 'sistemas-operacionais' }],
+          ['ver_aviso', { avisoId: 'sistemas-operacionais:1' }],
+        ] as const) {
+          const r = await client.callTool({ name, arguments: { fonte: 'sigaa', ...args } });
+          expect(r.isError).toBe(true);
+          expect((r.content as { text: string }[])[0].text).toContain('SIGAA não conectado');
+        }
+        const contas = await client.callTool({ name: 'listar_contas', arguments: {} });
+        expect(JSON.stringify(text(contas))).not.toContain('sigaa');
+        await client.close();
+      }
+      expect(sigaaCalls).toEqual([]);
+      expect(moodleCalls).toEqual([]);
     });
 
     it('não existe ferramenta de sincronização nem de leitura de banco', async () => {

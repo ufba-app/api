@@ -18,7 +18,11 @@ import { ClassroomLive } from './infrastructure/sources/classroom/classroom-live
 import { GoogleAuth, GoogleHttp } from './infrastructure/sources/google/google-http';
 import { MoodleGateway } from './infrastructure/sources/moodle/moodle.gateway';
 import { MoodleLive } from './infrastructure/sources/moodle/moodle-live';
+import { createSigaaHttpClient } from './infrastructure/sources/sigaa/http-client';
+import { SessoesSigaa } from './infrastructure/sources/sigaa/sessoes-sigaa';
+import { SigaaSession } from './infrastructure/sources/sigaa/session';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
+import { SigaaLive } from './infrastructure/sources/sigaa/sigaa-live';
 import { McpModule } from './interface/mcp/mcp.module';
 
 function googleHttp(clientId?: string, clientSecret?: string): GoogleHttp | undefined {
@@ -45,10 +49,22 @@ export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGatew
   return gateways;
 }
 
-/** Fontes com leitura ao vivo: Moodle e, se configurado, Classroom. */
-export function buildLiveSources(env: NodeJS.ProcessEnv = process.env): LiveSources {
+/** Sessões do SIGAA em memória (uma por pessoa+cliente), cada uma com o cliente HTTP real. */
+export function buildSessoesSigaa(): SessoesSigaa {
+  return new SessoesSigaa(() => new SigaaSession(createSigaaHttpClient()));
+}
+
+/**
+ * Fontes com leitura ao vivo: Moodle, SIGAA (a senha é aberta a cada consulta com a chave do token; ver
+ * `ConsultaService`) e, se configurado, Classroom.
+ */
+export function buildLiveSources(
+  env: NodeJS.ProcessEnv = process.env,
+  sessoesSigaa: SessoesSigaa = buildSessoesSigaa(),
+): LiveSources {
   const live = new LiveSources();
   live.register(new MoodleLive());
+  live.register(new SigaaLive(sessoesSigaa));
   const c = classroomClientes(env);
   if (c) live.register(new ClassroomLive(c, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined }));
   return live;
@@ -64,7 +80,12 @@ export function buildLiveSources(env: NodeJS.ProcessEnv = process.env): LiveSour
     BearerGuard,
     ConsultaService,
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
-    { provide: LiveSources, useFactory: () => buildLiveSources() },
+    { provide: SessoesSigaa, useFactory: buildSessoesSigaa },
+    {
+      provide: LiveSources,
+      useFactory: (sessoes: SessoesSigaa) => buildLiveSources(process.env, sessoes),
+      inject: [SessoesSigaa],
+    },
     { provide: SecretCipher, useFactory: () => new AesSecretCipher() },
     {
       provide: SourceRegistry,
@@ -74,7 +95,7 @@ export function buildLiveSources(env: NodeJS.ProcessEnv = process.env): LiveSour
         return registry;
       },
     },
-    // MCP + OAuth do serviço e AUTHENTICATORS (chave de API + token OAuth): ver mcp-wiring.ts.
+    // MCP + OAuth do serviço, CofreSigaa (o ConsultaService depende dele) e AUTHENTICATORS: ver mcp-wiring.ts.
     ...mcpProviders,
   ],
   exports: [

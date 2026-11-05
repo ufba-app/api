@@ -56,7 +56,8 @@ export class IdentityService implements Authenticator {
 
   /**
    * Cria/atualiza uma conta de fonte. `secretPlain` (token do Moodle, refresh token do Google) é cifrado antes de
-   * gravar. SIGAA NUNCA aceita segredo (docs/ARQUITETURA.md §2.3).
+   * gravar. A conta do SIGAA (`SourceAccount`) NUNCA aceita segredo: a senha mora só em `SigaaCredential`, cifrada
+   * com a chave do cliente OAuth (`CofreSigaa`, docs/MCP.md).
    */
   async conectarConta(input: {
     userId: string;
@@ -67,7 +68,7 @@ export class IdentityService implements Authenticator {
   }): Promise<SourceAccountRecord> {
     if (input.provider === 'SIGAA' && input.secretPlain !== undefined) {
       throw new InvalidAccountError(
-        'A conta do SIGAA nunca guarda segredo: a senha só viaja na consulta, em memória.',
+        'A conta do SIGAA não guarda segredo: a senha é conectada na tela de autorização e fica cifrada com a chave do cliente.',
       );
     }
     return this.accounts.upsert({
