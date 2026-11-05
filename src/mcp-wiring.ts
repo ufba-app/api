@@ -8,6 +8,7 @@ import {
   GOOGLE_LINK,
   MOODLE_LINK,
   OAUTH_STORE,
+  SIGAA_LINK,
   USER_DIRECTORY,
   type ChaveDoClientePort,
   type OAuthStore,
@@ -20,6 +21,7 @@ import { CofreSigaa } from './application/sigaa/cofre-sigaa';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
+import { SigaaLink } from './infrastructure/sources/sigaa/sigaa-link';
 import { MoodleLink } from './infrastructure/sources/moodle/moodle-link';
 import { AuthenticatorsMcpAuth } from './interface/mcp/mcp-auth';
 import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
@@ -48,12 +50,15 @@ export const mcpProviders: Provider[] = [
       new OAuthService(store, users, Date.now, chaves),
     inject: [OAUTH_STORE, USER_DIRECTORY, CHAVE_DO_CLIENTE],
   },
+  // Uma única instância do cofre (o mapa de pendentes é em memória): CHAVE_DO_CLIENTE e SIGAA_LINK a reutilizam.
   {
-    provide: CHAVE_DO_CLIENTE,
+    provide: CofreSigaa,
     useFactory: (repo: SigaaCredentialRepository) =>
       new CofreSigaa(repo, (k) => new AesSecretCipher(k.toString('base64'))),
     inject: [SigaaCredentialRepository],
   },
+  { provide: CHAVE_DO_CLIENTE, useExisting: CofreSigaa },
+  { provide: SIGAA_LINK, useFactory: (cofre: CofreSigaa) => new SigaaLink(cofre), inject: [CofreSigaa] },
   {
     provide: OAUTH_ACCESS_AUTHENTICATOR,
     useFactory: (oauth: OAuthService) => new OAuthAccessTokenAuthenticator(oauth),
@@ -95,5 +100,6 @@ export const mcpExports = [
   GOOGLE_LINK,
   MOODLE_LINK,
   CLASSROOM_LINK,
+  SIGAA_LINK,
   AUTHENTICATORS,
 ];

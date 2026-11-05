@@ -4,6 +4,7 @@ import {
   GOOGLE_LINK,
   MOODLE_LINK,
   OAUTH_STORE,
+  SIGAA_LINK,
   USER_DIRECTORY,
 } from '../../../application/oauth/oauth-ports';
 import { OAuthAccessTokenAuthenticator, OAuthService } from '../../../application/oauth/oauth.service';
@@ -18,6 +19,7 @@ import {
   StubClassroomLink,
   StubGoogleLink,
   StubMoodleLink,
+  StubSigaaLink,
 } from './memory-oauth-store';
 import { StubMcpUseCases } from './stub-mcp';
 
@@ -39,6 +41,7 @@ const testApiKey: Authenticator = {
     { provide: GOOGLE_LINK, useClass: StubGoogleLink },
     { provide: MOODLE_LINK, useClass: StubMoodleLink },
     { provide: CLASSROOM_LINK, useClass: StubClassroomLink },
+    { provide: SIGAA_LINK, useClass: StubSigaaLink },
     {
       provide: OAUTH_SERVICE,
       useFactory: (s: MemoryOAuthStore, u: MemoryUserDirectory) => new OAuthService(s, u),
@@ -51,6 +54,6 @@ const testApiKey: Authenticator = {
       inject: [OAUTH_SERVICE],
     },
   ],
-  exports: [MCP_USE_CASES, MCP_AUTH, OAUTH_SERVICE, OAUTH_STORE, GOOGLE_LINK, MOODLE_LINK, CLASSROOM_LINK],
+  exports: [MCP_USE_CASES, MCP_AUTH, OAUTH_SERVICE, OAUTH_STORE, GOOGLE_LINK, MOODLE_LINK, CLASSROOM_LINK, SIGAA_LINK],
 })
 export class McpTestingModule {}

@@ -55,6 +55,8 @@ export interface ConnectView {
   /** Contas do Classroom conectadas e apps disponíveis; null quando o Classroom não está configurado no servidor. */
   classroom: { contas: string[]; apps: ('ufba' | 'convidado')[] } | null;
   moodle: boolean;
+  /** Login e senha do SIGAA já validados e à espera do /token. */
+  sigaaPendente?: boolean;
   notice?: string;
   error?: string;
 }
@@ -144,7 +146,12 @@ ${v.notice ? `<p class="ok">${esc(v.notice)}</p>` : ''}${v.error ? `<p class="er
 ${classroomCard(v.classroom, t)}
 <div class="card"><strong>Moodle</strong> (opcional, login institucional)<br>
 ${v.moodle ? '<span class="ok">Conectado</span>' : `<a class="btn" href="/oauth/connect/moodle?txn=${t}">Conectar Moodle</a>`}</div>
-<div class="card"><strong>SIGAA</strong><br><span class="muted">A senha do SIGAA nunca é guardada: ela é enviada só na hora de consultar.</span></div>
+<div class="card"><strong>SIGAA</strong><br>
+${v.sigaaPendente ? '<span class="ok">Pronto: será guardado ao concluir</span><br>' : ''}<form method="post" action="/oauth/connect/sigaa"><input type="hidden" name="txn" value="${esc(v.txn)}">
+<p><label>Usuário do SIGAA<br><input type="text" name="login" required autocomplete="off"></label></p>
+<p><label>Senha do SIGAA<br><input type="password" name="senha" required autocomplete="off"></label></p>
+<span class="muted">A senha é cifrada com uma chave que só este aplicativo guarda; o servidor sozinho não consegue abri-la.</span><br>
+<button type="submit">Conectar SIGAA</button></form></div>
 <form method="post" action="/authorize"><input type="hidden" name="txn" value="${esc(v.txn)}">
 <button class="primary" name="acao" value="concluir">Concluir e autorizar</button>
 <button name="acao" value="negar">Cancelar</button></form>`,

@@ -10,6 +10,8 @@ import {
   MoodleLinkPort,
   OAUTH_STORE,
   OAuthStore,
+  SIGAA_LINK,
+  SigaaLinkPort,
 } from '../../../application/oauth/oauth-ports';
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
 import { connectPage, errorPage, identifyPage, moodlePage } from './pages';
@@ -49,6 +51,7 @@ export class OAuthController {
     @Inject(GOOGLE_LINK) private readonly google: GoogleLinkPort,
     @Inject(MOODLE_LINK) private readonly moodle: MoodleLinkPort,
     @Inject(CLASSROOM_LINK) private readonly classroom: ClassroomLinkPort,
+    @Inject(SIGAA_LINK) private readonly sigaa: SigaaLinkPort,
   ) {}
 
   // ---- metadados (RFC 9728 e RFC 8414) ----
@@ -307,6 +310,25 @@ export class OAuthController {
     }
   }
 
+  // ---- conectar SIGAA: login e senha validados agora, guardados em memória até o /token (o cofre cifra) ----
+
+  @Post('oauth/connect/sigaa')
+  async sigaaConnect(@Body() b: Record<string, string>, @Res() res: Response) {
+    let p;
+    try {
+      p = await this.identified(b.txn);
+    } catch (e) {
+      return this.htmlError(res, e);
+    }
+    try {
+      await this.sigaa.conectar(p.id, b.login ?? '', b.senha ?? '');
+      await this.renderConnect(res, p.id, p.userId!, 'SIGAA validado: será guardado ao concluir.');
+    } catch (e) {
+      // A mensagem vem do SigaaLink (nunca contém a senha) e a tela não repete o que foi digitado.
+      await this.renderConnect(res, p.id, p.userId!, undefined, e instanceof Error ? e.message : 'Falha ao conectar o SIGAA');
+    }
+  }
+
   // ---- /token ----
 
   @Post('token')
@@ -334,7 +356,7 @@ export class OAuthController {
       this.moodle.status(userId),
     ]);
     const classroom = contas === null ? null : { contas, apps: this.classroom.apps() };
-    this.html(res, connectPage({ txn, classroom, moodle: m.connected, notice, error }));
+    this.html(res, connectPage({ txn, classroom, moodle: m.connected, sigaaPendente: this.sigaa.pendente(txn), notice, error }));
   }
 
   /** Falha num vínculo não derruba a autorização: volta para a tela de conexões com o aviso. */

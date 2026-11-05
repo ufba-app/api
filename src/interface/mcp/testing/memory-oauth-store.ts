@@ -7,6 +7,7 @@ import {
   OAuthClient,
   OAuthStore,
   PendingAuthorization,
+  SigaaLinkPort,
   TokenRecord,
   UserDirectory,
 } from '../../../application/oauth/oauth-ports';
@@ -118,5 +119,17 @@ export class StubMoodleLink implements MoodleLinkPort {
   }
   async connect(): Promise<void> {
     throw new Error('Vínculo com o Moodle ainda não disponível');
+  }
+}
+
+/** Stub do SIGAA: guarda a senha só em memória do teste e aceita qualquer coisa, exceto a senha "errada". */
+export class StubSigaaLink implements SigaaLinkPort {
+  private readonly pend = new Set<string>();
+  async conectar(txn: string, login: string, senha: string): Promise<void> {
+    if (!login || senha === 'errada') throw new Error('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
+    this.pend.add(txn);
+  }
+  pendente(txn: string): boolean {
+    return this.pend.has(txn);
   }
 }

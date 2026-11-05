@@ -91,7 +91,7 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     const connect = await ident.text();
     expect(connect).toContain('Conectar Classroom');
     expect(connect).toContain('Conectar Moodle');
-    expect(connect).not.toMatch(/type="(text|password)"/);
+    expect(connect).toContain('name="senha"'); // só o formulário do SIGAA, que não ecoa valores
 
     const done = await post('/authorize', { txn, acao: 'concluir' }, true);
     expect(done.status).toBe(303);
@@ -160,6 +160,29 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
   it('registro recusa redirect_uri insegura', async () => {
     const res = await post('/register', { redirect_uris: ['http://evil.example/cb'] });
     expect(res.status).toBe(400);
+  });
+
+  it('POST /oauth/connect/sigaa: avisa e nunca devolve a senha', async () => {
+    const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
+    const q = new URLSearchParams({
+      response_type: 'code', client_id, redirect_uri: REDIRECT,
+      code_challenge: CHALLENGE, code_challenge_method: 'S256',
+    });
+    const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
+    await post('/authorize', { txn, acao: 'identificar', email: 'sigaa@example.com' }, true);
+
+    const senha = 'senha-sintetica-123';
+    const ok = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha }, true);
+    expect(ok.status).toBe(200);
+    const html = await ok.text();
+    expect(html).toContain('SIGAA validado: será guardado ao concluir.');
+    expect(html).toContain('Pronto: será guardado ao concluir');
+    expect(html).not.toContain(senha);
+
+    const ruim = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'errada' }, true);
+    const htmlRuim = await ruim.text();
+    expect(htmlRuim).toContain('usuário ou senha do SIGAA incorretos');
+    expect(htmlRuim).not.toContain('value="errada"');
   });
 
   it('o Bearer de chave de API continua valendo no /mcp', async () => {

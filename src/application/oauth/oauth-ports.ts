@@ -9,6 +9,7 @@ export const USER_DIRECTORY = Symbol('USER_DIRECTORY');
 export const GOOGLE_LINK = Symbol('GOOGLE_LINK');
 export const MOODLE_LINK = Symbol('MOODLE_LINK');
 export const CHAVE_DO_CLIENTE = Symbol('CHAVE_DO_CLIENTE');
+export const SIGAA_LINK = Symbol('SIGAA_LINK');
 
 /**
  * Chave K do cliente (cifra a senha do SIGAA). Nasce no momento do /token e viaja só no sufixo do token do cliente;
@@ -129,4 +130,11 @@ export interface MoodleLinkPort {
   launchUrl(userId: string, txn: string): Promise<string>;
   /** Recebe o link colado (`moodlemobile://token=...`), confere a assinatura, valida o token e guarda cifrado. */
   connect(userId: string, txn: string, pasted: string): Promise<void>;
+}
+
+/** SIGAA na tela de autorização: valida login e senha e os guarda em memória até o /token (o cofre cifra então). */
+export interface SigaaLinkPort {
+  /** 1 login real + GET do portal; se ok, guarda em memória até o /token. Erro com mensagem amigável se a senha estiver errada. */
+  conectar(txn: string, login: string, senha: string): Promise<void>;
+  pendente(txn: string): boolean;
 }
