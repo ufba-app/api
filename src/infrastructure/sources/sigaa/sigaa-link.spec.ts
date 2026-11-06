@@ -77,8 +77,8 @@ describe('SigaaLink', () => {
       const link = new SigaaLink(cofre, sigaa.http, () => agora);
       return { link, sigaa, aguardar, avancar: (ms: number) => (agora += ms) };
     }
-    const tentar = (link: SigaaLink, txn: string, user = 'u1') =>
-      link.conectar(txn, 'fulano', SENHA, user).then(
+    const tentar = (link: SigaaLink, txn: string, user = 'u1', login = 'fulano') =>
+      link.conectar(txn, login, SENHA, user).then(
         () => null,
         (e: Error) => e,
       );
@@ -94,16 +94,46 @@ describe('SigaaLink', () => {
       expect(sigaa.requests.length).toBe(antes);
     });
 
-    it('limite por usuário: 5 falhas em transações diferentes bloqueiam a 6ª', async () => {
+    it('limite por usuário: 5 falhas em transações e logins diferentes bloqueiam a 6ª', async () => {
       const { link, sigaa } = build();
-      for (const txn of ['t1', 't1', 't2', 't2', 't3']) {
-        expect((await tentar(link, txn))!.message).toContain('incorretos');
+      for (const [txn, login] of [['t1', 'a'], ['t1', 'b'], ['t2', 'c'], ['t2', 'd'], ['t3', 'e']]) {
+        expect((await tentar(link, txn, 'u1', login))!.message).toContain('incorretos');
       }
       const antes = sigaa.requests.length;
-      expect((await tentar(link, 't4'))!.message).toContain(MUITAS);
+      expect((await tentar(link, 't4', 'u1', 'f'))!.message).toContain(MUITAS);
       expect(sigaa.requests.length).toBe(antes);
-      // outro usuário não é afetado
-      expect((await tentar(link, 't5', 'u2'))!.message).toContain('incorretos');
+      // outro usuário, outro login: não é afetado
+      expect((await tentar(link, 't5', 'u2', 'g'))!.message).toContain('incorretos');
+    });
+
+    it('limite por login do SIGAA: trocar de transação e de conta não reinicia', async () => {
+      const { link, sigaa } = build();
+      for (let i = 0; i < 5; i++) {
+        expect((await tentar(link, `t${i}`, `u${i}`, 'vitima'))!.message).toContain('incorretos');
+      }
+      const antes = sigaa.requests.length;
+      // caixa e espaços diferentes: mesmo login
+      expect((await tentar(link, 't9', 'u9', '  VITIMA '))!.message).toContain(MUITAS);
+      expect(sigaa.requests.length).toBe(antes);
+      expect((await tentar(link, 't10', 'u10', 'outro'))!.message).toContain('incorretos');
+    });
+
+    it('tentativas em paralelo não passam todas pela checagem: a reserva vem antes de falar com o SIGAA', async () => {
+      const { link, sigaa } = build();
+      const erros = await Promise.all(Array.from({ length: 10 }, () => tentar(link, 'txn-a')));
+      expect(logins(sigaa.requests)).toBe(3);
+      expect(erros.filter((e) => e!.message.includes('incorretos'))).toHaveLength(3);
+      expect(erros.filter((e) => e!.message.includes(MUITAS))).toHaveLength(7);
+    });
+
+    it('sucesso zera o contador do login', async () => {
+      let ok = false;
+      const { link } = build(() => ok);
+      for (let i = 0; i < 4; i++) await tentar(link, `t${i}`, `u${i}`, 'dono');
+      ok = true;
+      expect(await tentar(link, 't8', 'u8', 'dono')).toBeNull();
+      ok = false;
+      for (let i = 0; i < 3; i++) expect((await tentar(link, `x${i}`, `v${i}`, 'dono'))!.message).toContain('incorretos');
     });
 
     it('sucesso zera o contador da transação', async () => {
