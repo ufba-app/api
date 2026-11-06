@@ -10,7 +10,6 @@ const fixture = (nome: string) => readFileSync(join(__dirname, 'turma-virtual', 
 
 const PORTAL = '/sigaa/portais/discente/discente.jsf';
 const NOTICIAS = '/sigaa/ava/NoticiaTurma/listar.jsf';
-const NOTICIA = '/sigaa/ava/NoticiaTurma/mostrar.jsf';
 const AVALIACOES = '/sigaa/ava/DataAvaliacao/listar.jsf';
 const TIMELINE = '/sigaa/ava/Relatorios/timeline.jsf';
 
@@ -56,7 +55,7 @@ function montar(paginas: Pagina = {}, now = () => Date.parse('2026-11-04T12:00:0
     ...paginas.get,
   };
   const postback =
-    paginas.postback ?? ((path: string) => (path === NOTICIA ? fixture('noticia-mostrar.html') : PAGINA_DA_TURMA));
+    paginas.postback ?? ((path: string) => (path === NOTICIAS ? fixture('noticia-mostrar.html') : PAGINA_DA_TURMA));
   const sessao = {
     login: jest.fn(paginas.login ?? (async () => undefined)),
     get: jest.fn(async (path: string) => {
@@ -109,11 +108,15 @@ describe('SigaaLive', () => {
     expect(provas[1].prazo?.toISOString()).toBe('2026-11-17T11:00:00.000Z');
   });
 
-  it('ver_aviso: 3 requisições e mensagem em texto', async () => {
+  it('ver_aviso: 4 requisições (lista + clique da notícia) e mensagem em texto', async () => {
     const { live, reqs, posts } = montar();
     const aviso = await live.verAviso(ctx, 'sistemas-operacionais:6279402');
-    expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `POST ${NOTICIA}`]);
-    expect(posts[1].fields).toEqual({ id: '6279402' });
+    expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `GET ${NOTICIAS}`, `POST ${NOTICIAS}`]);
+    expect(posts[1].fields).toEqual({
+      formListagem: 'formListagem',
+      'formListagem:j_id_301': 'formListagem:j_id_301',
+      id: '6279402',
+    });
     expect(aviso).toEqual({
       id: 'sistemas-operacionais:6279402',
       titulo: 'Início do Semestre',
@@ -176,9 +179,25 @@ describe('SigaaLive', () => {
     expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`]);
   });
 
+  it('ver_aviso: entidades nomeadas viram acentos e as quebras de linha ficam limpas', async () => {
+    const html = fixture('noticia-mostrar.html').replace(
+      '<p>Boa tarde, turma. <strong>Sejam bem-vindos</strong>.</p>',
+      'As aulas j&aacute; come&ccedil;am na ter&ccedil;a.\n\r\n \n\r\nAtenciosamente, Cl&aacute;udio &amp; equipe &lt;DCC&gt;',
+    );
+    const { live } = montar({ postback: (path) => (path === NOTICIAS ? html : PAGINA_DA_TURMA) });
+    const aviso = await live.verAviso(ctx, 'sistemas-operacionais:6279402');
+    expect(aviso.mensagem).toBe('As aulas já começam na terça.\n\nAtenciosamente, Cláudio & equipe <DCC>');
+  });
+
+  it('notícia que não está na lista da turma: erro claro, sem o clique', async () => {
+    const { live, reqs } = montar();
+    await expect(live.verAviso(ctx, 'sistemas-operacionais:999')).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
+    expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `GET ${NOTICIAS}`]);
+  });
+
   it('notícia que volta como casca vazia: erro', async () => {
     const casca = fixture('noticia-mostrar-casca-vazia.html');
-    const { live } = montar({ postback: (path) => (path === NOTICIA ? casca : PAGINA_DA_TURMA) });
+    const { live } = montar({ postback: (path) => (path === NOTICIAS ? casca : PAGINA_DA_TURMA) });
     await expect(live.verAviso(ctx, 'sistemas-operacionais:6279402')).rejects.toMatchObject({ code: 'UNAVAILABLE' });
   });
 

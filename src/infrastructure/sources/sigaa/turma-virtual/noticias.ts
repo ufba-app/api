@@ -43,3 +43,51 @@ export function parseNoticias(html: string): NoticiaResumo[] {
 
   return noticias;
 }
+
+export interface PostbackNoticia {
+  /** Path do `action` do form (sem `;jsessionid`); `null` quando a página não traz o form (usar a própria lista). */
+  action: string | null;
+  fields: Record<string, string>;
+}
+
+const JSFCLJS = /jsfcljs\(\s*document\.getElementById\('([^']+)'\)\s*,\s*\{([^}]*)\}/;
+const PAR = /'([^']*)'\s*:\s*'([^']*)'/g;
+
+/**
+ * Campos do clique "Visualizar" de UMA notícia em `NoticiaTurma/listar.jsf`: o `jsfcljs` submete o form da lista
+ * com o id do link e o `id` da notícia, e a resposta é a notícia. É o único jeito: POST direto em `mostrar.jsf`
+ * com só o `id` volta sem a notícia. O `javax.faces.ViewState` fica de fora (a sessão manda o da última página).
+ */
+export function parsePostbackNoticia(html: string, id: string): PostbackNoticia {
+  assertPaginaDaTurmaVirtual(html, 'a lista de notícias');
+  const $ = cheerio.load(html);
+  let achado: { form: string; params: Record<string, string> } | null = null;
+  $('a[onclick]').each((_, a) => {
+    const m = JSFCLJS.exec($(a).attr('onclick') ?? '');
+    if (!m) return;
+    const params: Record<string, string> = {};
+    for (const [, k, v] of m[2].matchAll(PAR)) params[k] = v;
+    if (params.id === id) {
+      achado = { form: m[1], params };
+      return false;
+    }
+  });
+  if (!achado) throw new Error(`A notícia ${id} não está na lista de notícias da turma`);
+  const { form, params } = achado as { form: string; params: Record<string, string> };
+
+  const $form = $(`form[id="${form}"]`);
+  const fields: Record<string, string> = {};
+  let action: string | null = null;
+  if ($form.length) {
+    const raw = ($form.attr('action') ?? '').split(';')[0].split('?')[0];
+    if (!raw.startsWith('/sigaa/')) throw new Error(`action inesperada no form ${form}`);
+    action = raw;
+    $form.find('input[type="hidden"]').each((_, el) => {
+      const name = $(el).attr('name');
+      if (name && name !== 'javax.faces.ViewState') fields[name] = $(el).attr('value') ?? '';
+    });
+  } else {
+    fields[form] = form;
+  }
+  return { action, fields: { ...fields, ...params } };
+}

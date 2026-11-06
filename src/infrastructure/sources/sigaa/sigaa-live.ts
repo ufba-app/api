@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+import * as cheerio from 'cheerio';
 import type { AttachmentContent } from '../../../application/ports/attachment-reader';
 import type {
   AtividadeViva,
@@ -21,13 +23,12 @@ import { assertPaginaDaTurmaVirtual } from './turma-virtual/ava-page';
 import { parseAvaliacoes, type Avaliacao } from './turma-virtual/avaliacoes';
 import { parsePostbackAcessarTurma } from './turma-virtual/entrar-turma';
 import { parseNoticiaDetalhe } from './turma-virtual/noticia-detalhe';
-import { parseNoticias } from './turma-virtual/noticias';
+import { parseNoticias, parsePostbackNoticia } from './turma-virtual/noticias';
 import { parseTopicos } from './turma-virtual/topicos';
 import { parseTurmaVirtualTokens, type TurmaVirtualToken } from './turma-virtual/turma-virtual-tokens';
 
 const PORTAL_PATH = '/sigaa/portais/discente/discente.jsf';
 const NOTICIAS_PATH = '/sigaa/ava/NoticiaTurma/listar.jsf';
-const NOTICIA_PATH = '/sigaa/ava/NoticiaTurma/mostrar.jsf';
 const AVALIACOES_PATH = '/sigaa/ava/DataAvaliacao/listar.jsf';
 const TIMELINE_PATH = '/sigaa/ava/Relatorios/timeline.jsf';
 
@@ -44,6 +45,7 @@ const NOTICIA_ID = /^\d+$/;
 const MSG = {
   semCredencial: 'O SIGAA exige usuário e senha nesta consulta',
   turmaInexistente: 'Turma não encontrada no portal do SIGAA',
+  avisoInexistente: 'Aviso não encontrado nas notícias da turma do SIGAA: use um `id` atual de `ver_curso`',
   avisoInvalido: 'Aviso do SIGAA inválido: use o `id` de um item `tipo: aviso` de `ver_curso`',
   recusou: 'O SIGAA recusou o usuário e a senha',
   sessao: 'A sessão do SIGAA caiu duas vezes seguidas; tente de novo em instantes',
@@ -83,10 +85,22 @@ function inicioDeHojeNaBahia(agora: number): number {
 }
 
 /** HTML do SIGAA → texto. O SIGAA escreve acentos como entidades numéricas (`&#233;`). */
+/**
+ * HTML do SIGAA → texto. O `htmlToText` só resolve `&amp;`/`&lt;`/`&gt;`; o SIGAA manda acentos como entidades
+ * nomeadas (`j&aacute;`) ou numéricas (`Not&#237;cias`), resolvidas aqui pelo cheerio, sem reinterpretar `<`.
+ * Quebras `\r\n` e linhas só com espaço viram no máximo uma linha em branco.
+ */
 function texto(html: string | null | undefined): string | undefined {
-  return htmlToText(html ?? undefined)
-    ?.replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => String.fromCodePoint(parseInt(n, 16)));
+  const t = htmlToText(html ?? undefined);
+  if (t === undefined) return undefined;
+  const escapado = t.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const decodificado = cheerio.load(`<p>${escapado}</p>`, null, false)('p').text();
+  const limpo = decodificado
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t ]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return limpo || undefined;
 }
 
 function credenciais(ctx: SourceContext): { chave: string; cred: SigaaCredentials } {
@@ -114,10 +128,14 @@ function erroDaFonte(e: unknown): SourceError {
 /** Um parser não reconheceu a página (bounce para o portal, casca vazia). Só o tipo importa; a causa não sai daqui. */
 class PaginaInesperada extends Error {}
 
+const log = new Logger('SigaaLive');
+
+/** A mensagem dos parsers só descreve a página (marcadores ausentes), nunca traz HTML nem segredo: vai para o log. */
 function parse<T>(fn: () => T): T {
   try {
     return fn();
-  } catch {
+  } catch (e) {
+    log.warn(`Página inesperada do SIGAA: ${e instanceof Error ? e.message : String(e)}`);
     throw new PaginaInesperada();
   }
 }
@@ -182,7 +200,10 @@ export class SigaaLive implements LiveSource {
     });
   }
 
-  /** `avisoId` = `<turma>:<notícia>` (de `verCurso`). Portal, entrada na turma e a notícia: 3 requisições. */
+  /**
+   * `avisoId` = `<turma>:<notícia>` (de `verCurso`). Portal, entrada na turma, lista de notícias e o clique
+   * "Visualizar" da notícia: 4 requisições. POST direto em `mostrar.jsf` com só o `id` volta sem a notícia no SIGAA real.
+   */
   verAviso(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva> {
     const i = avisoId.lastIndexOf(':');
     const turma = avisoId.slice(0, i);
@@ -192,8 +213,12 @@ export class SigaaLive implements LiveSource {
     }
     return this.usar(ctx, async (s) => {
       await this.entrar(s, turma);
-      // O `id` precisa ir no corpo do POST: na query, o SIGAA devolve a casca vazia (ver noticia-detalhe.ts).
-      const html = await s.postback(NOTICIA_PATH, { id: noticia });
+      const lista = await s.get(NOTICIAS_PATH);
+      if (!parse(() => parseNoticias(lista)).some((n) => n.id === noticia)) {
+        throw new SourceError('UNSUPPORTED_SCOPE', MSG.avisoInexistente);
+      }
+      const clique = parse(() => parsePostbackNoticia(lista, noticia));
+      const html = await s.postback(clique.action ?? NOTICIAS_PATH, clique.fields);
       const n = parse(() => parseNoticiaDetalhe(html));
       const mensagem = texto(n.conteudoHtml);
       return {
