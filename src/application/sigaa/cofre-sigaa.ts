@@ -45,6 +45,11 @@ export class CofreSigaa {
     this.porTransacao.set(txn, { ...cred, expiresAt: this.now() + TTL_TRANSACAO_MS });
   }
 
+  /** Esquece a senha em espera de uma transação que não chegou ao code (falha ao aprovar). */
+  descartar(txn: string): void {
+    this.porTransacao.delete(txn);
+  }
+
   temPendente(txn: string): boolean {
     this.limpar();
     return this.porTransacao.has(txn);

@@ -151,11 +151,18 @@ export class OAuthService {
   }
 
   /** Liga o pedido a quem aprovou (app web) e emite o code. */
-  async approve(id: string, userId: string): Promise<string> {
-    const p = await this.pending(id);
-    if (p.userId && p.userId !== userId) throw new OAuthError('access_denied', 'pedido de outra pessoa', 403);
-    await this.store.savePending({ ...p, userId });
-    return this.complete(id);
+  /**
+   * Liga o pedido a quem está decidindo (app web), atomicamente. Tem que vir ANTES de qualquer coisa que dependa de
+   * quem é o dono (ex.: abrir a senha do SIGAA). false = pedido de outra pessoa, expirado ou inexistente.
+   */
+  claim(id: string, userId: string): Promise<boolean> {
+    return this.store.claimPending(id, userId, this.now());
+  }
+
+  /** Recusa um pedido que já é de `userId` (ver `claim`). */
+  async denyAs(id: string, userId: string): Promise<string> {
+    if (!(await this.claim(id, userId))) throw new OAuthError('access_denied', 'pedido indisponível', 403);
+    return this.deny(id);
   }
 
   async identify(id: string, email: string): Promise<PendingAuthorization> {
@@ -170,8 +177,13 @@ export class OAuthService {
 
   /** Emite o authorization code e devolve a URL de retorno ao cliente. */
   async complete(id: string): Promise<string> {
-    const p = await this.pending(id);
-    if (!p.userId) throw new OAuthError('access_denied', 'usuário não identificado', 403);
+    const current = await this.pending(id);
+    if (!current.userId) throw new OAuthError('access_denied', 'usuário não identificado', 403);
+    // Uso único atômico: de duas conclusões simultâneas só uma emite code (e só ela leva a senha do cofre).
+    const p = await this.store.takePending(id);
+    if (!p || !p.userId || p.userId !== current.userId || p.expiresAt <= this.now()) {
+      throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
+    }
     const code = randomToken();
     await this.store.saveCode({
       code,
@@ -183,13 +195,13 @@ export class OAuthService {
       expiresAt: this.now() + CODE_TTL_MS,
     });
     this.chaves?.vincularCodigo(id, sha256Base64Url(code));
-    await this.store.deletePending(id);
     return this.redirectBack(p, { code });
   }
 
   async deny(id: string): Promise<string> {
-    const p = await this.pending(id);
-    await this.store.deletePending(id);
+    await this.pending(id);
+    const p = await this.store.takePending(id);
+    if (!p) throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
     return this.redirectBack(p, { error: 'access_denied' });
   }
 

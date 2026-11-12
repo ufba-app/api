@@ -8,7 +8,7 @@ import { isBlockedAddress, safeGet } from './safe-fetch';
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]);
 
 describe('busca segura de metadados de cliente', () => {
-  it.each(['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.210', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '224.0.0.1'])(
+  it.each(['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.210', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '64:ff9b::a9fe:a9fe', '2002:7f00:1::', '224.0.0.1'])(
     'bloqueia %s',
     (ip) => expect(isBlockedAddress(ip)).toBe(true),
   );
@@ -22,6 +22,8 @@ describe('busca segura de metadados de cliente', () => {
     await expect(safeGet('https://u:p@example.com/x', o)).rejects.toThrow('https');
     await expect(safeGet('https://127.0.0.1/x', o)).rejects.toThrow('bloqueado');
     await expect(safeGet('https://[::1]/x', o)).rejects.toThrow('bloqueado');
+    await expect(safeGet('https://[::ffff:127.0.0.1]/x', o)).rejects.toThrow('bloqueado');
+    await expect(safeGet('https://8.8.8.8/x', o)).rejects.toThrow('bloqueado');
   });
 
   it('tipo da imagem pelos bytes: PNG/JPEG/WebP sim, SVG e HTML não', () => {

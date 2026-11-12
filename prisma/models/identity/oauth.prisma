@@ -8,10 +8,11 @@ model OAuthClient {
   createdAt    DateTime @default(now()) @map("created_at")
 
   // Logo baixado do documento de metadados do cliente (client_id = URL https), servido pela própria API.
-  logoHash  String? @unique @map("logo_hash")
+  logoHash  String? @map("logo_hash")
   logoMime  String? @map("logo_mime")
   logoBytes Bytes?  @map("logo_bytes")
 
+  @@index([logoHash])
   @@map("oauth_clients")
 }
 

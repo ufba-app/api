@@ -25,6 +25,14 @@ export function isBlockedAddress(ip: string): boolean {
     const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
     if (mapped) return isBlockedAddress(mapped[1]);
     return (
+      s.startsWith('::ffff:') || // mapeado em hexa (::ffff:7f00:1)
+      s.startsWith('64:ff9b:') || // NAT64
+      s.startsWith('2002:') || // 6to4
+      s.startsWith('fec') ||
+      s.startsWith('fed') ||
+      s.startsWith('fee') ||
+      s.startsWith('fef') ||
+      /^::[0-9a-f.]*$/.test(s) || // ::/96 (inclui ::, ::1 e IPv4 compatível)
       s === '::' ||
       s === '::1' ||
       s.startsWith('fc') ||
@@ -79,8 +87,10 @@ export function safeGet(url: string, opts: { maxBytes: number; timeoutMs: number
   if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) {
     return Promise.reject(new SafeFetchError('só https na porta 443'));
   }
+  // IP literal: recusado sempre. O Node não passa IP literal pelo `lookup` (a checagem abaixo não roda), e formas como
+  // `[::ffff:7f00:1]` escapam de checagem por texto.
   const host = u.hostname.replace(/^\[|\]$/g, '');
-  if (isIP(host) && isBlockedAddress(host)) return Promise.reject(new SafeFetchError('endereço bloqueado'));
+  if (isIP(host)) return Promise.reject(new SafeFetchError('endereço bloqueado: use um nome de domínio'));
 
   return new Promise((resolve, reject) => {
     const req = request(

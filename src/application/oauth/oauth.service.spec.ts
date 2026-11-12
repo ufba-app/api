@@ -20,6 +20,17 @@ class StoreEspia implements OAuthStore {
   async savePending(p: PendingAuthorization) { this.pendings.set(p.id, p); }
   async getPending(id: string) { return this.pendings.get(id) ?? null; }
   async deletePending(id: string) { this.pendings.delete(id); }
+  async claimPending(id: string, u: string) {
+    const p = this.pendings.get(id);
+    if (!p || (p.userId && p.userId !== u)) return false;
+    this.pendings.set(id, { ...p, userId: u });
+    return true;
+  }
+  async takePending(id: string) {
+    const p = this.pendings.get(id) ?? null;
+    this.pendings.delete(id);
+    return p;
+  }
   async saveCode(c: AuthCode) { this.codes.set(c.code, c); }
   async takeCode(code: string) {
     const c = this.codes.get(code) ?? null;

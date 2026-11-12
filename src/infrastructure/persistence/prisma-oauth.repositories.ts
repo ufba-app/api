@@ -59,7 +59,7 @@ export class PrismaOAuthStore implements OAuthStore {
   }
 
   async getClientLogo(hash: string): Promise<{ mime: 'image/png' | 'image/jpeg' | 'image/webp'; bytes: Buffer } | null> {
-    const r = await this.prisma.oAuthClient.findUnique({
+    const r = await this.prisma.oAuthClient.findFirst({
       where: { logoHash: hash },
       select: { logoMime: true, logoBytes: true },
     });
@@ -86,6 +86,29 @@ export class PrismaOAuthStore implements OAuthStore {
 
   async getPending(id: string): Promise<PendingAuthorization | null> {
     const r = await this.prisma.oAuthPending.findUnique({ where: { id } });
+    if (!r) return null;
+    return {
+      id: r.id,
+      clientId: r.clientId,
+      redirectUri: r.redirectUri,
+      state: r.state ?? undefined,
+      codeChallenge: r.codeChallenge,
+      scope: r.scope ?? undefined,
+      userId: r.userId ?? undefined,
+      expiresAt: r.expiresAt.getTime(),
+    };
+  }
+
+  async claimPending(id: string, userId: string, now: number): Promise<boolean> {
+    const r = await this.prisma.oAuthPending.updateMany({
+      where: { id, expiresAt: { gt: new Date(now) }, OR: [{ userId: null }, { userId }] },
+      data: { userId },
+    });
+    return r.count === 1;
+  }
+
+  async takePending(id: string): Promise<PendingAuthorization | null> {
+    const r = await this.prisma.oAuthPending.delete({ where: { id } }).catch(() => null);
     if (!r) return null;
     return {
       id: r.id,

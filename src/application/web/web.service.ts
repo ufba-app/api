@@ -259,6 +259,7 @@ export class WebService {
   /** Funciona sem sessão (mostra quem pede); com sessão inclui o estado das fontes. */
   async requestInfo(id: string, p: WebPrincipal | null): Promise<RequestInfo> {
     const pending = await this.livePending(id);
+    if (p && pending.userId && pending.userId !== p.userId) throw notFound();
     const client = await this.clients.get(pending.clientId);
     if (!client) throw new ApiError(404, 'request_not_found', 'Pedido de autorização não encontrado.');
     return {
@@ -277,19 +278,27 @@ export class WebService {
   async approve(id: string, p: WebPrincipal): Promise<{ redirectTo: string }> {
     const pending = await this.livePending(id);
     if (pending.clientId === WEB_CLIENT_ID) throw new ApiError(400, 'invalid_request', 'Pedido inválido.');
+    // Dono primeiro (atômico): só depois disso a senha de alguém é aberta.
+    if (!(await this.oauth.claim(pending.id, p.userId))) throw notFound();
     const cred = p.chave ? await this.openSigaa(p) : null;
     if (cred) this.cofre.aguardar(pending.id, { login: cred.login, senha: cred.senha });
     try {
-      return { redirectTo: await this.oauth.approve(pending.id, p.userId) };
+      return { redirectTo: await this.oauth.complete(pending.id) };
     } catch (e) {
-      if (e instanceof OAuthError) throw new ApiError(404, 'request_not_found', 'Pedido de autorização não encontrado.');
+      this.cofre.descartar(pending.id);
+      if (e instanceof OAuthError) throw notFound();
       throw e;
     }
   }
 
-  async deny(id: string, _p: WebPrincipal): Promise<{ redirectTo: string }> {
+  async deny(id: string, p: WebPrincipal): Promise<{ redirectTo: string }> {
     const pending = await this.livePending(id);
-    return { redirectTo: await this.oauth.deny(pending.id) };
+    try {
+      return { redirectTo: await this.oauth.denyAs(pending.id, p.userId) };
+    } catch (e) {
+      if (e instanceof OAuthError) throw notFound();
+      throw e;
+    }
   }
 
   // ---- apps autorizados ----
@@ -308,6 +317,10 @@ export class WebService {
       const client = await this.store.getClient(clientId);
       if (!client || client.redirectUris.length === 0) continue;
       const { redirectUri: _r, metadata: _m, ...view } = this.clients.describe(client, client.redirectUris[0]);
+      // Cliente com redirect_uris em domínios diferentes (ex.: claude.ai + outro): não dá para saber por qual foi
+      // aprovado, então não herda nome/selo de nenhum deles.
+      const hosts = [...new Set(client.redirectUris.map((u) => new URL(u).hostname))];
+      if (hosts.length > 1) Object.assign(view, { domain: hosts.join(', '), name: null, logoUrl: null, verified: false });
       const sigaa = await this.cofre.situacao({ userId: p.userId, clientId });
       apps.push({
         clientId,
@@ -386,6 +399,8 @@ export class WebService {
     for (const [k, v] of this.classroomStates) if (v.expiresAt <= t) this.classroomStates.delete(k);
   }
 }
+
+const notFound = () => new ApiError(404, 'request_not_found', 'Pedido de autorização não encontrado.');
 
 function classroomCallback(base: string, app: AppClassroom): string {
   return `${base.replace(/\/+$/, '')}/oauth/callback/${app === 'ufba' ? 'google' : 'classroom'}`;

@@ -15,6 +15,10 @@ async function bootstrap(): Promise<void> {
   app.disable('x-powered-by');
 
   const webOrigin = process.env.WEB_ORIGIN?.replace(/\/+$/, '');
+  if (webOrigin && !process.env.PUBLIC_URL) {
+    // Sem PUBLIC_URL a URL de callback viria do header Host (forjável) e o cookie perderia Secure/__Host-.
+    throw new Error('WEB_ORIGIN exige PUBLIC_URL (ex.: https://api.ufba.app)');
+  }
   if (webOrigin) {
     // Só o app web, com cookie. Nunca '*'. X-UFBA força preflight nas rotas que mudam estado (CSRF).
     app.enableCors({

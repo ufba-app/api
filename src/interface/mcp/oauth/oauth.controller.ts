@@ -74,6 +74,17 @@ export class OAuthController {
     res.redirect(303, `${web.webOrigin()}/authorize/error?${q.toString()}`);
   }
 
+  /**
+   * Em modo web as telas HTML antigas (identificar, conectar, concluir) ficam DESLIGADAS: elas deixavam outra pessoa
+   * se apropriar de um pedido de autorização e colher a senha do SIGAA de quem aprovasse pelo web.
+   */
+  private legacyBlocked(res: Response): boolean {
+    const web = this.webMode();
+    if (!web) return false;
+    this.webError(res, web, new OAuthError('invalid_request', 'Este fluxo agora é feito pelo app web.', 410));
+    return true;
+  }
+
   /** Volta ao web (cliente da casa) com erro e descrição pt-BR prontos para mostrar. */
   private async webLoginError(res: Response, p: { id: string; redirectUri: string; state?: string }, msg: string) {
     await this.store.deletePending(p.id);
@@ -160,6 +171,7 @@ export class OAuthController {
 
   @Post('authorize')
   async authorizePost(@Body() b: Record<string, string>, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     try {
       if (b.acao === 'negar') return res.redirect(303, await this.oauth.deny(b.txn));
       if (b.acao === 'concluir') return res.redirect(303, await this.oauth.complete(b.txn));
@@ -189,6 +201,7 @@ export class OAuthController {
 
   @Get('oauth/login/google')
   async googleLogin(@Query('txn') txn: string, @Req() req: Request, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     try {
       const p = await this.oauth.pending(txn);
       res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
@@ -229,6 +242,7 @@ export class OAuthController {
         return this.webLoginError(res, p, msg);
       }
     }
+    if (this.legacyBlocked(res)) return;
     // Mesmo redirect do app interno para as duas etapas: sem usuário ainda = LOGIN; com usuário = CLASSROOM @ufba.br.
     if (p.userId) {
       try {
@@ -258,6 +272,7 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    if (this.legacyBlocked(res)) return;
     try {
       const p = await this.identified(txn);
       const qual = app === 'convidado' ? 'convidado' : 'ufba';
@@ -281,6 +296,7 @@ export class OAuthController {
       const session = await this.sessionUserId(req);
       return res.redirect(303, await web.classroomCallback({ state: txn, code, error }, session, baseUrl(req)));
     }
+    if (this.legacyBlocked(res)) return;
     try {
       const p = await this.identified(txn);
       if (error) throw new Error('Conexão com o Classroom cancelada na tela do Google.');
@@ -294,6 +310,7 @@ export class OAuthController {
 
   @Get('oauth/connect')
   async connectHome(@Query('txn') txn: string, @Query('ok') ok: string, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     try {
       const p = await this.identified(txn);
       await this.renderConnect(res, p.id, p.userId!, ok === 'moodle' ? 'Moodle conectado.' : undefined);
@@ -330,6 +347,7 @@ export class OAuthController {
 
   @Get('oauth/connect/moodle')
   async moodleStart(@Query('txn') txn: string, @Query('erro') erro: string, @Req() req: Request, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     try {
       const p = await this.identified(txn);
       await this.renderMoodle(res, req, p.id, p.userId!, erro || undefined);
@@ -340,6 +358,7 @@ export class OAuthController {
 
   @Get('oauth/moodle/capture')
   async moodleCapture(@Query('u') u: string, @Req() req: Request, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     const txn = readCookie(req, MOODLE_TXN_COOKIE);
     let p;
     try {
@@ -364,6 +383,7 @@ export class OAuthController {
 
   @Post('oauth/connect/moodle')
   async moodleConnect(@Body() b: Record<string, string>, @Req() req: Request, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     let p;
     try {
       p = await this.identified(b.txn);
@@ -382,6 +402,7 @@ export class OAuthController {
 
   @Post('oauth/connect/sigaa')
   async sigaaConnect(@Body() b: Record<string, string>, @Res() res: Response) {
+    if (this.legacyBlocked(res)) return;
     let p;
     try {
       p = await this.identified(b.txn);

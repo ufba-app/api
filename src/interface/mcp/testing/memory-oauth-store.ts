@@ -49,6 +49,17 @@ export class MemoryOAuthStore implements OAuthStore {
   async getPending(id: string) {
     return this.pending.get(id) ?? null;
   }
+  async claimPending(id: string, userId: string, now: number) {
+    const p = this.pending.get(id);
+    if (!p || p.expiresAt <= now || (p.userId && p.userId !== userId)) return false;
+    this.pending.set(id, { ...p, userId });
+    return true;
+  }
+  async takePending(id: string) {
+    const p = this.pending.get(id) ?? null;
+    this.pending.delete(id);
+    return p;
+  }
   async deletePending(id: string) {
     this.pending.delete(id);
   }

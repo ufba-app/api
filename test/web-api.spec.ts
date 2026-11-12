@@ -402,4 +402,78 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect((await get('/me', cookie)).status).toBe(401);
     expect(await cofre.situacao({ userId: me.id, clientId: WEB_CLIENT_ID })).toBeNull();
   });
+
+  describe('segurança (revisão)', () => {
+    async function novoPedido(redirect = CLAUDE_CB, extra: string[] = []) {
+      const c = await oauth.registerClient({ redirect_uris: [redirect, ...extra] });
+      const { challenge } = pkce();
+      const p = await oauth.begin({
+        response_type: 'code',
+        client_id: c.clientId,
+        redirect_uri: redirect,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+      });
+      return { client: c, id: p.id };
+    }
+
+    it('rotas HTML antigas ficam desligadas em modo web', async () => {
+      const { id } = await novoPedido();
+      for (const r of [
+        await fetch(`${base}/authorize`, {
+          method: 'POST',
+          redirect: 'manual',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: `txn=${id}&acao=concluir`,
+        }),
+        await get(`/oauth/login/google?txn=${id}`),
+        await get(`/oauth/connect?txn=${id}`),
+        await get(`/oauth/connect/moodle?txn=${id}`),
+        await get(`/oauth/callback/classroom?state=${id}&code=x`),
+      ]) {
+        expect(r.status).toBe(303);
+        expect(r.headers.get('location')).toContain(`${WEB}/authorize/error`);
+      }
+    });
+
+    it('pedido de outra pessoa: aprovar não abre a senha de quem clicou', async () => {
+      const vitima = await signIn('vitima');
+      await send('POST', '/connections/sigaa', { cookie: vitima, body: { login: 'vitima', password: SENHA } });
+      const { id } = await novoPedido();
+      const atacante = await (await get('/me', await signIn('atacante'))).json() as any;
+      expect(await oauth.claim(id, atacante.id)).toBe(true);
+
+      expect((await get(`/authorize/requests/${id}`, vitima)).status).toBe(404);
+      const ap = await send('POST', `/authorize/requests/${id}/approve`, { cookie: vitima, body: {} });
+      expect(ap.status).toBe(404);
+      expect(cofre.temPendente(id)).toBe(false);
+      expect((await send('POST', `/authorize/requests/${id}/deny`, { cookie: vitima, body: {} })).status).toBe(404);
+    });
+
+    it('duas aprovações simultâneas do mesmo pedido: só uma emite code', async () => {
+      const cookie = await signIn('dupla');
+      const { id } = await novoPedido();
+      const rs = await Promise.all([
+        send('POST', `/authorize/requests/${id}/approve`, { cookie, body: {} }),
+        send('POST', `/authorize/requests/${id}/approve`, { cookie, body: {} }),
+      ]);
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 404]);
+    });
+
+    it('apps autorizados: cliente com redirects em domínios diferentes não herda o selo', async () => {
+      const cookie = await signIn('multi');
+      const { id, client } = await novoPedido(CLAUDE_CB, ['https://evil.example/cb']);
+      const ap = (await (await send('POST', `/authorize/requests/${id}/approve`, { cookie, body: {} })).json()) as any;
+      const { verifier } = pkce();
+      await oauth.token({
+        grant_type: 'authorization_code',
+        code: new URL(ap.redirectTo).searchParams.get('code')!,
+        client_id: client.clientId,
+        redirect_uri: CLAUDE_CB,
+        code_verifier: verifier,
+      });
+      const list = (await (await get('/authorized-apps', cookie)).json()) as any;
+      expect(list.apps[0]).toMatchObject({ verified: false, name: null, domain: 'claude.ai, evil.example' });
+    });
+  });
 });

@@ -102,6 +102,13 @@ export interface OAuthStore {
   savePending(p: PendingAuthorization): Promise<void>;
   /** Devolve também pedidos já expirados (quem chama decide entre 410 e 404). */
   getPending(id: string): Promise<PendingAuthorization | null>;
+  /**
+   * Atômico: liga o pedido (não expirado) a `userId` se ainda não tem dono, ou confirma se já é dele. false = pedido
+   * de outra pessoa, expirado ou inexistente.
+   */
+  claimPending(id: string, userId: string, now: number): Promise<boolean>;
+  /** Atômico: apaga e devolve o pedido (uso único: de duas chamadas simultâneas, só uma recebe). */
+  takePending(id: string): Promise<PendingAuthorization | null>;
   deletePending(id: string): Promise<void>;
   saveCode(c: AuthCode): Promise<void>;
   /** Consome o código (uso único): devolve e apaga. */
