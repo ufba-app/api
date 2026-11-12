@@ -1,0 +1,14 @@
+node_modules
+dist
+generated
+coverage
+.git
+.github
+.env
+.env.*
+!.env.example
+docs
+test
+scripts
+*.log
+fixtures-reais

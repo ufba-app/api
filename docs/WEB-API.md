@@ -99,9 +99,8 @@ Todas as rotas desta API (exceto `/authorize`, `/token`, `/register`, que seguem
 | 400 | `invalid_request` | corpo/parâmetro inválido |
 | 401 | `session_expired` | sem cookie, cookie inválido ou expirado → o web vai para `/sign-in` |
 | 403 | `csrf_rejected` | faltou `X-UFBA`/JSON ou `Origin` errado |
-| 404 | `request_not_found` | pedido de autorização inexistente |
+| 404 | `request_not_found` | pedido de autorização inexistente ou já decidido |
 | 404 | `not_found` | recurso inexistente (ex.: app não autorizado) |
-| 409 | `request_already_used` | pedido de autorização já decidido |
 | 410 | `request_expired` | pedido de autorização expirado (15 min) |
 | 409 | `source_not_connected` | a fonte (ou a conta) não está conectada / precisa reconectar |
 | 409 | `account_ambiguous` | mais de uma conta na fonte e nenhuma escolhida (`?account=`) |
@@ -196,7 +195,7 @@ POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_
 - O web faz `window.location.assign(redirectTo)` sem montar nem validar a URL.
 - Ao aprovar, a senha do SIGAA da sessão é decifrada em memória e cifrada de novo com uma chave nova, que só o token
   do cliente vai carregar. A pessoa não digita nada.
-- Erros: `404 request_not_found`, `409 request_already_used`, `410 request_expired`, `401 session_expired`.
+- Erros: `404 request_not_found` (inclusive pedido já decidido), `410 request_expired`, `401 session_expired`.
 
 ### Logos
 
