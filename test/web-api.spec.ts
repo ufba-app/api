@@ -465,6 +465,18 @@ describe('API do app web (docs/WEB-API.md)', () => {
       }
     });
 
+    it('tratador antigo do web+ufba (API) repassa o link do Moodle para a captura do web', async () => {
+      const u = 'web+ufba://token=abc';
+      const r = await get(`/oauth/moodle/capture?u=${encodeURIComponent(u)}`);
+      expect(r.status).toBe(303);
+      const loc = new URL(r.headers.get('location')!);
+      expect(`${loc.origin}${loc.pathname}`).toBe(`${WEB}/connections/moodle/capture`);
+      expect(loc.searchParams.get('u')).toBe(u);
+      // Sem `u` (ou com algo que não é do esquema): só a página de erro, nada é repassado.
+      const sem = await get('/oauth/moodle/capture?u=https://evil.example');
+      expect(sem.headers.get('location')).toContain(`${AUTH}/authorize/error`);
+    });
+
     it('pedido de outra pessoa: aprovar não abre a senha de quem clicou', async () => {
       const vitima = await signIn('vitima');
       await send('POST', '/connections/sigaa', { cookie: vitima, body: { login: 'vitima', password: SENHA } });

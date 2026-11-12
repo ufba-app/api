@@ -359,6 +359,12 @@ export class OAuthController {
 
   @Get('oauth/moodle/capture')
   async moodleCapture(@Query('u') u: string, @Req() req: Request, @Res() res: Response) {
+    // Navegador que ainda tem o tratador antigo do esquema (apontando para a API): repassa o link para a captura do
+    // web, que é quem conclui a conexão agora. Só links do próprio esquema; o resto cai no bloqueio.
+    const web = this.webMode();
+    if (web && typeof u === 'string' && u.startsWith(`${this.moodle.scheme()}:`)) {
+      return res.redirect(303, `${web.webOrigin()}/connections/moodle/capture?u=${encodeURIComponent(u)}`);
+    }
     if (this.legacyBlocked(res)) return;
     const txn = readCookie(req, MOODLE_TXN_COOKIE);
     let p;
