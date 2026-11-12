@@ -26,7 +26,7 @@ export class MoodleClient {
     params: Record<string, string | number> = {},
   ): Promise<T> {
     const body = new URLSearchParams({
-      wstoken: ctx.token,
+      wstoken: ctx.token.reveal(),
       wsfunction,
       moodlewsrestformat: 'json',
     });
@@ -41,7 +41,7 @@ export class MoodleClient {
     if (json && typeof json === 'object' && 'exception' in json) {
       const e = json as { errorcode?: string; message?: string };
       throw new MoodleError(
-        scrub(`Moodle ${wsfunction}: ${e.message ?? 'erro'}`, ctx.token),
+        scrub(`Moodle ${wsfunction}: ${e.message ?? 'erro'}`, ctx.token.reveal()),
         e.errorcode,
       );
     }

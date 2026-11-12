@@ -1,3 +1,4 @@
+import { Secret } from '../src/application/shared/secret';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -126,7 +127,8 @@ describe('REST (sem banco, sem rede)', () => {
     expect(r.headers['content-disposition']).toContain('attachment');
     expect(r.headers['content-disposition']).toContain("filename*=UTF-8''Lista%201.pdf");
     expect(baixar).toHaveBeenCalledTimes(1);
-    expect(baixar.mock.calls[0][0]).toMatchObject({ credentials: { kind: 'token', token: 'WSTOKEN' } });
+    expect(baixar.mock.calls[0][0]).toMatchObject({ credentials: { kind: 'token', token: expect.any(Secret) } });
+    expect((baixar.mock.calls[0][0] as { credentials: { token: Secret } }).credentials.token.reveal()).toBe('WSTOKEN');
     expect(baixar.mock.calls[0][1]).toBe('https://ava.ufba.br/pluginfile.php/1/a.pdf');
 
     await request(app.getHttpServer()).get(`/download/${id}`).expect(404); // uso único

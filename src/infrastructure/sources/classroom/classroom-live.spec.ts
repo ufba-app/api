@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 import { GoogleAuth, GoogleHttp } from '../google/google-http';
 import { ClassroomLive, MAX_CURSOS_PRAZOS } from './classroom-live';
@@ -5,7 +6,7 @@ import { ClassroomLive, MAX_CURSOS_PRAZOS } from './classroom-live';
 const gmail: SourceContext = {
   userId: 'u1',
   accountKey: 'aluno@gmail.com',
-  credentials: { kind: 'token', token: 'RT-SEGREDO' },
+  credentials: { kind: 'token', token: Secret.of('RT-SEGREDO') },
 };
 const ufba: SourceContext = { ...gmail, accountKey: 'aluno@ufba.br' };
 

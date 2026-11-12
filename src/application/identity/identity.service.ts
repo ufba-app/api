@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import { Injectable } from '@nestjs/common';
 import type { Authenticator } from '../ports/authenticator';
 import {
@@ -64,7 +65,7 @@ export class IdentityService implements Authenticator {
     provider: Provider;
     accountKey: string;
     siteUrl?: string;
-    secretPlain?: string;
+    secretPlain?: Secret;
   }): Promise<SourceAccountRecord> {
     if (input.provider === 'SIGAA' && input.secretPlain !== undefined) {
       throw new InvalidAccountError(
@@ -78,7 +79,7 @@ export class IdentityService implements Authenticator {
       siteUrl: input.siteUrl,
       secret:
         input.secretPlain !== undefined
-          ? this.cipher.encrypt(input.secretPlain)
+          ? this.cipher.encrypt(input.secretPlain.reveal())
           : undefined,
     });
   }

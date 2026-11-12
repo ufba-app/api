@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { GoogleAuth, GoogleHttp } from '../google/google-http';
 import { fakeFetch, tokenRoute } from '../../../../test/support/fake-fetch';
 import { ClassroomGateway } from './classroom.gateway';
@@ -9,7 +10,7 @@ function build(routes: Parameters<typeof fakeFetch>[0]) {
   return { f, http };
 }
 
-const ctx = { userId: 'u', accountKey: 'a@x', credentials: { kind: 'token' as const, token: 'RT' } };
+const ctx = { userId: 'u', accountKey: 'a@x', credentials: { kind: 'token' as const, token: Secret.of('RT') } };
 
 describe('ClassroomGateway', () => {
   const routes = [
@@ -109,7 +110,7 @@ describe('ClassroomGateway', () => {
   });
 });
 
-const ctxRT = { refreshToken: 'RT' };
+const ctxRT = { refreshToken: Secret.of('RT') };
 
 describe('DriveAttachmentReader', () => {
   it('baixa arquivo binário (PDF) como bytes', async () => {

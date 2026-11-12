@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import { Injectable } from '@nestjs/common';
 import type { AttachmentContent } from '../ports/attachment-reader';
 import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PrazoVivo } from '../ports/live-source';
@@ -140,7 +141,7 @@ export class ConsultaService {
       userId: quem.userId,
       accountKey: account.accountKey,
       siteUrl: account.siteUrl ?? undefined,
-      credentials: { kind: 'token', token: this.cipher.decrypt(account.secret!) },
+      credentials: { kind: 'token', token: Secret.of(this.cipher.decrypt(account.secret!)) },
     };
     try {
       return await fn(source, ctx);

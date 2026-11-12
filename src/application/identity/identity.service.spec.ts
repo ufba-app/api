@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import type {
   ApiKeyRepository,
   SourceAccountRepository,
@@ -60,7 +61,7 @@ describe('IdentityService', () => {
       userId: 'u1',
       provider: 'MOODLE',
       accountKey: 'moodle.x:ana',
-      secretPlain: 'token-moodle',
+      secretPlain: Secret.of('token-moodle'),
     });
     const secret = upserts[0].secret!;
     expect(JSON.stringify(secret)).not.toContain('token-moodle');
@@ -74,7 +75,7 @@ describe('IdentityService', () => {
         userId: 'u1',
         provider: 'SIGAA',
         accountKey: 'sigaa',
-        secretPlain: 'senha',
+        secretPlain: Secret.of('senha'),
       }),
     ).rejects.toBeInstanceOf(InvalidAccountError);
     expect(upserts).toHaveLength(0);

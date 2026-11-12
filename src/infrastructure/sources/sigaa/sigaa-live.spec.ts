@@ -232,7 +232,7 @@ describe('SigaaLive', () => {
   it('sem usuário e senha ou sem chave de sessão: erro sem tocar o SIGAA', async () => {
     const { live, sessao } = montar();
     await expect(
-      live.listarCursos({ ...ctx, credentials: { kind: 'token', token: 'x' } }),
+      live.listarCursos({ ...ctx, credentials: { kind: 'token', token: Secret.of('x') } }),
     ).rejects.toBeInstanceOf(SourceError);
     await expect(live.listarCursos({ ...ctx, sessaoKey: undefined })).rejects.toBeInstanceOf(SourceError);
     expect(sessao.login).not.toHaveBeenCalled();

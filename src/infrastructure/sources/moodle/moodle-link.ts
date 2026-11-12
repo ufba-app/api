@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { createHmac } from 'node:crypto';
 import type { IdentityService } from '../../../application/identity/identity.service';
 import { LinkError, type LinkStatus, type MoodleLinkPort } from '../../../application/oauth/oauth-ports';
@@ -88,7 +89,7 @@ export class MoodleLink implements MoodleLinkPort {
     }
 
     // Prova de que o token funciona e de quem é (accountKey = host:usuário).
-    const access = { baseUrl: this.siteUrl, token: parsed.wstoken };
+    const access = { baseUrl: this.siteUrl, token: Secret.of(parsed.wstoken) };
     let username: string;
     try {
       const info = await this.client.call<{ username?: string }>(access, 'core_webservice_get_site_info');
@@ -109,7 +110,7 @@ export class MoodleLink implements MoodleLinkPort {
       provider: 'MOODLE',
       accountKey: `${this.host()}:${username}`,
       siteUrl: this.siteUrl,
-      secretPlain: parsed.wstoken,
+      secretPlain: Secret.of(parsed.wstoken),
     });
   }
 }

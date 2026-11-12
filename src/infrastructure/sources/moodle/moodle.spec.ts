@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
 import { MoodleClient, MoodleError } from './moodle-client';
 import { MoodleGateway } from './moodle.gateway';
@@ -7,7 +8,7 @@ const ctx: SourceContext = {
   userId: 'u1',
   accountKey: 'moodle.test:aluno',
   siteUrl: 'https://moodle.test/',
-  credentials: { kind: 'token', token: 'SEGREDO123' },
+  credentials: { kind: 'token', token: Secret.of('SEGREDO123') },
 };
 
 const json = (data: unknown) =>

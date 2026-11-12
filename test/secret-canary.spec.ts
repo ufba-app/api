@@ -7,6 +7,10 @@ import { AesSecretCipher } from '../src/infrastructure/crypto/aes-secret-cipher'
 import { createSigaaHttpClient } from '../src/infrastructure/sources/sigaa/http-client';
 import { SigaaLink } from '../src/infrastructure/sources/sigaa/sigaa-link';
 import { ApiErrorFilter } from '../src/interface/web/api-error.filter';
+import { GoogleAuth, GoogleHttp } from '../src/infrastructure/sources/google/google-http';
+import { accessOf } from '../src/infrastructure/sources/moodle/moodle-access';
+import { MoodleClient } from '../src/infrastructure/sources/moodle/moodle-client';
+import type { SourceContext } from '../src/application/ports/source-gateway';
 
 /**
  * Teste "canário": a senha do SIGAA tem uma marca única e NADA que sai do processo (stdout, stderr, console, Logger
@@ -156,6 +160,63 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
     ].join('\n');
     expect(tudo).not.toContain(CANARIO);
     // Sanidade: a captura funcionou (senão o teste passaria em branco).
+    expect(saida).toContain('Secret([redacted])');
+  });
+});
+
+describe('canário: tokens do Moodle e do Google nunca aparecem em log nem em erro', () => {
+  const WSTOKEN = 'CANARIO-moodle-wstoken-4b2c';
+  const REFRESH = 'CANARIO-google-refresh-8e1d';
+  const ACCESS = 'CANARIO-google-access-3a7f';
+
+  it('Moodle: erro do servidor que repete o token, ctx e cliente logados inteiros', async () => {
+    const ctx: SourceContext = {
+      userId: 'u1',
+      accountKey: 'ava.test:fulano',
+      siteUrl: 'https://ava.test',
+      credentials: { kind: 'token', token: Secret.of(WSTOKEN) },
+    };
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ exception: 'x', errorcode: 'invalidtoken', message: `token ${WSTOKEN} inválido` }), {
+        status: 200,
+      })) as typeof fetch;
+    const erros: unknown[] = [];
+    const saida = await captureOutput(async () => {
+      const access = accessOf(ctx);
+      console.log(ctx, access);
+      const e = await new MoodleClient(fetchFn).call(access, 'core_webservice_get_site_info').catch((x: unknown) => x);
+      erros.push(e);
+      console.error(e);
+    });
+    const tudo = [saida, ...erros.map((e) => (e instanceof Error ? `${e.message}\n${e.stack}` : String(e)))].join('\n');
+    expect(tudo).not.toContain(WSTOKEN);
+    expect(saida).toContain('Secret([redacted])');
+  });
+
+  it('Google: renovação, chamada com erro, auth e ctx logados inteiros', async () => {
+    let tokenOk = true;
+    const fetchFn = (async (url: string | URL) => {
+      if (String(url).startsWith('https://oauth2.googleapis.com/token')) {
+        return tokenOk
+          ? new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3600 }), { status: 200 })
+          : new Response('{"error":"invalid_grant"}', { status: 400 });
+      }
+      return new Response('{}', { status: 403 });
+    }) as typeof fetch;
+    const auth = new GoogleAuth({ clientId: 'cid', clientSecret: 'cs', fetchFn });
+    const http = new GoogleHttp(auth, fetchFn);
+    const rt = Secret.of(REFRESH);
+    const erros: unknown[] = [];
+    const saida = await captureOutput(async () => {
+      erros.push(await http.get(rt, 'https://classroom.googleapis.com/v1/courses').catch((x: unknown) => x));
+      console.log(auth, http, { credentials: { kind: 'token', token: rt } });
+      tokenOk = false;
+      erros.push(await new GoogleAuth({ clientId: 'cid', clientSecret: 'cs', fetchFn }).accessToken(rt).catch((x: unknown) => x));
+      for (const e of erros) console.error(e);
+    });
+    const tudo = [saida, ...erros.map((e) => (e instanceof Error ? `${e.message}\n${e.stack}` : String(e)))].join('\n');
+    expect(tudo).not.toContain(REFRESH);
+    expect(tudo).not.toContain(ACCESS);
     expect(saida).toContain('Secret([redacted])');
   });
 });

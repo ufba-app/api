@@ -1,3 +1,4 @@
+import type { Secret } from '../shared/secret';
 /** Referência a um anexo na fonte (só metadados; o conteúdo é buscado sob demanda). */
 export interface AttachmentRef {
   externalId?: string | null;
@@ -15,5 +16,5 @@ export interface AttachmentContent {
 
 /** Porta: baixa o conteúdo de um anexo na fonte, sob demanda. */
 export interface AttachmentReader {
-  read(credentials: { refreshToken: string }, ref: AttachmentRef): Promise<AttachmentContent>;
+  read(credentials: { refreshToken: Secret }, ref: AttachmentRef): Promise<AttachmentContent>;
 }

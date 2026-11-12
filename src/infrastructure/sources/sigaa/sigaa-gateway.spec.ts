@@ -125,7 +125,7 @@ describe('SigaaGateway (SourceGateway)', () => {
     const g = new SigaaGateway(fakeSigaa().http);
     expect(await codeOf(g.fetch(ctx(), { kind: 'curso', courseExternalId: 'x' }))).toBe('UNSUPPORTED_SCOPE');
     expect(
-      await codeOf(g.fetch({ ...ctx(), credentials: { kind: 'token', token: 't' } }, { kind: 'tudo' })),
+      await codeOf(g.fetch({ ...ctx(), credentials: { kind: 'token', token: Secret.of('t') } }, { kind: 'tudo' })),
     ).toBe('CREDENTIAL_REJECTED');
   });
 

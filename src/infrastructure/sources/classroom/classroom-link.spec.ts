@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { GoogleLinkError } from '../google/google-oauth-flow';
 import { appDaConta, ClassroomLink, CLASSROOM_LINK_SCOPES } from './classroom-link';
 
@@ -71,8 +72,9 @@ describe('ClassroomLink', () => {
       userId: 'u1',
       provider: 'CLASSROOM',
       accountKey: 'aluno@gmail.com',
-      secretPlain: 'RT-SEGREDO',
+      secretPlain: expect.any(Secret),
     });
+    expect((conectarConta.mock.calls.at(-1)![0] as { secretPlain: Secret }).secretPlain.reveal()).toBe('RT-SEGREDO');
   });
 
   it('ufba com conta @ufba.br: guarda', async () => {

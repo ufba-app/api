@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { createHash } from 'node:crypto';
 import { MoodleLink, MoodleLinkError } from './moodle-link';
 
@@ -45,8 +46,9 @@ describe('MoodleLink', () => {
       provider: 'MOODLE',
       accountKey: 'ava.ufba.br:luiz.a',
       siteUrl: SITE,
-      secretPlain: WSTOKEN,
+      secretPlain: expect.any(Secret),
     });
+    expect(conectarConta.mock.calls[0][0].secretPlain.reveal()).toBe(WSTOKEN);
   });
 
   it('aceita o endereço entregue pelo tratador web+ufba (como chega em /oauth/moodle/capture)', async () => {

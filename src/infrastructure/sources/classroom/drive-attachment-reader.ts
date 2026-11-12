@@ -1,3 +1,4 @@
+import type { Secret } from '../../../application/shared/secret';
 import type { AttachmentContent, AttachmentReader, AttachmentRef } from '../../../application/ports/attachment-reader';
 import { GoogleHttp } from '../google/google-http';
 
@@ -25,7 +26,7 @@ function driveIdOf(ref: AttachmentRef): string | null {
 export class DriveAttachmentReader implements AttachmentReader {
   constructor(private readonly http: GoogleHttp) {}
 
-  async read(credentials: { refreshToken: string }, ref: AttachmentRef): Promise<AttachmentContent> {
+  async read(credentials: { refreshToken: Secret }, ref: AttachmentRef): Promise<AttachmentContent> {
     const id = driveIdOf(ref);
     if (!id) throw new UnsupportedAttachmentError('Anexo sem id do Drive');
     const rt = credentials.refreshToken;

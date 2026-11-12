@@ -1,3 +1,4 @@
+import type { Secret } from '../../../application/shared/secret';
 import { GoogleHttp } from '../google/google-http';
 import type {
   FetchedCourseSpace,
@@ -67,7 +68,7 @@ export class ClassroomGateway implements SourceGateway {
     return result;
   }
 
-  private async fetchCourse(rt: string, courseId: string, out: { items: FetchedItem[]; grades: FetchedGrade[] }): Promise<void> {
+  private async fetchCourse(rt: Secret, courseId: string, out: { items: FetchedItem[]; grades: FetchedGrade[] }): Promise<void> {
     const c = `${BASE}/courses/${enc(courseId)}`;
     const [announcements, work, materials, submissions] = await Promise.all([
       this.http.list<GcAnnouncement>(rt, `${c}/announcements`, 'announcements'),

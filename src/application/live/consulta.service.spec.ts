@@ -33,7 +33,7 @@ function build(contas: SourceAccountRecord[], falha?: string) {
   const source: LiveSource = {
     provider: 'CLASSROOM',
     listarCursos: async (ctx: SourceContext) => {
-      vistos.push(`${ctx.accountKey}/${(ctx.credentials as { token: string }).token}`);
+      vistos.push(`${ctx.accountKey}/${(ctx.credentials as { token: Secret }).token.reveal()}`);
       if (ctx.accountKey === falha) throw new SourceError('REAUTH_NEEDED', 'token recusado');
       return [{ id: '1', nome: `curso de ${ctx.accountKey}` }];
     },

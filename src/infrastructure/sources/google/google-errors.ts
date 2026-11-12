@@ -1,8 +1,9 @@
+import type { Secret } from '../../../application/shared/secret';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 import { GoogleApiError } from './google-http';
 
 /** Extrai o refresh token (decifrado) do contexto; Google só usa credencial `token`. */
-export function refreshTokenOf(ctx: SourceContext): string {
+export function refreshTokenOf(ctx: SourceContext): Secret {
   if (ctx.credentials.kind !== 'token') {
     throw new SourceError('CREDENTIAL_REJECTED', 'Fonte Google exige credencial do tipo token');
   }

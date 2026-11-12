@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { GoogleAuth, GoogleHttp } from '../google/google-http';
 import { fakeFetch, tokenRoute } from '../../../../test/support/fake-fetch';
 import { CalendarGateway } from './calendar.gateway';
@@ -19,7 +20,7 @@ describe('CalendarGateway', () => {
     ]);
     const http = new GoogleHttp(new GoogleAuth({ clientId: 'i', clientSecret: 's', fetchFn: f }), f);
     const gw = new CalendarGateway(http, { now: () => new Date('2026-10-31T00:00:00Z') });
-    const r = await gw.fetch({ userId: 'u', accountKey: 'a@x', credentials: { kind: 'token', token: 'RT' } }, { kind: 'tudo' });
+    const r = await gw.fetch({ userId: 'u', accountKey: 'a@x', credentials: { kind: 'token', token: Secret.of('RT') } }, { kind: 'tudo' });
 
     expect(r.events!).toHaveLength(2);
     expect(r.events![0]).toMatchObject({ externalId: 'e1', title: 'Prova', allDay: false, location: 'PAF' });

@@ -30,7 +30,7 @@ export type SyncScope =
  */
 export type SourceCredentials =
   | { kind: 'password'; username: string; password: Secret }
-  | { kind: 'token'; token: string };
+  | { kind: 'token'; token: Secret };
 
 export interface SourceContext {
   userId: string;

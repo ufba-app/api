@@ -1,9 +1,10 @@
+import type { Secret } from '../../../application/shared/secret';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 
 /** O que as chamadas ao Moodle precisam: raiz do site e wstoken. */
 export interface MoodleAccess {
   baseUrl: string;
-  token: string;
+  token: Secret;
 }
 
 /** Extrai baseUrl+wstoken do contexto da porta. Moodle exige conta com token guardado. */

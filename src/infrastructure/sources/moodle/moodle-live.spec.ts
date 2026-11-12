@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 import { htmlToText, MoodleLive } from './moodle-live';
 
@@ -5,7 +6,7 @@ const ctx: SourceContext = {
   userId: 'u1',
   accountKey: 'ava.test:aluno',
   siteUrl: 'https://ava.test',
-  credentials: { kind: 'token', token: 'SEGREDO123' },
+  credentials: { kind: 'token', token: Secret.of('SEGREDO123') },
 };
 
 function moodle(responses: Record<string, unknown>) {

@@ -21,7 +21,7 @@ export class MoodleAttachmentReader implements AttachmentReader {
     if (target.origin !== base.origin) {
       throw new MoodleError('URL do anexo não pertence ao Moodle da conta');
     }
-    target.searchParams.set('token', ctx.token);
+    target.searchParams.set('token', ctx.token.reveal());
     const res = await this.fetchFn(target.toString(), { redirect: 'follow' });
     if (!res.ok) {
       throw new MoodleError(`Moodle HTTP ${res.status} ao baixar anexo`);

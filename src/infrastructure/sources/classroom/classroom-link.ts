@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import type { IdentityService } from '../../../application/identity/identity.service';
 import type { AppClassroom, ClassroomLinkPort } from '../../../application/oauth/oauth-ports';
 import type { SourceAccountRepository } from '../../../application/ports/repositories';
@@ -126,7 +127,7 @@ export class ClassroomLink implements ClassroomLinkPort {
       );
     }
     await this.testarLeitura(c.fetchFn, tok.access_token);
-    await this.identity.conectarConta({ userId, provider: 'CLASSROOM', accountKey: email, secretPlain: tok.refresh_token });
+    await this.identity.conectarConta({ userId, provider: 'CLASSROOM', accountKey: email, secretPlain: Secret.of(tok.refresh_token) });
     return { email };
   }
 
