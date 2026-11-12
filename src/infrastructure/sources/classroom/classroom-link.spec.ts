@@ -103,8 +103,4 @@ describe('ClassroomLink', () => {
     await expect(link.handleCallback('convidado', 'u1', 'code', 'cb')).rejects.toThrow(GoogleLinkError);
     expect(conectarConta).not.toHaveBeenCalled();
   });
-
-  it('contas: só as com acesso guardado e válido', async () => {
-    await expect(build().link.contas('u1')).resolves.toEqual(['a@gmail.com']);
-  });
 });

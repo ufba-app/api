@@ -1,6 +1,5 @@
 import type { Secret } from '../../../application/shared/secret';
 import { LinkError, type SigaaLinkPort } from '../../../application/oauth/oauth-ports';
-import type { CofreSigaa } from '../../../application/sigaa/cofre-sigaa';
 import { createSigaaHttpClient, type SigaaHttpClient } from './http-client';
 import { SigaaInvalidCredentialsError, SigaaSession } from './session';
 
@@ -47,17 +46,11 @@ export class SigaaLink implements SigaaLinkPort {
   private readonly porLogin = new Map<string, Contador>();
 
   constructor(
-    private readonly cofre: CofreSigaa,
     private readonly http: SigaaHttpClient = createSigaaHttpClient(),
     private readonly now: () => number = Date.now,
   ) {}
 
-  async conectar(txn: string, login: string, senha: Secret, userId: string): Promise<void> {
-    const usuario = await this.validar(txn, login, senha, userId);
-    this.cofre.aguardar(txn, { login: usuario, senha });
-  }
-
-  /** `txn`: a transação da tela de /authorize, ou outra chave estável do pedido (ex.: a sessão do app web). */
+  /** `txn`: chave estável do pedido para o limite de tentativas (ex.: `web:<userId>`). */
   async validar(txn: string, login: string, senha: Secret, userId: string): Promise<string> {
     const usuario = login.trim();
     if (!usuario || senha.isEmpty()) throw new SigaaLinkError('Informe o usuário e a senha do SIGAA.', 'invalid_request');
@@ -96,10 +89,6 @@ export class SigaaLink implements SigaaLinkPort {
       }
     }
     return usuario;
-  }
-
-  pendente(txn: string): boolean {
-    return this.cofre.temPendente(txn);
   }
 
   private podar(agora: number): void {

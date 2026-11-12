@@ -1,89 +1,36 @@
-import { Secret } from '../../../application/shared/secret';
 import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
-import {
-  CLASSROOM_LINK,
-  ClassroomLinkPort,
-  GOOGLE_LINK,
-  GoogleLinkPort,
-  MOODLE_LINK,
-  MoodleLinkPort,
-  OAUTH_STORE,
-  OAuthStore,
-  SIGAA_LINK,
-  SigaaLinkPort,
-} from '../../../application/oauth/oauth-ports';
+import { GOOGLE_LINK, GoogleLinkPort, OAUTH_STORE, OAuthStore } from '../../../application/oauth/oauth-ports';
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
-import { connectPage, errorPage, identifyPage, moodlePage } from './pages';
-import { timingSafeEqual } from 'node:crypto';
 import { WEB_CLIENT_ID, WebService } from '../../../application/web/web.service';
-import { sessionToken } from '../../web/web-auth';
-
-const errorParam = (req: Request): string | undefined =>
-  typeof req.query.error === 'string' && req.query.error ? req.query.error : undefined;
+import { sessionToken, webEnv } from '../../web/web-auth';
 
 export { OAUTH_SERVICE } from './oauth-tokens';
 import { OAUTH_SERVICE } from './oauth-tokens';
 
-const MOODLE_TXN_COOKIE = 'ufba_moodle_txn';
+const errorParam = (req: Request): string | undefined =>
+  typeof req.query.error === 'string' && req.query.error ? req.query.error : undefined;
 
-function readCookie(req: Request, name: string): string | undefined {
-  for (const part of (req.headers.cookie ?? '').split(';')) {
-    const [k, ...v] = part.trim().split('=');
-    if (k === name) {
-      try {
-        return decodeURIComponent(v.join('='));
-      } catch {
-        return undefined;
-      }
-    }
-  }
-  return undefined;
-}
-
-function secretOk(given: string | undefined): boolean {
-  const expected = process.env.OAUTH_AUTHORIZE_SECRET;
-  if (!expected) return true;
-  const a = Buffer.from(given ?? '');
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
+/**
+ * Servidor OAuth 2.1 do serviço: só protocolo (metadados, registro, /authorize, /token e as voltas do Google).
+ * Nenhuma tela: login, consentimento e conexões são do app web (`AUTH_ORIGIN`/`WEB_ORIGIN`); aqui só se redireciona.
+ */
 @Controller()
 export class OAuthController {
   constructor(
     @Inject(OAUTH_SERVICE) private readonly oauth: OAuthService,
     @Inject(OAUTH_STORE) private readonly store: OAuthStore,
     @Inject(GOOGLE_LINK) private readonly google: GoogleLinkPort,
-    @Inject(MOODLE_LINK) private readonly moodle: MoodleLinkPort,
-    @Inject(CLASSROOM_LINK) private readonly classroom: ClassroomLinkPort,
-    @Inject(SIGAA_LINK) private readonly sigaa: SigaaLinkPort,
     @Optional() private readonly web?: WebService,
   ) {}
 
-  /** Modo web: com `WEB_ORIGIN` definida, as telas são do app web e o backend só redireciona. */
-  private webMode(): WebService | undefined {
-    return process.env.WEB_ORIGIN && this.web ? this.web : undefined;
-  }
-
-  /** Erro de /authorize no modo web: página de erro do web (nunca volta ao cliente, que não é confiável aqui). */
-  private webError(res: Response, web: WebService, e: unknown) {
+  /** Erro de /authorize: página de erro do web (nunca volta ao cliente, que não é confiável aqui). */
+  private webError(res: Response, e: unknown) {
     const message = e instanceof OAuthError ? e.message : 'Erro inesperado';
     const error = e instanceof OAuthError ? e.error : 'server_error';
     const q = new URLSearchParams({ error, message });
-    res.redirect(303, `${web.authOrigin()}/authorize/error?${q.toString()}`);
-  }
-
-  /**
-   * Em modo web as telas HTML antigas (identificar, conectar, concluir) ficam DESLIGADAS: elas deixavam outra pessoa
-   * se apropriar de um pedido de autorização e colher a senha do SIGAA de quem aprovasse pelo web.
-   */
-  private legacyBlocked(res: Response): boolean {
-    const web = this.webMode();
-    if (!web) return false;
-    this.webError(res, web, new OAuthError('invalid_request', 'Este fluxo agora é feito pelo app web.', 410));
-    return true;
+    res.redirect(303, `${webEnv().authOrigin}/authorize/error?${q.toString()}`);
   }
 
   /** Volta ao web (cliente da casa) com erro e descrição pt-BR prontos para mostrar. */
@@ -140,289 +87,64 @@ export class OAuthController {
     }
   }
 
-  // ---- /authorize: telas mínimas ----
+  // ---- /authorize: só redireciona (Google para o web; tela de consentimento do web para os demais) ----
 
   @Get('authorize')
   async authorize(@Query() q: AuthorizeParams, @Req() req: Request, @Res() res: Response) {
-    const web = this.webMode();
-    if (web) {
-      try {
-        const p = await this.oauth.begin(q);
-        if (p.clientId === WEB_CLIENT_ID) {
-          // Login do próprio web: direto para o Google (só @ufba.br); na volta, emite o code sem consentimento.
-          if (!this.google.loginEnabled()) throw new OAuthError('server_error', 'Login com Google não configurado', 500);
-          return res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
-        }
-        return res.redirect(303, `${web.authOrigin()}/authorize?request=${encodeURIComponent(p.id)}`);
-      } catch (e) {
-        return this.webError(res, web, e);
-      }
-    }
     try {
       const p = await this.oauth.begin(q);
-      const client = await this.store.getClient(p.clientId);
-      this.html(
-        res,
-        identifyPage(p.id, client?.clientName, !!process.env.OAUTH_AUTHORIZE_SECRET, undefined, this.google.loginEnabled()),
-      );
-    } catch (e) {
-      this.htmlError(res, e);
-    }
-  }
-
-  @Post('authorize')
-  async authorizePost(@Body() b: Record<string, string>, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    try {
-      if (b.acao === 'negar') return res.redirect(303, await this.oauth.deny(b.txn));
-      if (b.acao === 'concluir') return res.redirect(303, await this.oauth.complete(b.txn));
-
-      // identificar. Com o Google configurado, e-mail digitado não identifica ninguém: só o login Google.
-      const pending = await this.oauth.pending(b.txn);
-      if (this.google.loginEnabled()) {
-        const client = await this.store.getClient(pending.clientId);
-        return this.html(
-          res,
-          identifyPage(pending.id, client?.clientName, false, 'Entre com sua conta Google institucional.', true),
-          403,
-        );
+      if (p.clientId === WEB_CLIENT_ID) {
+        // Login do próprio web: direto para o Google (só @ufba.br); na volta, emite o code sem consentimento.
+        if (!this.google.loginEnabled()) throw new OAuthError('server_error', 'Login com Google não configurado', 500);
+        return res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
       }
-      if (!secretOk(b.secret)) {
-        const client = await this.store.getClient(pending.clientId);
-        return this.html(res, identifyPage(pending.id, client?.clientName, true, 'Senha de acesso incorreta.'), 403);
-      }
-      const next = await this.oauth.identify(b.txn, b.email ?? '');
-      await this.renderConnect(res, next.id, next.userId!);
+      return res.redirect(303, `${webEnv().authOrigin}/authorize?request=${encodeURIComponent(p.id)}`);
     } catch (e) {
-      this.htmlError(res, e);
+      return this.webError(res, e);
     }
   }
 
-  // ---- login com Google (identidade: openid/email/profile, só @ufba.br) ----
-
-  @Get('oauth/login/google')
-  async googleLogin(@Query('txn') txn: string, @Req() req: Request, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    try {
-      const p = await this.oauth.pending(txn);
-      res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
-    } catch (e) {
-      this.htmlError(res, e);
-    }
-  }
+  // ---- voltas do Google: login do web e Classroom @ufba.br (mesmo redirect do app interno) ----
 
   @Get('oauth/callback/google')
-  async googleCallback(
-    @Query('code') code: string,
-    @Query('state') txn: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    const callbackUrl = `${baseUrl(req)}/oauth/callback/google`;
-    const web = this.webMode();
+  async googleCallback(@Query('code') code: string, @Query('state') state: string, @Req() req: Request, @Res() res: Response) {
     // Classroom @ufba.br conectado pelo app web (state `web.…`, preso à sessão).
-    if (web?.isWebState(txn)) {
+    if (this.web?.isWebState(state)) {
       const session = await this.sessionUserId(req);
-      return res.redirect(303, await web.classroomCallback({ state: txn, code, error: errorParam(req) }, session, baseUrl(req)));
+      return res.redirect(303, await this.web.classroomCallback({ state, code, error: errorParam(req) }, session, baseUrl(req)));
     }
     let p;
     try {
-      p = await this.oauth.pending(txn);
+      p = await this.oauth.pending(state);
+      if (p.clientId !== WEB_CLIENT_ID) throw new OAuthError('invalid_request', 'Pedido de login inválido.', 400);
     } catch (e) {
-      return web ? this.webError(res, web, e) : this.htmlError(res, e);
+      return this.webError(res, e);
     }
     // Login do app web: identifica e emite o code direto (cliente da casa, sem consentimento).
-    if (web && p.clientId === WEB_CLIENT_ID) {
-      if (errorParam(req)) return this.webLoginError(res, p, 'Login cancelado na tela do Google.');
-      try {
-        const { email } = await this.google.handleLoginCallback(code, callbackUrl);
-        await this.oauth.identify(p.id, email);
-        return res.redirect(303, await this.oauth.complete(p.id));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Falha ao entrar com o Google.';
-        return this.webLoginError(res, p, msg);
-      }
-    }
-    if (this.legacyBlocked(res)) return;
-    // Mesmo redirect do app interno para as duas etapas: sem usuário ainda = LOGIN; com usuário = CLASSROOM @ufba.br.
-    if (p.userId) {
-      try {
-        const { email } = await this.classroom.handleCallback('ufba', p.userId, code, callbackUrl);
-        return await this.renderConnect(res, p.id, p.userId, `Classroom conectado (${email}).`);
-      } catch (e) {
-        return await this.backToConnect(res, txn, e);
-      }
-    }
+    if (errorParam(req)) return this.webLoginError(res, p, 'Login cancelado na tela do Google.');
     try {
-      const { email } = await this.google.handleLoginCallback(code, callbackUrl);
-      const next = await this.oauth.identify(p.id, email);
-      await this.renderConnect(res, next.id, next.userId!);
+      const { email } = await this.google.handleLoginCallback(code, `${baseUrl(req)}/oauth/callback/google`);
+      await this.oauth.identify(p.id, email);
+      return res.redirect(303, await this.oauth.complete(p.id));
     } catch (e) {
-      const client = await this.store.getClient(p.clientId);
-      const msg = e instanceof Error ? e.message : 'Falha ao entrar com o Google';
-      this.html(res, identifyPage(p.id, client?.clientName, false, msg, true), 403);
+      return this.webLoginError(res, p, e instanceof Error ? e.message : 'Falha ao entrar com o Google.');
     }
   }
 
-  // ---- conectar Classroom: @ufba.br (app interno, callback acima) ou convidado (app externo, callback abaixo) ----
-
-  @Get('oauth/connect/classroom')
-  async classroomStart(
-    @Query('txn') txn: string,
-    @Query('app') app: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    if (this.legacyBlocked(res)) return;
-    try {
-      const p = await this.identified(txn);
-      const qual = app === 'convidado' ? 'convidado' : 'ufba';
-      const callback = `${baseUrl(req)}/oauth/callback/${qual === 'ufba' ? 'google' : 'classroom'}`;
-      res.redirect(303, await this.classroom.startUrl(qual, callback, p.id));
-    } catch (e) {
-      await this.backToConnect(res, txn, e);
-    }
-  }
-
+  /** Classroom de convidado (gmail), conectado pelo app web. */
   @Get('oauth/callback/classroom')
   async classroomCallback(
     @Query('code') code: string,
-    @Query('state') txn: string,
+    @Query('state') state: string,
     @Query('error') error: string,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const web = this.webMode();
-    if (web?.isWebState(txn)) {
-      const session = await this.sessionUserId(req);
-      return res.redirect(303, await web.classroomCallback({ state: txn, code, error }, session, baseUrl(req)));
+    if (!this.web?.isWebState(state)) {
+      return this.webError(res, new OAuthError('invalid_request', 'Pedido de conexão inválido.', 400));
     }
-    if (this.legacyBlocked(res)) return;
-    try {
-      const p = await this.identified(txn);
-      if (error) throw new Error('Conexão com o Classroom cancelada na tela do Google.');
-      const callbackUrl = `${baseUrl(req)}/oauth/callback/classroom`;
-      const { email } = await this.classroom.handleCallback('convidado', p.userId!, code, callbackUrl);
-      await this.renderConnect(res, p.id, p.userId!, `Classroom conectado (${email}).`);
-    } catch (e) {
-      await this.backToConnect(res, txn, e);
-    }
-  }
-
-  @Get('oauth/connect')
-  async connectHome(@Query('txn') txn: string, @Query('ok') ok: string, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    try {
-      const p = await this.identified(txn);
-      await this.renderConnect(res, p.id, p.userId!, ok === 'moodle' ? 'Moodle conectado.' : undefined);
-    } catch (e) {
-      this.htmlError(res, e);
-    }
-  }
-
-  // ---- conectar Moodle: login no navegador da pessoa ----
-  // Caminho principal: o launch.php termina em `web+ufba://token=...`; a tela registra este serviço como tratador
-  // desse esquema (navigator.registerProtocolHandler) e o navegador entrega o endereço em /oauth/moodle/capture.
-  // A transação vem num cookie HttpOnly curto (o endereço do tratador é fixo). Plano B: colar o link na caixa.
-
-  private async renderMoodle(res: Response, req: Request, txn: string, userId: string, error?: string) {
-    const base = baseUrl(req);
-    const secure = base.startsWith('https://') ? '; Secure' : '';
-    res.setHeader(
-      'Set-Cookie',
-      `${MOODLE_TXN_COOKIE}=${encodeURIComponent(txn)}; Path=/oauth; HttpOnly; SameSite=Lax; Max-Age=900${secure}`,
-    );
-    this.html(
-      res,
-      moodlePage({
-        txn,
-        host: this.moodle.host(),
-        launchUrl: await this.moodle.launchUrl(userId, txn),
-        scheme: this.moodle.scheme(),
-        captureUrl: `${base}/oauth/moodle/capture?u=%s`,
-        error,
-      }),
-      error ? 400 : 200,
-    );
-  }
-
-  @Get('oauth/connect/moodle')
-  async moodleStart(@Query('txn') txn: string, @Query('erro') erro: string, @Req() req: Request, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    try {
-      const p = await this.identified(txn);
-      await this.renderMoodle(res, req, p.id, p.userId!, erro || undefined);
-    } catch (e) {
-      await this.backToConnect(res, txn, e);
-    }
-  }
-
-  @Get('oauth/moodle/capture')
-  async moodleCapture(@Query('u') u: string, @Req() req: Request, @Res() res: Response) {
-    // Navegador que ainda tem o tratador antigo do esquema (apontando para a API): repassa o link para a captura do
-    // web, que é quem conclui a conexão agora. Só links do próprio esquema; o resto cai no bloqueio.
-    const web = this.webMode();
-    if (web && typeof u === 'string' && u.startsWith(`${this.moodle.scheme()}:`)) {
-      return res.redirect(303, `${web.webOrigin()}/connections/moodle/capture?u=${encodeURIComponent(u)}`);
-    }
-    if (this.legacyBlocked(res)) return;
-    const txn = readCookie(req, MOODLE_TXN_COOKIE);
-    let p;
-    try {
-      p = await this.identified(txn);
-    } catch {
-      return this.html(
-        res,
-        errorPage('Não encontrei o pedido de conexão. Volte à tela "Conectar o Moodle" e tente de novo.'),
-        400,
-      );
-    }
-    const t = encodeURIComponent(p.id);
-    // Sempre redireciona: o endereço com o token sai da barra e do histórico desta aba.
-    try {
-      await this.moodle.connect(p.userId!, p.id, u ?? '');
-      res.redirect(303, `/oauth/connect?txn=${t}&ok=moodle`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Falha ao conectar o Moodle';
-      res.redirect(303, `/oauth/connect/moodle?txn=${t}&erro=${encodeURIComponent(msg)}`);
-    }
-  }
-
-  @Post('oauth/connect/moodle')
-  async moodleConnect(@Body() b: Record<string, string>, @Req() req: Request, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    let p;
-    try {
-      p = await this.identified(b.txn);
-    } catch (e) {
-      return this.htmlError(res, e);
-    }
-    try {
-      await this.moodle.connect(p.userId!, p.id, b.link ?? '');
-      await this.renderConnect(res, p.id, p.userId!, 'Moodle conectado.');
-    } catch (e) {
-      await this.renderMoodle(res, req, p.id, p.userId!, e instanceof Error ? e.message : 'Falha ao conectar o Moodle');
-    }
-  }
-
-  // ---- conectar SIGAA: login e senha validados agora, guardados em memória até o /token (o cofre cifra) ----
-
-  @Post('oauth/connect/sigaa')
-  async sigaaConnect(@Body() b: Record<string, string>, @Res() res: Response) {
-    if (this.legacyBlocked(res)) return;
-    let p;
-    try {
-      p = await this.identified(b.txn);
-    } catch (e) {
-      return this.htmlError(res, e);
-    }
-    try {
-      await this.sigaa.conectar(p.id, b.login ?? '', Secret.of(b.senha ?? ''), p.userId!);
-      await this.renderConnect(res, p.id, p.userId!, 'SIGAA validado: será guardado ao concluir.');
-    } catch (e) {
-      // A mensagem vem do SigaaLink (nunca contém a senha) e a tela não repete o que foi digitado.
-      await this.renderConnect(res, p.id, p.userId!, undefined, e instanceof Error ? e.message : 'Falha ao conectar o SIGAA');
-    }
+    const session = await this.sessionUserId(req);
+    return res.redirect(303, await this.web.classroomCallback({ state, code, error }, session, baseUrl(req)));
   }
 
   // ---- /token ----
@@ -444,43 +166,6 @@ export class OAuthController {
   private async sessionUserId(req: Request): Promise<string | undefined> {
     const token = sessionToken(req);
     return token ? (await this.oauth.verifySession(token))?.userId : undefined;
-  }
-
-  private async identified(txn: string | undefined) {
-    const p = await this.oauth.pending(txn);
-    if (!p.userId) throw new OAuthError('access_denied', 'identifique-se primeiro', 403);
-    return p;
-  }
-
-  private async renderConnect(res: Response, txn: string, userId: string, notice?: string, error?: string) {
-    const [contas, m] = await Promise.all([
-      this.classroom.enabled() ? this.classroom.contas(userId) : Promise.resolve(null),
-      this.moodle.status(userId),
-    ]);
-    const classroom = contas === null ? null : { contas, apps: this.classroom.apps() };
-    this.html(res, connectPage({ txn, classroom, moodle: m.connected, sigaaPendente: this.sigaa.pendente(txn), notice, error }));
-  }
-
-  /** Falha num vínculo não derruba a autorização: volta para a tela de conexões com o aviso. */
-  private async backToConnect(res: Response, txn: string | undefined, e: unknown) {
-    try {
-      const p = await this.identified(txn);
-      await this.renderConnect(res, p.id, p.userId!, undefined, e instanceof Error ? e.message : 'Falha ao conectar');
-    } catch (inner) {
-      this.htmlError(res, inner);
-    }
-  }
-
-  private html(res: Response, body: string, status = 200) {
-    res.status(status).setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.send(body);
-  }
-
-  private htmlError(res: Response, e: unknown) {
-    const status = e instanceof OAuthError ? e.status : 500;
-    this.html(res, errorPage(e instanceof OAuthError ? e.message : 'Erro inesperado'), status);
   }
 
   private oauthJson(res: Response, e: unknown) {

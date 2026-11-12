@@ -2,7 +2,7 @@
 
 Contrato entre o `platform` (API, `https://api.ufba.app`) e o app web (`https://ufba.app`). O web é a única
 interface: login, conexões, autorização de clientes OAuth, apps autorizados e leitura dos dados. O backend não tem
-telas (exceto o fallback HTML antigo, usado só quando `WEB_ORIGIN` não está definida).
+nenhuma tela: só JSON e redirecionamentos do OAuth.
 
 Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`message`) em pt-BR.
 

@@ -160,21 +160,16 @@ export interface ClassroomLinkPort {
   enabled(): boolean;
   /** Apps configurados neste servidor. */
   apps(): AppClassroom[];
-  /** E-mails das contas conectadas e válidas. */
-  contas(userId: string): Promise<string[]>;
   startUrl(app: AppClassroom, callbackUrl: string, state: string): Promise<string>;
   /** Troca o code, confere o domínio, faz 1 leitura de teste e guarda o refresh token cifrado. */
   handleCallback(app: AppClassroom, userId: string, code: string, callbackUrl: string): Promise<{ email: string }>;
 }
 
 /**
- * Vínculo com o Moodle pelo launch.php do Moodle Mobile: a pessoa faz o login no PRÓPRIO navegador e cola na tela o
- * link de redirecionamento (`moodlemobile://token=...`). Quem implementa é o módulo Moodle.
+ * Vínculo com o Moodle pelo launch.php do Moodle Mobile: a pessoa faz o login no PRÓPRIO navegador e o app web captura
+ * o link de redirecionamento (`web+ufba://token=...`). Quem implementa é o módulo Moodle.
  */
 export interface MoodleLinkPort {
-  status(userId: string): Promise<LinkStatus>;
-  /** Host do Moodle (para a tela explicar onde fazer o login). */
-  host(): string;
   /** Esquema do redirect final do launch.php (ex.: `web+ufba`), que a tela registra como tratador. */
   scheme(): string;
   /** URL do launch.php (com passport/urlscheme) que a pessoa abre no próprio navegador. */
@@ -183,17 +178,11 @@ export interface MoodleLinkPort {
   connect(userId: string, txn: string, pasted: string): Promise<void>;
 }
 
-/** SIGAA na tela de autorização: valida login e senha e os guarda em memória até o /token (o cofre cifra então). */
+/** SIGAA pelo app web: valida login e senha (quem chama decide onde guardar). */
 export interface SigaaLinkPort {
   /**
-   * 1 login real + GET do portal; se ok, guarda em memória até o /token. Erro com mensagem amigável se a senha estiver
-   * errada; senhas erradas demais (por transação e por usuário) são recusadas sem falar com o SIGAA.
-   */
-  conectar(txn: string, login: string, senha: Secret, userId: string): Promise<void>;
-  /**
-   * Só valida (mesmos limites de tentativa, com `chave` no lugar da transação) e devolve o login normalizado. Quem
-   * chama decide onde guardar. Lança `LinkError`.
+   * 1 login real + GET do portal e devolve o login normalizado. Erro com mensagem amigável se a senha estiver errada;
+   * senhas erradas demais (por chave, por usuário e por login) são recusadas sem falar com o SIGAA. Lança `LinkError`.
    */
   validar(chave: string, login: string, senha: Secret, userId: string): Promise<string>;
-  pendente(txn: string): boolean;
 }

@@ -12,10 +12,13 @@ import type { OAuthService } from '../../application/oauth/oauth.service';
 import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web.service';
 import { OAUTH_SERVICE } from '../mcp/oauth/oauth-tokens';
 
-/** Configuração do modo web, lida do ambiente a cada uso (os testes trocam o env). */
+/**
+ * Origens do app web, lidas do ambiente a cada uso (os testes trocam o env). Todas as telas são do web; sem
+ * `WEB_ORIGIN`, vale o web local de desenvolvimento (em produção o boot exige a variável, ver main.ts).
+ */
 export function webEnv() {
   const publicUrl = (process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
-  const webOrigin = (process.env.WEB_ORIGIN ?? '').replace(/\/+$/, '');
+  const webOrigin = (process.env.WEB_ORIGIN || 'http://localhost:3001').replace(/\/+$/, '');
   // Telas de login e autorização (ex.: https://auth.ufba.app). Sem AUTH_ORIGIN, ficam no próprio WEB_ORIGIN.
   const authOrigin = (process.env.AUTH_ORIGIN ?? '').replace(/\/+$/, '') || webOrigin;
   // Origens da casa: as únicas aceitas no CORS e na checagem de Origin do CSRF.

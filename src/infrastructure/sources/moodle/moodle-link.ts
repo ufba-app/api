@@ -1,7 +1,7 @@
 import { Secret } from '../../../application/shared/secret';
 import { createHmac } from 'node:crypto';
 import type { IdentityService } from '../../../application/identity/identity.service';
-import { LinkError, type LinkStatus, type MoodleLinkPort } from '../../../application/oauth/oauth-ports';
+import { LinkError, type MoodleLinkPort } from '../../../application/oauth/oauth-ports';
 import type { SourceAccountRepository } from '../../../application/ports/repositories';
 import { deriveKey } from '../../crypto/keys';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
@@ -51,12 +51,7 @@ export class MoodleLink implements MoodleLinkPort {
     }
   }
 
-  async status(userId: string): Promise<LinkStatus> {
-    const accounts = await this.accounts.findByUserAndProvider(userId, 'MOODLE');
-    return { connected: accounts.some((a) => a.secret !== null) };
-  }
-
-  host(): string {
+  private host(): string {
     return new URL(this.siteUrl).host;
   }
 

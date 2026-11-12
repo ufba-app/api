@@ -65,8 +65,6 @@ describe('API do app web (docs/WEB-API.md)', () => {
     },
   };
   const sigaa: SigaaLinkPort = {
-    conectar: async () => undefined,
-    pendente: () => false,
     validar: async (_k, login, senha) => {
       sigaaValidations.push(login);
       if (senha.reveal() !== SENHA) throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
@@ -446,35 +444,12 @@ describe('API do app web (docs/WEB-API.md)', () => {
       return { client: c, id: p.id };
     }
 
-    it('rotas HTML antigas ficam desligadas em modo web', async () => {
-      const { id } = await novoPedido();
-      for (const r of [
-        await fetch(`${base}/authorize`, {
-          method: 'POST',
-          redirect: 'manual',
-          headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: `txn=${id}&acao=concluir`,
-        }),
-        await get(`/oauth/login/google?txn=${id}`),
-        await get(`/oauth/connect?txn=${id}`),
-        await get(`/oauth/connect/moodle?txn=${id}`),
-        await get(`/oauth/callback/classroom?state=${id}&code=x`),
-      ]) {
-        expect(r.status).toBe(303);
-        expect(r.headers.get('location')).toContain(`${AUTH}/authorize/error`);
+    it('o backend não tem tela: rotas antigas dão 404', async () => {
+      for (const path of ['/oauth/connect?txn=x', '/oauth/connect/moodle?txn=x', '/oauth/moodle/capture?u=x', '/oauth/login/google?txn=x']) {
+        expect((await get(path)).status).toBe(404);
       }
-    });
-
-    it('tratador antigo do web+ufba (API) repassa o link do Moodle para a captura do web', async () => {
-      const u = 'web+ufba://token=abc';
-      const r = await get(`/oauth/moodle/capture?u=${encodeURIComponent(u)}`);
-      expect(r.status).toBe(303);
-      const loc = new URL(r.headers.get('location')!);
-      expect(`${loc.origin}${loc.pathname}`).toBe(`${WEB}/connections/moodle/capture`);
-      expect(loc.searchParams.get('u')).toBe(u);
-      // Sem `u` (ou com algo que não é do esquema): só a página de erro, nada é repassado.
-      const sem = await get('/oauth/moodle/capture?u=https://evil.example');
-      expect(sem.headers.get('location')).toContain(`${AUTH}/authorize/error`);
+      const post = await fetch(`${base}/authorize`, { method: 'POST', redirect: 'manual' });
+      expect(post.status).toBe(404);
     });
 
     it('pedido de outra pessoa: aprovar não abre a senha de quem clicou', async () => {

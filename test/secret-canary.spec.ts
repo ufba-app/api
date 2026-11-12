@@ -101,7 +101,7 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
     };
     const cofre = new CofreSigaa(repo as never, (k) => new AesSecretCipher(k.toString('base64')));
     const http = createSigaaHttpClient('https://sigaa.test', fakeFetch(() => modo));
-    const link = new SigaaLink(cofre, http);
+    const link = new SigaaLink(http);
     return { cofre, link, rows, setModo: (m: Modo) => (modo = m) };
   }
 
@@ -136,7 +136,8 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
       }
 
       setModo('ok');
-      await link.conectar('txn-ok', 'fulano', senha, 'u1');
+      await link.validar('txn-ok', 'fulano', senha, 'u1');
+      cofre.aguardar('txn-ok', { login: 'fulano', senha });
       // Descuido: logar o cofre inteiro, com a senha esperando em memória.
       console.log(cofre);
       cofre.vincularCodigo('txn-ok', 'hash-1');

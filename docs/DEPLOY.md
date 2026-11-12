@@ -28,8 +28,9 @@ migração falhar, o container não sobe e o deploy anterior continua no ar. Hea
 | `GOOGLE_ALLOWED_DOMAIN` | `ufba.br` |
 | `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET` | opcional: Classroom de convidados (gmail) |
 
-`HOST=0.0.0.0` e `PORT` já vêm do Dockerfile (o Railway injeta `PORT`). Não defina `OAUTH_AUTHORIZE_SECRET` nem
-`SIGNUP_TOKEN` em produção, a menos que precise.
+`HOST=0.0.0.0` e `PORT` já vêm do Dockerfile (o Railway injeta `PORT`). Não defina `SIGNUP_TOKEN` em
+produção, a menos que precise. Com `NODE_ENV=production` (já no Dockerfile), a API não sobe sem `WEB_ORIGIN` e
+`PUBLIC_URL`.
 
 ## Google Cloud (antes do primeiro login)
 

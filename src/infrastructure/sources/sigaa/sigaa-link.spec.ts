@@ -1,5 +1,4 @@
 import { Secret } from '../../../application/shared/secret';
-import type { CofreSigaa } from '../../../application/sigaa/cofre-sigaa';
 import type { SigaaHttpClient, SigaaHttpRequest, SigaaHttpResponse } from './http-client';
 import { SigaaLink } from './sigaa-link';
 
@@ -35,37 +34,21 @@ function fakeSigaa(loginOk: boolean | (() => boolean), fora = false) {
   return { http, requests };
 }
 
-function fakeCofre() {
-  const aguardar = jest.fn();
-  return { cofre: { aguardar, temPendente: (t: string) => t === 'txn-1' } as unknown as CofreSigaa, aguardar };
-}
 
 describe('SigaaLink', () => {
-  it('senha certa: guarda no cofre e faz 1 login + 1 GET do portal', async () => {
+  it('senha certa: devolve o login e faz 1 login + 1 GET do portal', async () => {
     const { http, requests } = fakeSigaa(true);
-    const { cofre, aguardar } = fakeCofre();
-    await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', Secret.of(SENHA), 'u1');
-    expect(aguardar).toHaveBeenCalledWith('txn-1', { login: 'fulano', senha: expect.any(Secret) });
-    expect(aguardar.mock.calls[0][1].senha.reveal()).toBe(SENHA);
+    await expect(new SigaaLink(http).validar('txn-1', ' fulano ', Secret.of(SENHA), 'u1')).resolves.toBe('fulano');
     expect(requests.filter((r) => r.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
     expect(requests.filter((r) => r.path === '/sigaa/portais/discente/discente.jsf')).toHaveLength(1);
   });
 
-  it('senha errada: erro amigável, nada guardado, sem a senha na mensagem', async () => {
+  it('senha errada: erro amigável, sem a senha na mensagem', async () => {
     const { http } = fakeSigaa(false);
-    const { cofre, aguardar } = fakeCofre();
-    const erro = await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', Secret.of(SENHA), 'u1').catch((e: Error) => e);
+    const erro = await new SigaaLink(http).validar('txn-1', 'fulano', Secret.of(SENHA), 'u1').catch((e: Error) => e);
     expect(erro).toBeInstanceOf(Error);
     expect((erro as Error).message).toContain('usuário ou senha do SIGAA incorretos');
     expect(String((erro as Error).message) + String((erro as Error).stack)).not.toContain(SENHA);
-    expect(aguardar).not.toHaveBeenCalled();
-  });
-
-  it('pendente delega ao cofre', () => {
-    const { cofre } = fakeCofre();
-    const link = new SigaaLink(cofre, fakeSigaa(true).http);
-    expect(link.pendente('txn-1')).toBe(true);
-    expect(link.pendente('outra')).toBe(false);
   });
 
   describe('limite de tentativas', () => {
@@ -75,12 +58,11 @@ describe('SigaaLink', () => {
     function build(loginOk: boolean | (() => boolean) = false) {
       let agora = 1_000_000;
       const sigaa = fakeSigaa(loginOk);
-      const { cofre, aguardar } = fakeCofre();
-      const link = new SigaaLink(cofre, sigaa.http, () => agora);
-      return { link, sigaa, aguardar, avancar: (ms: number) => (agora += ms) };
+      const link = new SigaaLink(sigaa.http, () => agora);
+      return { link, sigaa, avancar: (ms: number) => (agora += ms) };
     }
     const tentar = (link: SigaaLink, txn: string, user = 'u1', login = 'fulano') =>
-      link.conectar(txn, login, Secret.of(SENHA), user).then(
+      link.validar(txn, login, Secret.of(SENHA), user).then(
         () => null,
         (e: Error) => e,
       );
@@ -140,12 +122,11 @@ describe('SigaaLink', () => {
 
     it('sucesso zera o contador da transação', async () => {
       let ok = false;
-      const { link, aguardar } = build(() => ok);
+      const { link } = build(() => ok);
       await tentar(link, 'txn-a');
       await tentar(link, 'txn-a');
       ok = true;
       expect(await tentar(link, 'txn-a')).toBeNull();
-      expect(aguardar).toHaveBeenCalledTimes(1);
       ok = false;
       for (let i = 0; i < 2; i++) expect((await tentar(link, 'txn-a'))!.message).toContain('incorretos');
     });
@@ -162,8 +143,7 @@ describe('SigaaLink', () => {
 
     it('SIGAA indisponível não conta como tentativa', async () => {
       const sigaa = fakeSigaa(false, true);
-      const { cofre } = fakeCofre();
-      const link = new SigaaLink(cofre, sigaa.http, () => 0);
+      const link = new SigaaLink(sigaa.http, () => 0);
       for (let i = 0; i < 6; i++) {
         expect((await tentar(link, 'txn-a'))!.message).toContain('Não consegui falar com o SIGAA');
       }

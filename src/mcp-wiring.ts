@@ -104,7 +104,7 @@ export const mcpProviders: Provider[] = [
     inject: [SigaaCredentialRepository],
   },
   { provide: CHAVE_DO_CLIENTE, useExisting: CofreSigaa },
-  { provide: SIGAA_LINK, useFactory: (cofre: CofreSigaa) => new SigaaLink(cofre), inject: [CofreSigaa] },
+  { provide: SIGAA_LINK, useFactory: () => new SigaaLink() },
   {
     provide: OAUTH_ACCESS_AUTHENTICATOR,
     useFactory: (oauth: OAuthService) => new OAuthAccessTokenAuthenticator(oauth),

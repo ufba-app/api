@@ -87,11 +87,6 @@ export class ClassroomLink implements ClassroomLinkPort {
     return { ...c, fetchFn: this.cfg.fetchFn };
   }
 
-  async contas(userId: string): Promise<string[]> {
-    const accounts = await this.accounts.findByUserAndProvider(userId, 'CLASSROOM');
-    return accounts.filter((a) => a.secret !== null && a.status !== 'REAUTH_NEEDED').map((a) => a.accountKey);
-  }
-
   async startUrl(app: AppClassroom, callbackUrl: string, state: string): Promise<string> {
     const params = new URLSearchParams({
       client_id: this.client(app).clientId,

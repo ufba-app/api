@@ -87,13 +87,14 @@ Para OAuth, omita `headers`.
 | `GET /.well-known/oauth-protected-resource` | Metadados do recurso (RFC 9728) |
 | `GET /.well-known/oauth-authorization-server` | Metadados do servidor (RFC 8414) |
 | `POST /register` | Registro dinâmico de cliente (RFC 7591), cliente público |
-| `GET`/`POST /authorize` | Tela mínima (HTML) |
+| `GET /authorize` | Só redireciona: login do web (`ufba-web`) vai ao Google; os demais clientes, à tela de consentimento do app web (`{AUTH_ORIGIN}/authorize?request=<id>`). O backend não tem telas. |
 | `POST /token` | `authorization_code` com **PKCE S256 obrigatório** e `refresh_token` (rotativo) |
 
 Regras: `redirect_uri` só `https` (ou `http` em `localhost`/`127.0.0.1`) e comparada exatamente com a registrada; `code` vale uma vez e 5 minutos; access token 1 h, refresh 30 dias; tokens são guardados só como hash SHA-256.
 
-### Tela de `/authorize`
-1. **Entrar com Google** (conta institucional `@ufba.br`, só `openid email profile`; domínio em `GOOGLE_ALLOWED_DOMAIN`). Cria ou reconhece o usuário. Sem `GOOGLE_CLIENT_ID/SECRET`, cai no formulário de e-mail + `OAUTH_AUTHORIZE_SECRET` (só para desenvolvimento).
+### Login, consentimento e conexões (no app web)
+Todas as telas são do app web (contrato em `docs/WEB-API.md`); o backend só expõe a API.
+1. **Entrar com Google** (conta institucional `@ufba.br`, só `openid email profile`; domínio em `GOOGLE_ALLOWED_DOMAIN`). Cria ou reconhece o usuário.
 2. **Conectar Classroom** (dá para conectar mais de uma conta; antes de guardar, 1 leitura de teste). Escopos `classroom.*.readonly` + `drive.readonly` (para os anexos):
    - **@ufba.br** → app **interno** do login (sem verificação, sem limite de usuários, sem expiração);
    - **outra conta (convidados)** → app **externo** em "Testando": só quem estiver na lista de usuários de teste (até 100, adicionados à mão), e o acesso expira em 7 dias.
@@ -107,7 +108,7 @@ O SIGAA não tem token nem API: a leitura ao vivo precisa de usuário e senha a 
 
 **Fluxo**
 
-1. Na tela de `/authorize`, a pessoa informa usuário e senha do SIGAA. `SigaaLink` faz 1 login real (e lê o portal) para validar; se o SIGAA recusar, a tela avisa e nada é guardado. A tela nunca devolve o que foi digitado.
+1. No app web, a pessoa informa usuário e senha do SIGAA. `SigaaLink` faz 1 login real (e lê o portal) para validar; se o SIGAA recusar, a tela avisa e nada é guardado. A tela nunca devolve o que foi digitado.
 2. Validados, login e senha ficam **só em memória** (`CofreSigaa`), presos à transação (15 min) e depois ao `code` OAuth (5 min).
 3. No `POST /token`, o cofre sorteia K (32 bytes), cifra a senha com AES-256-GCM sob K, grava o cifrado e tira a senha do cofre em memória. K vai no fim do access token e do refresh token (`<token>.<K em base64url>`); o refresh rotativo repassa K ao novo par. Falha ao gravar não derruba o `/token`: o token sai sem K e o SIGAA pede nova conexão.
 4. Em cada consulta com `fonte: sigaa`, o `ConsultaService` separa K do token, abre a senha **em memória**, e o `SigaaLive` usa a sessão do SIGAA daquela pessoa+cliente (`SessoesSigaa`: em memória, 20 min sem uso; o login só acontece quando não há sessão). Senha recusada pelo SIGAA marca a credencial como `REAUTH_NEEDED` (`listar_contas` mostra `status: reconectar`); a pessoa conecta de novo na tela de autorização.
@@ -124,7 +125,6 @@ O SIGAA não tem token nem API: a leitura ao vivo precisa de usuário e senha a 
 | Variável | Uso |
 |---|---|
 | `PUBLIC_URL` | URL pública do serviço (atrás de proxy/TLS); sem ela, deduz da requisição |
-| `OAUTH_AUTHORIZE_SECRET` | Senha de acesso exigida na tela de `/authorize` |
 
 ## Como está ligado
 

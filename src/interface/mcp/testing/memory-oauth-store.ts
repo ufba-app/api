@@ -5,7 +5,6 @@ import {
   ClientLogo,
   GoogleLinkPort,
   LinkError,
-  LinkStatus,
   MoodleLinkPort,
   OAuthClient,
   OAuthStore,
@@ -111,7 +110,6 @@ export class MemoryUserDirectory implements UserDirectory {
     return null;
   }
 }
-const NAO_LIGADO: LinkStatus = { connected: false };
 
 /** Placeholder: o módulo Google ainda não entregou o vínculo. */
 export class StubGoogleLink implements GoogleLinkPort {
@@ -134,9 +132,6 @@ export class StubClassroomLink implements ClassroomLinkPort {
   apps(): ('ufba' | 'convidado')[] {
     return ['ufba', 'convidado'];
   }
-  async contas(): Promise<string[]> {
-    return [];
-  }
   async startUrl(): Promise<string> {
     throw new Error('Vínculo com o Classroom ainda não disponível');
   }
@@ -147,12 +142,6 @@ export class StubClassroomLink implements ClassroomLinkPort {
 
 /** Placeholder: o módulo Moodle ainda não entregou o vínculo (spike do redirect aberto). */
 export class StubMoodleLink implements MoodleLinkPort {
-  async status() {
-    return NAO_LIGADO;
-  }
-  host() {
-    return 'moodle.example';
-  }
   scheme() {
     return 'web+ufba';
   }
@@ -164,16 +153,8 @@ export class StubMoodleLink implements MoodleLinkPort {
   }
 }
 
-/** Stub do SIGAA: guarda a senha só em memória do teste e aceita qualquer coisa, exceto a senha "errada". */
+/** Stub do SIGAA: aceita qualquer coisa, exceto a senha "errada". */
 export class StubSigaaLink implements SigaaLinkPort {
-  private readonly pend = new Set<string>();
-  async conectar(txn: string, login: string, senha: Secret): Promise<void> {
-    if (!login || senha.reveal() === 'errada') throw new Error('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
-    this.pend.add(txn);
-  }
-  pendente(txn: string): boolean {
-    return this.pend.has(txn);
-  }
   async validar(_chave: string, login: string, senha: Secret): Promise<string> {
     if (!login.trim() || senha.reveal() === 'errada') {
       throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');

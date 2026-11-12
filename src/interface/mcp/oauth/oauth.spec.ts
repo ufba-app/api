@@ -3,10 +3,10 @@ import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import { McpTestingModule, TEST_API_KEY } from '../testing/mcp-testing.module';
-import { isValidRedirectUri } from '../../../application/oauth/oauth.service';
+import { isValidRedirectUri, type OAuthService } from '../../../application/oauth/oauth.service';
+import { OAUTH_SERVICE } from './oauth.controller';
 import { verifyPkceS256 } from '../../../application/oauth/pkce';
 import { AuthenticatorsMcpAuth } from '../mcp-auth';
-import { SIGAA_LINK, type SigaaLinkPort } from '../../../application/oauth/oauth-ports';
 
 const VERIFIER = 'a'.repeat(50);
 const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
@@ -39,7 +39,8 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
   let base: string;
 
   beforeAll(async () => {
-    delete process.env.OAUTH_AUTHORIZE_SECRET;
+    delete process.env.WEB_ORIGIN;
+    delete process.env.AUTH_ORIGIN;
     delete process.env.PUBLIC_URL;
     app = await NestFactory.create(McpTestingModule, { logger: false });
     await app.listen(0);
@@ -69,70 +70,57 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     expect(res.headers.get('www-authenticate')).toContain('resource_metadata=');
   });
 
-  it('fluxo completo: register -> authorize -> token -> /mcp -> refresh', async () => {
-    const reg = await post('/register', { client_name: 'Teste', redirect_uris: [REDIRECT] });
-    expect(reg.status).toBe(201);
-    const { client_id } = await reg.json() as any;
-
-    const q = new URLSearchParams({
+  const authorizeQuery = (client_id: string, extra: Record<string, string> = {}) =>
+    new URLSearchParams({
       response_type: 'code',
       client_id,
       redirect_uri: REDIRECT,
-      state: 'xyz',
       code_challenge: CHALLENGE,
       code_challenge_method: 'S256',
+      ...extra,
     });
-    const page = await fetch(`${base}/authorize?${q}`);
-    expect(page.status).toBe(200);
-    const html = await page.text();
-    const txn = /name="txn" value="([^"]+)"/.exec(html)![1];
-    expect(html).not.toMatch(/token/i); // sem campo para colar token
 
-    const ident = await post('/authorize', { txn, acao: 'identificar', email: 'aluno@example.com' }, true);
-    const connect = await ident.text();
-    expect(connect).toContain('Conectar Classroom');
-    expect(connect).toContain('Conectar Moodle');
-    // Só o formulário do SIGAA tem campos digitáveis: 1 usuário + 1 senha, sem `value=` (nada é ecoado).
-    const senhas = connect.match(/<input[^>]*type="password"[^>]*>/g) ?? [];
-    const textos = connect.match(/<input[^>]*type="text"[^>]*>/g) ?? [];
-    expect(senhas).toHaveLength(1);
-    expect(textos).toHaveLength(1);
-    expect(senhas[0]).toContain('name="senha"');
-    expect(textos[0]).toContain('name="login"');
-    for (const campo of [...senhas, ...textos]) expect(campo).not.toContain('value=');
+  /** O que a tela de consentimento do web faria: identificar a pessoa e aprovar. Devolve o redirect para o cliente. */
+  const approveAsWeb = async (requestId: string, email: string) => {
+    const oauth = app.get<OAuthService>(OAUTH_SERVICE);
+    await oauth.identify(requestId, email);
+    return new URL(await oauth.complete(requestId));
+  };
 
-    const done = await post('/authorize', { txn, acao: 'concluir' }, true);
-    expect(done.status).toBe(303);
-    const back = new URL(done.headers.get('location')!);
+  it('/authorize só redireciona para a tela de consentimento do web: nenhuma página HTML', async () => {
+    const { client_id } = (await (await post('/register', { client_name: 'Teste', redirect_uris: [REDIRECT] })).json()) as any;
+    const r = await fetch(`${base}/authorize?${authorizeQuery(client_id, { state: 'xyz' })}`, { redirect: 'manual' });
+    expect(r.status).toBe(303);
+    expect(r.headers.get('content-type') ?? '').not.toContain('text/html');
+    const loc = new URL(r.headers.get('location')!);
+    expect(`${loc.origin}${loc.pathname}`).toBe('http://localhost:3001/authorize');
+    const back = await approveAsWeb(loc.searchParams.get('request')!, 'aluno@example.com');
     expect(back.searchParams.get('state')).toBe('xyz');
-    const code = back.searchParams.get('code')!;
-
-    // verifier errado falha e queima o code
-    const bad = await post('/token', { grant_type: 'authorization_code', code, client_id, redirect_uri: REDIRECT, code_verifier: 'b'.repeat(50) }, true);
-    expect(bad.status).toBe(400);
-
-    // novo code, desta vez correto
-    const again = await post('/authorize', { txn, acao: 'concluir' }, true);
-    expect(again.status).toBe(400); // transação já consumida
+    expect(back.searchParams.get('code')).toBeTruthy();
   });
 
   it('token: code válido + PKCE gera access/refresh que abrem o /mcp; code é de uso único', async () => {
-    const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
-    const q = new URLSearchParams({
-      response_type: 'code', client_id, redirect_uri: REDIRECT,
-      code_challenge: CHALLENGE, code_challenge_method: 'S256',
-    });
-    const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
-    await post('/authorize', { txn, acao: 'identificar', email: 'a@example.com' }, true);
-    const done = await post('/authorize', { txn, acao: 'concluir' }, true);
-    const code = new URL(done.headers.get('location')!).searchParams.get('code')!;
+    const { client_id } = (await (await post('/register', { redirect_uris: [REDIRECT] })).json()) as any;
+    const r = await fetch(`${base}/authorize?${authorizeQuery(client_id)}`, { redirect: 'manual' });
+    const requestId = new URL(r.headers.get('location')!).searchParams.get('request')!;
+    const code = (await approveAsWeb(requestId, 'a@example.com')).searchParams.get('code')!;
+
+    // verifier errado falha
+    const bad = { grant_type: 'authorization_code', code, client_id, redirect_uri: REDIRECT, code_verifier: 'b'.repeat(50) };
+    expect((await post('/token', bad, true)).status).toBe(400);
+  });
+
+  it('token: troca, uso único, /mcp e refresh rotacionado', async () => {
+    const { client_id } = (await (await post('/register', { redirect_uris: [REDIRECT] })).json()) as any;
+    const r = await fetch(`${base}/authorize?${authorizeQuery(client_id)}`, { redirect: 'manual' });
+    const requestId = new URL(r.headers.get('location')!).searchParams.get('request')!;
+    const code = (await approveAsWeb(requestId, 'b@example.com')).searchParams.get('code')!;
 
     const params = { grant_type: 'authorization_code', code, client_id, redirect_uri: REDIRECT, code_verifier: VERIFIER };
     const ok = await post('/token', params, true);
     expect(ok.status).toBe(200);
-    const tok = await ok.json() as any;
+    const tok = (await ok.json()) as any;
     expect(tok.token_type).toBe('Bearer');
-
     expect((await post('/token', params, true)).status).toBe(400); // reuso
 
     const mcp = await fetch(`${base}/mcp`, {
@@ -152,17 +140,16 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     expect((await post('/token', { grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id }, true)).status).toBe(400);
   });
 
-  it('rejeita redirect_uri não registrado e PKCE ausente (sem redirecionar)', async () => {
-    const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
-    const evil = await fetch(`${base}/authorize?${new URLSearchParams({
-      response_type: 'code', client_id, redirect_uri: 'http://localhost:1/evil',
-      code_challenge: CHALLENGE, code_challenge_method: 'S256',
-    })}`, { redirect: 'manual' });
-    expect(evil.status).toBe(400);
-    const nopkce = await fetch(`${base}/authorize?${new URLSearchParams({
-      response_type: 'code', client_id, redirect_uri: REDIRECT,
-    })}`, { redirect: 'manual' });
-    expect(nopkce.status).toBe(400);
+  it('redirect_uri não registrado e PKCE ausente: página de erro do web, nunca o cliente', async () => {
+    const { client_id } = (await (await post('/register', { redirect_uris: [REDIRECT] })).json()) as any;
+    for (const q of [
+      authorizeQuery(client_id, { redirect_uri: 'http://localhost:1/evil' }),
+      new URLSearchParams({ response_type: 'code', client_id, redirect_uri: REDIRECT }),
+    ]) {
+      const r = await fetch(`${base}/authorize?${q}`, { redirect: 'manual' });
+      expect(r.status).toBe(303);
+      expect(r.headers.get('location')!.startsWith('http://localhost:3001/authorize/error?')).toBe(true);
+    }
   });
 
   it('registro recusa redirect_uri insegura', async () => {
@@ -170,76 +157,19 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('POST /oauth/connect/sigaa: avisa e nunca devolve a senha', async () => {
-    const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
-    const q = new URLSearchParams({
-      response_type: 'code', client_id, redirect_uri: REDIRECT,
-      code_challenge: CHALLENGE, code_challenge_method: 'S256',
-    });
-    const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
-    await post('/authorize', { txn, acao: 'identificar', email: 'sigaa@example.com' }, true);
-
-    const senha = 'senha-sintetica-123';
-    const ok = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha }, true);
-    expect(ok.status).toBe(200);
-    const html = await ok.text();
-    expect(html).toContain('SIGAA validado: será guardado ao concluir.');
-    expect(html).toContain('Pronto: será guardado ao concluir');
-    expect(html).not.toContain(senha);
-
-    const ruim = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'errada' }, true);
-    const htmlRuim = await ruim.text();
-    expect(htmlRuim).toContain('usuário ou senha do SIGAA incorretos');
-    expect(htmlRuim).not.toContain('value="errada"');
-  });
-
-  it('POST /oauth/connect/sigaa passa o usuário identificado ao SigaaLink', async () => {
-    const link = app.get<SigaaLinkPort>(SIGAA_LINK);
-    const spy = jest.spyOn(link, 'conectar');
-    try {
-      const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
-      const q = new URLSearchParams({
-        response_type: 'code', client_id, redirect_uri: REDIRECT,
-        code_challenge: CHALLENGE, code_challenge_method: 'S256',
-      });
-      const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
-      await post('/authorize', { txn, acao: 'identificar', email: 'sigaa-user@example.com' }, true);
-      await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'senha-sintetica-123' }, true);
-      expect(spy).toHaveBeenCalledTimes(1);
-      const userId = spy.mock.calls[0][3];
-      expect(typeof userId).toBe('string');
-      expect(userId).not.toBe('');
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it('POST /oauth/connect/sigaa com txn desconhecida ou sem identificação: página de erro, sem tocar o SIGAA', async () => {
-    const link = app.get<SigaaLinkPort>(SIGAA_LINK);
-    const spy = jest.spyOn(link, 'conectar');
-    try {
-      const desconhecida = await post('/oauth/connect/sigaa', { txn: 'nao-existe', login: 'fulano', senha: 'senha-sintetica-123' }, true);
-      expect(desconhecida.status).toBeGreaterThanOrEqual(400);
-      const html = await desconhecida.text();
-      expect(html).not.toContain('senha-sintetica-123');
-      expect(html).not.toContain('name="senha"');
-
-      // txn válida, mas a pessoa ainda não se identificou
-      const { client_id } = await (await post('/register', { redirect_uris: [REDIRECT] })).json() as any;
-      const q = new URLSearchParams({
-        response_type: 'code', client_id, redirect_uri: REDIRECT,
-        code_challenge: CHALLENGE, code_challenge_method: 'S256',
-      });
-      const txn = /name="txn" value="([^"]+)"/.exec(await (await fetch(`${base}/authorize?${q}`)).text())![1];
-      const anonima = await post('/oauth/connect/sigaa', { txn, login: 'fulano', senha: 'senha-sintetica-123' }, true);
-      expect(anonima.status).toBe(403);
-      expect(await anonima.text()).not.toContain('senha-sintetica-123');
-
-      expect(spy).not.toHaveBeenCalled();
-      expect(link.pendente('nao-existe')).toBe(false);
-      expect(link.pendente(txn)).toBe(false);
-    } finally {
-      spy.mockRestore();
+  it('as telas antigas do backend não existem mais (404)', async () => {
+    for (const [method, path] of [
+      ['POST', '/authorize'],
+      ['GET', '/oauth/login/google?txn=x'],
+      ['GET', '/oauth/connect?txn=x'],
+      ['GET', '/oauth/connect/classroom?txn=x'],
+      ['GET', '/oauth/connect/moodle?txn=x'],
+      ['POST', '/oauth/connect/moodle'],
+      ['GET', '/oauth/moodle/capture?u=web%2Bufba%3A%2F%2Ftoken%3Dx'],
+      ['POST', '/oauth/connect/sigaa'],
+    ] as const) {
+      const r = await fetch(`${base}${path}`, { method, redirect: 'manual' });
+      expect([method, path, r.status]).toEqual([method, path, 404]);
     }
   });
 
