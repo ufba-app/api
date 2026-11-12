@@ -89,19 +89,25 @@ export class WebService {
     private readonly moodle: MoodleLinkPort,
     private readonly classroom: ClassroomLinkPort,
     private readonly accounts: SourceAccountRepository,
-    private readonly cfg: { webOrigin: string },
+    private readonly cfg: { webOrigin: string; authOrigin?: string },
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Painel (ex.: https://ufba.app): conexões, apps autorizados. */
   webOrigin(): string {
     return this.cfg.webOrigin.replace(/\/+$/, '');
   }
 
-  webRedirectUri(): string {
-    return `${this.webOrigin()}/sign-in/callback`;
+  /** Telas de login e autorização (ex.: https://auth.ufba.app). Sem configuração, o próprio painel. */
+  authOrigin(): string {
+    return (this.cfg.authOrigin ?? '').replace(/\/+$/, '') || this.webOrigin();
   }
 
-  /** Cria/atualiza o cliente da casa no boot (redirect_uri segue a `WEB_ORIGIN` atual). */
+  webRedirectUri(): string {
+    return `${this.authOrigin()}/sign-in/callback`;
+  }
+
+  /** Cria/atualiza o cliente da casa no boot (redirect_uri segue a `AUTH_ORIGIN`/`WEB_ORIGIN` atual). */
   async ensureWebClient(): Promise<void> {
     await this.store.upsertClient({
       clientId: WEB_CLIENT_ID,

@@ -30,7 +30,8 @@ import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/test
 import { CLIENT_DIRECTORY } from '../src/interface/web/web-tokens';
 
 const WEB = 'http://localhost:3001';
-const WEB_CB = `${WEB}/sign-in/callback`;
+const AUTH = 'http://localhost:3002';
+const WEB_CB = `${AUTH}/sign-in/callback`;
 const CLAUDE_CB = 'https://claude.ai/api/mcp/auth_callback';
 const META_ID = 'https://app.example/oauth/client.json';
 const META_CB = 'https://app.example/callback';
@@ -74,6 +75,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   beforeAll(async () => {
     process.env.SECRETS_KEY = Buffer.alloc(32, 1).toString('base64');
     process.env.WEB_ORIGIN = WEB;
+    process.env.AUTH_ORIGIN = AUTH;
     process.env.PUBLIC_URL = 'http://localhost:3000';
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.OAUTH_AUTHORIZE_SECRET;
@@ -147,6 +149,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   afterAll(async () => {
     await app.close();
     delete process.env.WEB_ORIGIN;
+    delete process.env.AUTH_ORIGIN;
     delete process.env.PUBLIC_URL;
   });
 
@@ -239,6 +242,19 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(r2.status).toBe(403);
   });
 
+  it('CSRF: aceita as duas origens da casa (painel e auth), recusa subdomínio que não é da casa', async () => {
+    const cookie = await signIn();
+    const post = (origin: string) =>
+      fetch(`${base}/connections/sigaa`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-ufba': '1', origin, cookie },
+        body: JSON.stringify({ login: 'a', password: SENHA }),
+      });
+    expect((await post(WEB)).status).toBe(204);
+    expect((await post(AUTH)).status).toBe(204);
+    expect((await post('http://localhost:3003')).status).toBe(403);
+  });
+
   it('sem sessão: 401 session_expired', async () => {
     const r = await get('/me');
     expect(r.status).toBe(401);
@@ -280,7 +296,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     });
     const a = await get(`/authorize?${q}`);
     const toWeb = new URL(a.headers.get('location')!);
-    expect(`${toWeb.origin}${toWeb.pathname}`).toBe(`${WEB}/authorize`);
+    expect(`${toWeb.origin}${toWeb.pathname}`).toBe(`${AUTH}/authorize`);
     const id = toWeb.searchParams.get('request')!;
 
     const anon = await (await get(`/authorize/requests/${id}`)).json() as any;
@@ -359,7 +375,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const r = await get('/authorize?client_id=desconhecido&redirect_uri=https://evil.example/cb');
     expect(r.status).toBe(303);
     const loc = new URL(r.headers.get('location')!);
-    expect(`${loc.origin}${loc.pathname}`).toBe(`${WEB}/authorize/error`);
+    expect(`${loc.origin}${loc.pathname}`).toBe(`${AUTH}/authorize/error`);
     expect(loc.searchParams.get('error')).toBe('invalid_client');
   });
 
@@ -432,7 +448,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
         await get(`/oauth/callback/classroom?state=${id}&code=x`),
       ]) {
         expect(r.status).toBe(303);
-        expect(r.headers.get('location')).toContain(`${WEB}/authorize/error`);
+        expect(r.headers.get('location')).toContain(`${AUTH}/authorize/error`);
       }
     });
 

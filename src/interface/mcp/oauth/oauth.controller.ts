@@ -71,7 +71,7 @@ export class OAuthController {
     const message = e instanceof OAuthError ? e.message : 'Erro inesperado';
     const error = e instanceof OAuthError ? e.error : 'server_error';
     const q = new URLSearchParams({ error, message });
-    res.redirect(303, `${web.webOrigin()}/authorize/error?${q.toString()}`);
+    res.redirect(303, `${web.authOrigin()}/authorize/error?${q.toString()}`);
   }
 
   /**
@@ -152,7 +152,7 @@ export class OAuthController {
           if (!this.google.loginEnabled()) throw new OAuthError('server_error', 'Login com Google não configurado', 500);
           return res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
         }
-        return res.redirect(303, `${web.webOrigin()}/authorize?request=${encodeURIComponent(p.id)}`);
+        return res.redirect(303, `${web.authOrigin()}/authorize?request=${encodeURIComponent(p.id)}`);
       } catch (e) {
         return this.webError(res, web, e);
       }

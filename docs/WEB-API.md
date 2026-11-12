@@ -8,12 +8,13 @@ Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`mess
 
 ## 1. Premissas
 
-- **Mesmo site.** Web e API em subdomínios de `ufba.app`. Em dev: web `http://localhost:3001`, API
+- **Mesmo site.** Painel (`{WEB}` = `https://ufba.app`), auth (`{AUTH}` = `https://auth.ufba.app`) e API em `ufba.app`.
+  Em dev: painel `http://localhost:3001`, auth `http://localhost:3002`, API
   `http://localhost:3000`. Nunca `*.up.railway.app` (Public Suffix List: o cookie não funciona).
 - **O token carrega a chave K** (`<random>.<K>`) que decifra a senha do SIGAA daquele cliente. O banco guarda só
   o sha256 do token inteiro. Por isso a sessão do web é um cookie **HttpOnly emitido pela API**; o JavaScript do web
   nunca vê token.
-- O web é o cliente OAuth da casa: `client_id = "ufba-web"`, `redirect_uri = {WEB_ORIGIN}/sign-in/callback`,
+- O web é o cliente OAuth da casa: `client_id = "ufba-web"`, `redirect_uri = {AUTH_ORIGIN}/sign-in/callback`,
   criado no boot. Não passa por tela de consentimento.
 
 ## 2. Sessão
@@ -28,9 +29,9 @@ Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`mess
 ### Login
 
 1. O web gera `code_verifier`, `code_challenge` (S256) e `state`; guarda verifier e state em `sessionStorage`.
-2. Navega para `GET {API}/authorize?response_type=code&client_id=ufba-web&redirect_uri={WEB}/sign-in/callback&code_challenge=…&code_challenge_method=S256&state=…`.
+2. Navega para `GET {API}/authorize?response_type=code&client_id=ufba-web&redirect_uri={AUTH}/sign-in/callback&code_challenge=…&code_challenge_method=S256&state=…`.
 3. A API manda direto para o login do Google (só `@ufba.br`). No retorno, emite o code e redireciona para
-   `{WEB}/sign-in/callback?code=…&state=…` (ou `?error=access_denied&error_description=…`, com
+   `{AUTH}/sign-in/callback?code=…&state=…` (ou `?error=access_denied&error_description=…`, com
    `error_description` em pt-BR pronto para mostrar, ex.: "marina@gmail.com não é um e-mail @ufba.br. Entre com a
    sua conta institucional.").
 4. O web confere o `state` e chama:
@@ -39,7 +40,7 @@ Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`mess
 POST /session
 Content-Type: application/json
 X-UFBA: 1
-{ "code": "…", "codeVerifier": "…", "redirectUri": "{WEB}/sign-in/callback" }
+{ "code": "…", "codeVerifier": "…", "redirectUri": "{AUTH}/sign-in/callback" }
 → 204, Set-Cookie: <sessão>
 ```
 
@@ -77,11 +78,11 @@ GET /me → 200
 ## 3. Segurança das chamadas
 
 - O web chama a API direto do navegador com `credentials: 'include'`.
-- CORS: só `WEB_ORIGIN`, com `Access-Control-Allow-Credentials: true`.
+- CORS: só as origens da casa, `WEB_ORIGIN` (painel) e `AUTH_ORIGIN` (login e autorização), com `Access-Control-Allow-Credentials: true`.
 - Toda rota que **muda estado** (POST/PUT/PATCH/DELETE) com cookie exige:
   - `Content-Type: application/json` (exceto DELETE sem corpo);
   - header `X-UFBA: 1`;
-  - `Origin` igual a `WEB_ORIGIN`.
+  - `Origin` igual a `WEB_ORIGIN` ou `AUTH_ORIGIN`.
   Senão → `403 csrf_rejected`.
 - As rotas de dados (seção 7) aceitam também `Authorization: Bearer <access token>` (clientes OAuth de terceiros);
   com Bearer não há checagem de CSRF.
@@ -153,8 +154,8 @@ DELETE /connections/classroom/{email}   → 204
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 
 1. O cliente abre `GET {API}/authorize?…` (OAuth 2.1 + PKCE). A API valida cliente e `redirect_uri` e redireciona
-   para `{WEB}/authorize?request=<id>`. Pedido inválido (cliente desconhecido, `redirect_uri` não registrado) **não**
-   redireciona para o cliente: vai para `{WEB}/authorize/error?error=<code>&message=<texto>`.
+   para `{AUTH}/authorize?request=<id>`. Pedido inválido (cliente desconhecido, `redirect_uri` não registrado) **não**
+   redireciona para o cliente: vai para `{AUTH}/authorize/error?error=<code>&message=<texto>`.
 2. O web pede os dados:
 
 ```
@@ -269,7 +270,8 @@ type Discussion = {
 | var | exemplo | |
 |---|---|---|
 | `PUBLIC_URL` | `https://api.ufba.app` | URL pública da API |
-| `WEB_ORIGIN` | `https://ufba.app` | liga o modo web: CORS, cliente `ufba-web`, `/authorize` → web |
+| `WEB_ORIGIN` | `https://ufba.app` | painel; liga o modo web (CORS, CSRF, cliente `ufba-web`) |
+| `AUTH_ORIGIN` | `https://auth.ufba.app` | telas de login e `/authorize`; `redirect_uri` do `ufba-web`. Opcional: sem ela, usa `WEB_ORIGIN` |
 | `HOST` | `0.0.0.0` | no Railway |
 | `DATABASE_URL`, `SECRETS_KEY`, `GOOGLE_*` | | como antes |
 

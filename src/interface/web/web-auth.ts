@@ -16,8 +16,12 @@ import { OAUTH_SERVICE } from '../mcp/oauth/oauth-tokens';
 export function webEnv() {
   const publicUrl = (process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
   const webOrigin = (process.env.WEB_ORIGIN ?? '').replace(/\/+$/, '');
+  // Telas de login e autorização (ex.: https://auth.ufba.app). Sem AUTH_ORIGIN, ficam no próprio WEB_ORIGIN.
+  const authOrigin = (process.env.AUTH_ORIGIN ?? '').replace(/\/+$/, '') || webOrigin;
+  // Origens da casa: as únicas aceitas no CORS e na checagem de Origin do CSRF.
+  const origins = [...new Set([webOrigin, authOrigin].filter(Boolean))];
   const secure = publicUrl.startsWith('https://');
-  return { publicUrl, webOrigin, secure, cookieName: secure ? '__Host-ufba_session' : 'ufba_session' };
+  return { publicUrl, webOrigin, authOrigin, origins, secure, cookieName: secure ? '__Host-ufba_session' : 'ufba_session' };
 }
 
 export function readCookie(req: Request, name: string): string | undefined {
@@ -57,15 +61,15 @@ type WebRequest = Request & { web?: WebPrincipal; webToken?: string };
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
- * CSRF de rotas com cookie: SameSite=Lax + `X-UFBA: 1` (força preflight) + `Origin` igual à do web + JSON no corpo.
+ * CSRF de rotas com cookie: SameSite=Lax + `X-UFBA: 1` (força preflight) + `Origin` de uma das origens da casa (painel ou auth) + JSON no corpo.
  */
 export function checkCsrf(req: Request): void {
   if (SAFE.has(req.method)) return;
-  const { webOrigin } = webEnv();
+  const { origins } = webEnv();
   const origin = req.headers.origin;
   const json = String(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json');
   const needsJson = req.method !== 'DELETE';
-  if (req.headers['x-ufba'] !== '1' || !webOrigin || origin !== webOrigin || (needsJson && !json)) {
+  if (req.headers['x-ufba'] !== '1' || !origin || !origins.includes(origin) || (needsJson && !json)) {
     throw new ApiError(403, 'csrf_rejected', 'Pedido recusado por segurança. Recarregue a página e tente de novo.');
   }
 }

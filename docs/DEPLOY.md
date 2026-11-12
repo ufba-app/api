@@ -23,6 +23,7 @@ migração falhar, o container não sobe e o deploy anterior continua no ar. Hea
 | `SECRETS_KEY` | 32 bytes em base64 (`openssl rand -base64 32`). **Não troque depois**: cifra os tokens do Moodle e do Google já guardados |
 | `PUBLIC_URL` | `https://api.ufba.app` |
 | `WEB_ORIGIN` | `https://ufba.app` |
+| `AUTH_ORIGIN` | `https://auth.ufba.app` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | app interno (login @ufba.br + Classroom @ufba.br) |
 | `GOOGLE_ALLOWED_DOMAIN` | `ufba.br` |
 | `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET` | opcional: Classroom de convidados (gmail) |

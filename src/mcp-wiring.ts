@@ -82,6 +82,7 @@ export const mcpProviders: Provider[] = [
     ) =>
       new WebService(oauth, store, users, clients, cofre, sigaa, moodle, classroom, accounts, {
         webOrigin: webEnv().webOrigin || 'http://localhost:3001',
+        authOrigin: webEnv().authOrigin || undefined,
       }),
     inject: [
       OAUTH_SERVICE,

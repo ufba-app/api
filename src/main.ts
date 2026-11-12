@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { WebService } from './application/web/web.service';
 import { loadExtraCAs } from './infrastructure/tls/extra-ca';
+import { webEnv } from './interface/web/web-auth';
 
 async function bootstrap(): Promise<void> {
   // Intermediário que o AVA não envia (ver extra-ca.ts). Antes de qualquer conexão TLS.
@@ -20,16 +21,17 @@ async function bootstrap(): Promise<void> {
     throw new Error('WEB_ORIGIN exige PUBLIC_URL (ex.: https://api.ufba.app)');
   }
   if (webOrigin) {
-    // Só o app web, com cookie. Nunca '*'. X-UFBA força preflight nas rotas que mudam estado (CSRF).
+    // Só as origens da casa (painel e auth), com cookie. Nunca '*'. X-UFBA força preflight nas rotas que mudam estado.
+    const { origins, authOrigin } = webEnv();
     app.enableCors({
-      origin: webOrigin,
+      origin: origins,
       credentials: true,
       methods: ['GET', 'POST', 'DELETE'],
       allowedHeaders: ['Content-Type', 'X-UFBA', 'Authorization'],
       maxAge: 600,
     });
     await app.get(WebService).ensureWebClient();
-    console.log(`[web] modo web ligado: ${webOrigin}`);
+    console.log(`[web] modo web ligado: painel ${webOrigin}, auth ${authOrigin}`);
   }
 
   // Local por padrão: só 127.0.0.1. Em produção (Railway) defina HOST=0.0.0.0.
