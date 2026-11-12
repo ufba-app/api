@@ -26,16 +26,45 @@ export class PrismaOAuthStore implements OAuthStore {
     });
   }
 
+  async upsertClient(c: OAuthClient): Promise<void> {
+    const logo =
+      c.logo === undefined
+        ? {}
+        : c.logo === null
+          ? { logoHash: null, logoMime: null, logoBytes: null }
+          : { logoHash: c.logo.hash, logoMime: c.logo.mime, logoBytes: new Uint8Array(c.logo.bytes) };
+    const data = { clientName: c.clientName ?? null, redirectUris: c.redirectUris, ...logo };
+    await this.prisma.oAuthClient.upsert({
+      where: { clientId: c.clientId },
+      create: { clientId: c.clientId, createdAt: new Date(c.createdAt), ...data },
+      update: data,
+    });
+  }
+
   async getClient(clientId: string): Promise<OAuthClient | null> {
-    const r = await this.prisma.oAuthClient.findUnique({ where: { clientId } });
+    const r = await this.prisma.oAuthClient.findUnique({
+      where: { clientId },
+      select: { clientId: true, clientName: true, redirectUris: true, createdAt: true, logoHash: true },
+    });
     return r
       ? {
           clientId: r.clientId,
           clientName: r.clientName ?? undefined,
           redirectUris: r.redirectUris,
           createdAt: r.createdAt.getTime(),
+          ...(r.logoHash ? { logoHash: r.logoHash } : {}),
+          ...(/^https:\/\//.test(r.clientId) ? { fromMetadata: true } : {}),
         }
       : null;
+  }
+
+  async getClientLogo(hash: string): Promise<{ mime: 'image/png' | 'image/jpeg' | 'image/webp'; bytes: Buffer } | null> {
+    const r = await this.prisma.oAuthClient.findUnique({
+      where: { logoHash: hash },
+      select: { logoMime: true, logoBytes: true },
+    });
+    if (!r?.logoMime || !r.logoBytes) return null;
+    return { mime: r.logoMime as 'image/png' | 'image/jpeg' | 'image/webp', bytes: Buffer.from(r.logoBytes) };
   }
 
   async savePending(p: PendingAuthorization): Promise<void> {
@@ -57,7 +86,7 @@ export class PrismaOAuthStore implements OAuthStore {
 
   async getPending(id: string): Promise<PendingAuthorization | null> {
     const r = await this.prisma.oAuthPending.findUnique({ where: { id } });
-    if (!r || r.expiresAt.getTime() <= Date.now()) return null;
+    if (!r) return null;
     return {
       id: r.id,
       clientId: r.clientId,
@@ -120,19 +149,50 @@ export class PrismaOAuthStore implements OAuthStore {
   async getToken(tokenHash: string): Promise<TokenRecord | null> {
     const r = await this.prisma.oAuthToken.findUnique({ where: { tokenHash } });
     if (!r || r.expiresAt.getTime() <= Date.now()) return null;
-    return {
-      tokenHash: r.tokenHash,
-      kind: r.kind === 'refresh' ? 'refresh' : 'access',
-      clientId: r.clientId,
-      userId: r.userId,
-      scope: r.scope ?? undefined,
-      expiresAt: r.expiresAt.getTime(),
-    };
+    return toTokenRecord(r);
   }
 
   async deleteToken(tokenHash: string): Promise<void> {
     await this.prisma.oAuthToken.deleteMany({ where: { tokenHash } });
   }
+
+  async listTokens(userId: string): Promise<TokenRecord[]> {
+    const rows = await this.prisma.oAuthToken.findMany({ where: { userId, expiresAt: { gt: new Date() } } });
+    return rows.map(toTokenRecord);
+  }
+
+  async deleteTokensOfClient(userId: string, clientId: string): Promise<void> {
+    await this.prisma.oAuthToken.deleteMany({ where: { userId, clientId } });
+  }
+
+  async touchToken(tokenHash: string, lastUsedAt: number, expiresAt?: number): Promise<void> {
+    await this.prisma.oAuthToken.updateMany({
+      where: { tokenHash },
+      data: { lastUsedAt: new Date(lastUsedAt), ...(expiresAt ? { expiresAt: new Date(expiresAt) } : {}) },
+    });
+  }
+}
+
+function toTokenRecord(r: {
+  tokenHash: string;
+  kind: string;
+  clientId: string;
+  userId: string;
+  scope: string | null;
+  expiresAt: Date;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+}): TokenRecord {
+  return {
+    tokenHash: r.tokenHash,
+    kind: r.kind === 'refresh' ? 'refresh' : r.kind === 'session' ? 'session' : 'access',
+    clientId: r.clientId,
+    userId: r.userId,
+    scope: r.scope ?? undefined,
+    expiresAt: r.expiresAt.getTime(),
+    createdAt: r.createdAt.getTime(),
+    ...(r.lastUsedAt ? { lastUsedAt: r.lastUsedAt.getTime() } : {}),
+  };
 }
 
 /** Usuários do login do OAuth: pelo e-mail (normalizado), criando se não existir. */
@@ -149,5 +209,9 @@ export class PrismaUserDirectory implements UserDirectory {
       select: { id: true },
     });
     return { id: user.id };
+  }
+
+  async findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null> {
+    return this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } });
   }
 }

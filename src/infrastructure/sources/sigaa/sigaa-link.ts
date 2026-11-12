@@ -1,9 +1,9 @@
-import type { SigaaLinkPort } from '../../../application/oauth/oauth-ports';
+import { LinkError, type SigaaLinkPort } from '../../../application/oauth/oauth-ports';
 import type { CofreSigaa } from '../../../application/sigaa/cofre-sigaa';
 import { createSigaaHttpClient, type SigaaHttpClient } from './http-client';
 import { SigaaInvalidCredentialsError, SigaaSession } from './session';
 
-export class SigaaLinkError extends Error {}
+export class SigaaLinkError extends LinkError {}
 
 const PORTAL_HOME_PATH = '/sigaa/portais/discente/discente.jsf';
 
@@ -52,8 +52,14 @@ export class SigaaLink implements SigaaLinkPort {
   ) {}
 
   async conectar(txn: string, login: string, senha: string, userId: string): Promise<void> {
+    const usuario = await this.validar(txn, login, senha, userId);
+    this.cofre.aguardar(txn, { login: usuario, senha });
+  }
+
+  /** `txn`: a transação da tela de /authorize, ou outra chave estável do pedido (ex.: a sessão do app web). */
+  async validar(txn: string, login: string, senha: string, userId: string): Promise<string> {
     const usuario = login.trim();
-    if (!usuario || !senha) throw new SigaaLinkError('Informe o usuário e a senha do SIGAA.');
+    if (!usuario || !senha) throw new SigaaLinkError('Informe o usuário e a senha do SIGAA.', 'invalid_request');
     const agora = this.now();
     this.podar(agora);
 
@@ -63,7 +69,7 @@ export class SigaaLink implements SigaaLinkPort {
       { mapa: this.porLogin, chave: usuario.toLowerCase(), max: MAX_POR_LOGIN },
     ];
     if (limites.some(({ mapa, chave, max }) => ocupado(mapa.get(chave)) >= max)) {
-      throw new SigaaLinkError(MUITAS_TENTATIVAS);
+      throw new SigaaLinkError(MUITAS_TENTATIVAS, 'too_many_attempts');
     }
     const contadores = limites.map(({ mapa, chave }) => reservar(mapa, chave, agora));
 
@@ -78,7 +84,7 @@ export class SigaaLink implements SigaaLinkPort {
         for (const c of contadores) c.falhas += 1;
         throw new SigaaLinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
       }
-      throw new SigaaLinkError('Não consegui falar com o SIGAA agora. Tente de novo em instantes.');
+      throw new SigaaLinkError('Não consegui falar com o SIGAA agora. Tente de novo em instantes.', 'source_unavailable');
     } finally {
       for (const c of contadores) c.emAndamento -= 1;
       if (ok) {
@@ -88,7 +94,7 @@ export class SigaaLink implements SigaaLinkPort {
         this.porLogin.delete(usuario.toLowerCase());
       }
     }
-    this.cofre.aguardar(txn, { login: usuario, senha });
+    return usuario;
   }
 
   pendente(txn: string): boolean {

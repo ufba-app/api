@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   ChaveDoClientePort,
   OAuthClient,
@@ -11,8 +12,18 @@ import type { Authenticator } from '../ports/authenticator';
 
 export const ACCESS_TTL_S = 60 * 60;
 export const REFRESH_TTL_S = 60 * 60 * 24 * 30;
+/** Sessão do app web: 30 dias desde o último uso. */
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Uso de token gravado no máximo a cada... (evita uma escrita por requisição). */
+const SESSION_TOUCH_EVERY_MS = 60 * 60 * 1000;
+const ACCESS_TOUCH_EVERY_MS = 10 * 60 * 1000;
 const CODE_TTL_MS = 5 * 60 * 1000;
-const PENDING_TTL_MS = 15 * 60 * 1000;
+export const PENDING_TTL_MS = 15 * 60 * 1000;
+
+/** Quem resolve um client_id (registro dinâmico no banco, ou documento de metadados quando é uma URL https). */
+export interface ClientResolver {
+  get(clientId: string): Promise<OAuthClient | null>;
+}
 
 /** Erro OAuth no formato RFC 6749 (`error` + `error_description`). */
 export class OAuthError extends Error {
@@ -80,7 +91,12 @@ export class OAuthService {
     private readonly users: UserDirectory,
     private readonly now: () => number = Date.now,
     private readonly chaves?: ChaveDoClientePort,
+    private readonly clients?: ClientResolver,
   ) {}
+
+  private getClient(clientId: string): Promise<OAuthClient | null> {
+    return this.clients ? this.clients.get(clientId) : this.store.getClient(clientId);
+  }
 
   async registerClient(body: { redirect_uris?: unknown; client_name?: unknown }): Promise<OAuthClient> {
     const uris = body.redirect_uris;
@@ -99,7 +115,7 @@ export class OAuthService {
 
   /** Valida o pedido de /authorize e abre a transação. Erros aqui NÃO redirecionam (cliente/URI não confiáveis). */
   async begin(p: AuthorizeParams): Promise<PendingAuthorization> {
-    const client = p.client_id ? await this.store.getClient(p.client_id) : null;
+    const client = p.client_id ? await this.getClient(p.client_id) : null;
     if (!client) throw new OAuthError('invalid_client', 'client_id desconhecido');
     if (!p.redirect_uri || !client.redirectUris.includes(p.redirect_uri)) {
       throw new OAuthError('invalid_request', 'redirect_uri não registrado');
@@ -123,8 +139,23 @@ export class OAuthService {
 
   async pending(id: string | undefined): Promise<PendingAuthorization> {
     const p = id ? await this.store.getPending(id) : null;
-    if (!p) throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
+    if (!p || p.expiresAt <= this.now()) {
+      throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
+    }
     return p;
+  }
+
+  /** O pedido como está guardado, inclusive expirado (o app web distingue 404 de 410). */
+  findPending(id: string): Promise<PendingAuthorization | null> {
+    return this.store.getPending(id);
+  }
+
+  /** Liga o pedido a quem aprovou (app web) e emite o code. */
+  async approve(id: string, userId: string): Promise<string> {
+    const p = await this.pending(id);
+    if (p.userId && p.userId !== userId) throw new OAuthError('access_denied', 'pedido de outra pessoa', 403);
+    await this.store.savePending({ ...p, userId });
+    return this.complete(id);
   }
 
   async identify(id: string, email: string): Promise<PendingAuthorization> {
@@ -175,7 +206,7 @@ export class OAuthService {
     throw new OAuthError('unsupported_grant_type', 'use authorization_code ou refresh_token');
   }
 
-  private async fromCode(p: TokenParams) {
+  private async redeemCode(p: TokenParams) {
     const rec = p.code ? await this.store.takeCode(p.code) : null;
     if (!rec) throw new OAuthError('invalid_grant', 'code inválido, expirado ou já usado');
     if (rec.clientId !== p.client_id || rec.redirectUri !== p.redirect_uri) {
@@ -184,6 +215,53 @@ export class OAuthService {
     if (!p.code_verifier || !verifyPkceS256(p.code_verifier, rec.codeChallenge)) {
       throw new OAuthError('invalid_grant', 'code_verifier não confere');
     }
+    return rec;
+  }
+
+  /**
+   * Sessão do app web: troca o code (PKCE) do cliente da casa por UM token `session` com K nova, guardado pelo
+   * chamador num cookie HttpOnly. Sem access/refresh: a validade é renovada a cada uso (ver `verifySession`).
+   */
+  async createSession(webClientId: string, p: { code?: string; codeVerifier?: string; redirectUri?: string }) {
+    const rec = await this.redeemCode({
+      grant_type: 'authorization_code',
+      client_id: webClientId,
+      code: p.code,
+      code_verifier: p.codeVerifier,
+      redirect_uri: p.redirectUri,
+    });
+    const token = randomToken() + '.' + randomBytes(32).toString('base64url');
+    await this.store.saveToken({
+      tokenHash: sha256Base64Url(token),
+      kind: 'session',
+      clientId: rec.clientId,
+      userId: rec.userId,
+      expiresAt: this.now() + SESSION_TTL_MS,
+      createdAt: this.now(),
+      lastUsedAt: this.now(),
+    });
+    return { token, userId: rec.userId, maxAgeMs: SESSION_TTL_MS };
+  }
+
+  /** Sessão válida → quem é e a K. Estende a validade (no máximo 1 escrita por hora). */
+  async verifySession(token: string): Promise<TokenVerificado | null> {
+    const hash = sha256Base64Url(token);
+    const rec = await this.store.getToken(hash);
+    if (!rec || rec.kind !== 'session') return null;
+    const now = this.now();
+    if (now - (rec.lastUsedAt ?? rec.createdAt ?? 0) >= SESSION_TOUCH_EVERY_MS) {
+      await this.store.touchToken(hash, now, now + SESSION_TTL_MS);
+    }
+    const { chave } = splitToken(token);
+    return { userId: rec.userId, clientId: rec.clientId, ...(chave ? { chave } : {}) };
+  }
+
+  async revokeToken(token: string): Promise<void> {
+    await this.store.deleteToken(sha256Base64Url(token));
+  }
+
+  private async fromCode(p: TokenParams) {
+    const rec = await this.redeemCode(p);
     // Falha ao gravar a chave nunca derruba o /token: emite sem K (o SIGAA pede nova autenticação depois).
     const chave = await this.chaves
       ?.gravarNoToken(sha256Base64Url(p.code!), { userId: rec.userId, clientId: rec.clientId })
@@ -225,8 +303,14 @@ export class OAuthService {
 
   /** Resolve um access token OAuth; null se não for um (o chamador tenta a chave de API). */
   async verifyAccessToken(token: string): Promise<TokenVerificado | null> {
-    const rec = await this.store.getToken(sha256Base64Url(token));
+    const hash = sha256Base64Url(token);
+    const rec = await this.store.getToken(hash);
     if (!rec || rec.kind !== 'access') return null;
+    // "Último uso" na lista de apps autorizados: no máximo uma escrita a cada 10 min por token.
+    const now = this.now();
+    if (now - (rec.lastUsedAt ?? 0) >= ACCESS_TOUCH_EVERY_MS) {
+      await this.store.touchToken(hash, now).catch(() => undefined);
+    }
     const { chave } = splitToken(token);
     return { userId: rec.userId, clientId: rec.clientId, ...(chave ? { chave } : {}) };
   }

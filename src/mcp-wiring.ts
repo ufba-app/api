@@ -11,9 +11,17 @@ import {
   SIGAA_LINK,
   USER_DIRECTORY,
   type ChaveDoClientePort,
+  type ClassroomLinkPort,
+  type MoodleLinkPort,
   type OAuthStore,
+  type SigaaLinkPort,
   type UserDirectory,
 } from './application/oauth/oauth-ports';
+import { ClientDirectory } from './application/oauth/client-directory';
+import { WebService } from './application/web/web.service';
+import { FileVerifiedApps, HttpsClientMetadataFetcher } from './infrastructure/oauth/client-metadata';
+import { webEnv } from './interface/web/web-auth';
+import { CLIENT_DIRECTORY } from './interface/web/web-tokens';
 import { OAuthAccessTokenAuthenticator, OAuthService } from './application/oauth/oauth.service';
 import { AUTHENTICATORS, type Authenticator } from './application/ports/authenticator';
 import { SigaaCredentialRepository, SourceAccountRepository } from './application/ports/repositories';
@@ -43,12 +51,49 @@ export const mcpProviders: Provider[] = [
     inject: [ConsultaService, DownloadLinks],
   },
 
+  // Clientes OAuth: registro dinâmico (banco) e documento de metadados (client_id = URL https), com a lista de
+  // apps verificados de config/verified-apps.json.
+  {
+    provide: CLIENT_DIRECTORY,
+    useFactory: (store: OAuthStore) =>
+      new ClientDirectory(store, new HttpsClientMetadataFetcher(), new FileVerifiedApps(), () => webEnv().publicUrl),
+    inject: [OAUTH_STORE],
+  },
   // OAuth 2.1 do serviço (store e usuários persistentes vêm do PersistenceModule).
   {
     provide: OAUTH_SERVICE,
-    useFactory: (store: OAuthStore, users: UserDirectory, chaves: ChaveDoClientePort) =>
-      new OAuthService(store, users, Date.now, chaves),
-    inject: [OAUTH_STORE, USER_DIRECTORY, CHAVE_DO_CLIENTE],
+    useFactory: (store: OAuthStore, users: UserDirectory, chaves: ChaveDoClientePort, clients: ClientDirectory) =>
+      new OAuthService(store, users, Date.now, chaves, clients),
+    inject: [OAUTH_STORE, USER_DIRECTORY, CHAVE_DO_CLIENTE, CLIENT_DIRECTORY],
+  },
+  // API do app web (sessão, conexões, autorização, apps autorizados). WEB_ORIGIN liga o redirecionamento de /authorize.
+  {
+    provide: WebService,
+    useFactory: (
+      oauth: OAuthService,
+      store: OAuthStore,
+      users: UserDirectory,
+      clients: ClientDirectory,
+      cofre: CofreSigaa,
+      sigaa: SigaaLinkPort,
+      moodle: MoodleLinkPort,
+      classroom: ClassroomLinkPort,
+      accounts: SourceAccountRepository,
+    ) =>
+      new WebService(oauth, store, users, clients, cofre, sigaa, moodle, classroom, accounts, {
+        webOrigin: webEnv().webOrigin || 'http://localhost:3001',
+      }),
+    inject: [
+      OAUTH_SERVICE,
+      OAUTH_STORE,
+      USER_DIRECTORY,
+      CLIENT_DIRECTORY,
+      CofreSigaa,
+      SIGAA_LINK,
+      MOODLE_LINK,
+      CLASSROOM_LINK,
+      SourceAccountRepository,
+    ],
   },
   // Uma única instância do cofre (o mapa de pendentes é em memória): CHAVE_DO_CLIENTE e SIGAA_LINK a reutilizam.
   {
@@ -94,6 +139,8 @@ export const mcpProviders: Provider[] = [
 
 /** O que o módulo global exporta para o `McpModule` e o `BearerGuard`. */
 export const mcpExports = [
+  WebService,
+  CLIENT_DIRECTORY,
   MCP_USE_CASES,
   MCP_AUTH,
   OAUTH_SERVICE,

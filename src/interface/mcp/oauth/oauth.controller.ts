@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Inject, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
 import {
@@ -16,8 +16,14 @@ import {
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
 import { connectPage, errorPage, identifyPage, moodlePage } from './pages';
 import { timingSafeEqual } from 'node:crypto';
+import { WEB_CLIENT_ID, WebService } from '../../../application/web/web.service';
+import { sessionToken } from '../../web/web-auth';
 
-export const OAUTH_SERVICE = Symbol('OAUTH_SERVICE');
+const errorParam = (req: Request): string | undefined =>
+  typeof req.query.error === 'string' && req.query.error ? req.query.error : undefined;
+
+export { OAUTH_SERVICE } from './oauth-tokens';
+import { OAUTH_SERVICE } from './oauth-tokens';
 
 const MOODLE_TXN_COOKIE = 'ufba_moodle_txn';
 
@@ -52,7 +58,31 @@ export class OAuthController {
     @Inject(MOODLE_LINK) private readonly moodle: MoodleLinkPort,
     @Inject(CLASSROOM_LINK) private readonly classroom: ClassroomLinkPort,
     @Inject(SIGAA_LINK) private readonly sigaa: SigaaLinkPort,
+    @Optional() private readonly web?: WebService,
   ) {}
+
+  /** Modo web: com `WEB_ORIGIN` definida, as telas são do app web e o backend só redireciona. */
+  private webMode(): WebService | undefined {
+    return process.env.WEB_ORIGIN && this.web ? this.web : undefined;
+  }
+
+  /** Erro de /authorize no modo web: página de erro do web (nunca volta ao cliente, que não é confiável aqui). */
+  private webError(res: Response, web: WebService, e: unknown) {
+    const message = e instanceof OAuthError ? e.message : 'Erro inesperado';
+    const error = e instanceof OAuthError ? e.error : 'server_error';
+    const q = new URLSearchParams({ error, message });
+    res.redirect(303, `${web.webOrigin()}/authorize/error?${q.toString()}`);
+  }
+
+  /** Volta ao web (cliente da casa) com erro e descrição pt-BR prontos para mostrar. */
+  private async webLoginError(res: Response, p: { id: string; redirectUri: string; state?: string }, msg: string) {
+    await this.store.deletePending(p.id);
+    const url = new URL(p.redirectUri);
+    url.searchParams.set('error', 'access_denied');
+    url.searchParams.set('error_description', msg);
+    if (p.state) url.searchParams.set('state', p.state);
+    res.redirect(303, url.toString());
+  }
 
   // ---- metadados (RFC 9728 e RFC 8414) ----
 
@@ -74,6 +104,7 @@ export class OAuthController {
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
+      client_id_metadata_document_supported: true,
     };
   }
 
@@ -100,7 +131,21 @@ export class OAuthController {
   // ---- /authorize: telas mínimas ----
 
   @Get('authorize')
-  async authorize(@Query() q: AuthorizeParams, @Res() res: Response) {
+  async authorize(@Query() q: AuthorizeParams, @Req() req: Request, @Res() res: Response) {
+    const web = this.webMode();
+    if (web) {
+      try {
+        const p = await this.oauth.begin(q);
+        if (p.clientId === WEB_CLIENT_ID) {
+          // Login do próprio web: direto para o Google (só @ufba.br); na volta, emite o code sem consentimento.
+          if (!this.google.loginEnabled()) throw new OAuthError('server_error', 'Login com Google não configurado', 500);
+          return res.redirect(303, await this.google.startLoginUrl(`${baseUrl(req)}/oauth/callback/google`, p.id));
+        }
+        return res.redirect(303, `${web.webOrigin()}/authorize?request=${encodeURIComponent(p.id)}`);
+      } catch (e) {
+        return this.webError(res, web, e);
+      }
+    }
     try {
       const p = await this.oauth.begin(q);
       const client = await this.store.getClient(p.clientId);
@@ -160,11 +205,29 @@ export class OAuthController {
     @Res() res: Response,
   ) {
     const callbackUrl = `${baseUrl(req)}/oauth/callback/google`;
+    const web = this.webMode();
+    // Classroom @ufba.br conectado pelo app web (state `web.…`, preso à sessão).
+    if (web?.isWebState(txn)) {
+      const session = await this.sessionUserId(req);
+      return res.redirect(303, await web.classroomCallback({ state: txn, code, error: errorParam(req) }, session, baseUrl(req)));
+    }
     let p;
     try {
       p = await this.oauth.pending(txn);
     } catch (e) {
-      return this.htmlError(res, e);
+      return web ? this.webError(res, web, e) : this.htmlError(res, e);
+    }
+    // Login do app web: identifica e emite o code direto (cliente da casa, sem consentimento).
+    if (web && p.clientId === WEB_CLIENT_ID) {
+      if (errorParam(req)) return this.webLoginError(res, p, 'Login cancelado na tela do Google.');
+      try {
+        const { email } = await this.google.handleLoginCallback(code, callbackUrl);
+        await this.oauth.identify(p.id, email);
+        return res.redirect(303, await this.oauth.complete(p.id));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao entrar com o Google.';
+        return this.webLoginError(res, p, msg);
+      }
     }
     // Mesmo redirect do app interno para as duas etapas: sem usuário ainda = LOGIN; com usuário = CLASSROOM @ufba.br.
     if (p.userId) {
@@ -213,6 +276,11 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    const web = this.webMode();
+    if (web?.isWebState(txn)) {
+      const session = await this.sessionUserId(req);
+      return res.redirect(303, await web.classroomCallback({ state: txn, code, error }, session, baseUrl(req)));
+    }
     try {
       const p = await this.identified(txn);
       if (error) throw new Error('Conexão com o Classroom cancelada na tela do Google.');
@@ -343,6 +411,12 @@ export class OAuthController {
   }
 
   // ---- auxiliares ----
+
+  /** Dono do cookie de sessão do web, se houver (para a volta do Google ao conectar o Classroom). */
+  private async sessionUserId(req: Request): Promise<string | undefined> {
+    const token = sessionToken(req);
+    return token ? (await this.oauth.verifySession(token))?.userId : undefined;
+  }
 
   private async identified(txn: string | undefined) {
     const p = await this.oauth.pending(txn);

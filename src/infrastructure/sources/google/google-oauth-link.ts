@@ -57,7 +57,7 @@ export class GoogleOAuthLink implements GoogleLinkPort {
     if (!email) throw new GoogleLinkError('Conta Google sem e-mail');
     const d = this.domain();
     if (info.email_verified !== true || info.hd?.toLowerCase() !== d || !email.endsWith(`@${d}`)) {
-      throw new GoogleLinkError(`Use uma conta institucional @${d}`);
+      throw new GoogleLinkError(`${email} não é um e-mail @${d}. Entre com a sua conta institucional.`);
     }
     return { email };
   }

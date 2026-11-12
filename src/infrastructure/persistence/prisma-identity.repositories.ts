@@ -141,6 +141,10 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
       data: { status, statusReason: reason ?? null },
     });
   }
+
+  async delete(id: string): Promise<void> {
+    await this.prisma.sourceAccount.deleteMany({ where: { id } });
+  }
 }
 
 type SigaaCredentialRow = {
@@ -202,5 +206,9 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
 
   async setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void> {
     await this.prisma.sigaaCredential.update({ where: { id }, data: { status } });
+  }
+
+  async delete(userId: string, clientId: string): Promise<void> {
+    await this.prisma.sigaaCredential.deleteMany({ where: { userId, clientId } });
   }
 }

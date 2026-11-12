@@ -72,6 +72,8 @@ export abstract class SourceAccountRepository {
     status: SourceAccountRecord['status'],
     reason?: string,
   ): Promise<void>;
+  /** Desconectar: apaga a conta e o token guardado. */
+  abstract delete(id: string): Promise<void>;
 }
 
 // ── Credencial do SIGAA cifrada por cliente OAuth ─────────────────────────────
@@ -95,4 +97,5 @@ export abstract class SigaaCredentialRepository {
   }): Promise<SigaaCredentialRecord>;
   abstract find(userId: string, clientId: string): Promise<SigaaCredentialRecord | null>;
   abstract setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void>;
+  abstract delete(userId: string, clientId: string): Promise<void>;
 }

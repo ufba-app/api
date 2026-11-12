@@ -17,6 +17,9 @@ class FakeRepo extends SigaaCredentialRepository {
   async find() {
     return this.rec;
   }
+  async delete() {
+    this.rec = null;
+  }
   async setStatus(_id: string, status: 'OK' | 'REAUTH_NEEDED') {
     if (this.rec) this.rec.status = status;
   }

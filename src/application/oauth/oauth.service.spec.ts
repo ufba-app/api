@@ -32,6 +32,16 @@ class StoreEspia implements OAuthStore {
   }
   async getToken(h: string) { return this.tokens.get(h) ?? null; }
   async deleteToken(h: string) { this.tokens.delete(h); }
+  async upsertClient(c: OAuthClient) { this.clients.set(c.clientId, c); }
+  async getClientLogo() { return null; }
+  async listTokens(u: string) { return [...this.tokens.values()].filter((t) => t.userId === u); }
+  async deleteTokensOfClient(u: string, c: string) {
+    for (const [h, t] of this.tokens) if (t.userId === u && t.clientId === c) this.tokens.delete(h);
+  }
+  async touchToken(h: string, lastUsedAt: number, expiresAt?: number) {
+    const t = this.tokens.get(h);
+    if (t) this.tokens.set(h, { ...t, lastUsedAt, ...(expiresAt ? { expiresAt } : {}) });
+  }
 }
 
 function montar(chaves?: Partial<ChaveDoClientePort>, store: OAuthStore = new StoreEspia()) {
@@ -40,7 +50,7 @@ function montar(chaves?: Partial<ChaveDoClientePort>, store: OAuthStore = new St
     gravarNoToken: jest.fn(async () => K),
     ...chaves,
   };
-  const users = { findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })) };
+  const users = { findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })), findProfile: jest.fn(async () => null) };
   return { porta, store, svc: new OAuthService(store, users, Date.now, porta) };
 }
 
@@ -103,7 +113,7 @@ describe('OAuthService com a chave do cliente', () => {
   });
 
   it('sem porta (testes sem SIGAA) tudo segue funcionando', async () => {
-    const svc = new OAuthService(new StoreEspia(), { findOrCreateByEmail: async () => ({ id: 'u1' }) });
+    const svc = new OAuthService(new StoreEspia(), { findOrCreateByEmail: async () => ({ id: 'u1' }), findProfile: async () => null });
     const { clientId, code } = await emitirCode(svc);
     const t = await trocar(svc, clientId, code);
     expect(t.access_token).not.toContain('.');

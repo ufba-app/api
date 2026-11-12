@@ -1,7 +1,9 @@
 import {
   AuthCode,
   ClassroomLinkPort,
+  ClientLogo,
   GoogleLinkPort,
+  LinkError,
   LinkStatus,
   MoodleLinkPort,
   OAuthClient,
@@ -12,9 +14,10 @@ import {
   UserDirectory,
 } from '../../../application/oauth/oauth-ports';
 
-/** Store em memória: some ao reiniciar (clientes e tokens precisam ser refeitos). Trocar por persistência do Núcleo. */
+/** Store em memória (testes). Pedidos expirados voltam como estão: quem chama decide (ver OAuthStore). */
 export class MemoryOAuthStore implements OAuthStore {
   private clients = new Map<string, OAuthClient>();
+  private logos = new Map<string, ClientLogo>();
   private pending = new Map<string, PendingAuthorization>();
   private codes = new Map<string, AuthCode>();
   private tokens = new Map<string, TokenRecord>();
@@ -22,15 +25,29 @@ export class MemoryOAuthStore implements OAuthStore {
   async saveClient(c: OAuthClient) {
     this.clients.set(c.clientId, c);
   }
+  async upsertClient(c: OAuthClient) {
+    const prev = this.clients.get(c.clientId);
+    const { logo, ...rest } = c;
+    let logoHash = prev?.logoHash;
+    if (logo === null) logoHash = undefined;
+    if (logo) {
+      this.logos.set(logo.hash, logo);
+      logoHash = logo.hash;
+    }
+    this.clients.set(c.clientId, { ...rest, createdAt: prev?.createdAt ?? c.createdAt, ...(logoHash ? { logoHash } : {}) });
+  }
   async getClient(id: string) {
     return this.clients.get(id) ?? null;
+  }
+  async getClientLogo(hash: string) {
+    const l = this.logos.get(hash);
+    return l ? { mime: l.mime, bytes: l.bytes } : null;
   }
   async savePending(p: PendingAuthorization) {
     this.pending.set(p.id, p);
   }
   async getPending(id: string) {
-    const p = this.pending.get(id);
-    return p && p.expiresAt > Date.now() ? p : null;
+    return this.pending.get(id) ?? null;
   }
   async deletePending(id: string) {
     this.pending.delete(id);
@@ -44,7 +61,7 @@ export class MemoryOAuthStore implements OAuthStore {
     return c && c.expiresAt > Date.now() ? c : null;
   }
   async saveToken(t: TokenRecord) {
-    this.tokens.set(t.tokenHash, t);
+    this.tokens.set(t.tokenHash, { createdAt: Date.now(), ...t });
   }
   async getToken(hash: string) {
     const t = this.tokens.get(hash);
@@ -53,9 +70,19 @@ export class MemoryOAuthStore implements OAuthStore {
   async deleteToken(hash: string) {
     this.tokens.delete(hash);
   }
+  async listTokens(userId: string) {
+    return [...this.tokens.values()].filter((t) => t.userId === userId && t.expiresAt > Date.now());
+  }
+  async deleteTokensOfClient(userId: string, clientId: string) {
+    for (const [h, t] of this.tokens) if (t.userId === userId && t.clientId === clientId) this.tokens.delete(h);
+  }
+  async touchToken(hash: string, lastUsedAt: number, expiresAt?: number) {
+    const t = this.tokens.get(hash);
+    if (t) this.tokens.set(hash, { ...t, lastUsedAt, ...(expiresAt ? { expiresAt } : {}) });
+  }
 }
 
-/** Usuários em memória até o UserRepository do Núcleo. */
+/** Usuários em memória (testes). */
 export class MemoryUserDirectory implements UserDirectory {
   private byEmail = new Map<string, string>();
   async findOrCreateByEmail(email: string) {
@@ -67,8 +94,11 @@ export class MemoryUserDirectory implements UserDirectory {
     }
     return { id };
   }
+  async findProfile(userId: string) {
+    for (const [email, id] of this.byEmail) if (id === userId) return { id, email, name: null };
+    return null;
+  }
 }
-
 const NAO_LIGADO: LinkStatus = { connected: false };
 
 /** Placeholder: o módulo Google ainda não entregou o vínculo. */
@@ -131,5 +161,11 @@ export class StubSigaaLink implements SigaaLinkPort {
   }
   pendente(txn: string): boolean {
     return this.pend.has(txn);
+  }
+  async validar(_chave: string, login: string, senha: string): Promise<string> {
+    if (!login.trim() || senha === 'errada') {
+      throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
+    }
+    return login.trim();
   }
 }

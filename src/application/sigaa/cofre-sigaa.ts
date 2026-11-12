@@ -95,6 +95,16 @@ export class CofreSigaa {
     return rec ? { login: rec.login, status: rec.status } : null;
   }
 
+  /** Grava direto com uma K que o chamador já tem (a da sessão do app web). Nunca loga senha nem K. */
+  async gravar(quem: { userId: string; clientId: string }, cred: { login: string; senha: string }, k: Buffer): Promise<void> {
+    const secret = this.cifra(k).encrypt(cred.senha);
+    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cred.login, secret });
+  }
+
+  async apagar(quem: { userId: string; clientId: string }): Promise<void> {
+    await this.repo.delete(quem.userId, quem.clientId);
+  }
+
   async marcarInvalida(credencialId: string): Promise<void> {
     await this.repo.setStatus(credencialId, 'REAUTH_NEEDED');
   }

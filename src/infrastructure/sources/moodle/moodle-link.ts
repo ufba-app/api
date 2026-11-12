@@ -1,12 +1,12 @@
 import { createHmac } from 'node:crypto';
 import type { IdentityService } from '../../../application/identity/identity.service';
-import type { LinkStatus, MoodleLinkPort } from '../../../application/oauth/oauth-ports';
+import { LinkError, type LinkStatus, type MoodleLinkPort } from '../../../application/oauth/oauth-ports';
 import type { SourceAccountRepository } from '../../../application/ports/repositories';
 import { deriveKey } from '../../crypto/keys';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
 import { buildLaunchUrl, extractReturnedToken, parseReturnedToken, verifyPassport } from './token-launch';
 
-export class MoodleLinkError extends Error {}
+export class MoodleLinkError extends LinkError {}
 
 const DEFAULT_SITE = 'https://ava.ufba.br';
 /**
@@ -46,7 +46,7 @@ export class MoodleLink implements MoodleLinkPort {
     try {
       return deriveKey(process.env.SECRETS_KEY, PASSPORT_KEY_PURPOSE);
     } catch {
-      throw new MoodleLinkError('Servidor sem SECRETS_KEY válida: não dá para conectar o Moodle');
+      throw new MoodleLinkError('Servidor sem SECRETS_KEY válida: não dá para conectar o Moodle', 'source_unavailable');
     }
   }
 
@@ -101,7 +101,7 @@ export class MoodleLink implements MoodleLinkPort {
       }
       // Rede/TLS: o código da causa (ex.: UNABLE_TO_VERIFY_LEAF_SIGNATURE) não contém o token e ajuda no diagnóstico.
       const cause = (e as { cause?: { code?: string } })?.cause?.code;
-      throw new MoodleLinkError(`Não consegui falar com o Moodle agora${cause ? ` (${cause})` : ''}`);
+      throw new MoodleLinkError(`Não consegui falar com o Moodle agora${cause ? ` (${cause})` : ''}`, 'source_unavailable');
     }
 
     await this.identity.conectarConta({

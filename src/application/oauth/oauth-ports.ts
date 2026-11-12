@@ -22,11 +22,39 @@ export interface ChaveDoClientePort {
   gravarNoToken(codeHash: string, quem: { userId: string; clientId: string }): Promise<Buffer | null>;
 }
 
+export interface ClientLogo {
+  /** sha256 hex dos bytes: vira o caminho público `/client-logos/<hash>`. */
+  hash: string;
+  mime: 'image/png' | 'image/jpeg' | 'image/webp';
+  bytes: Buffer;
+}
+
 export interface OAuthClient {
   clientId: string;
+  /** Do /register: declarado pelo próprio cliente, NUNCA mostrado. Do documento de metadados: saneado. */
   clientName?: string;
   redirectUris: string[];
   createdAt: number;
+  /** true quando o client_id é uma URL https (documento de metadados do cliente). */
+  fromMetadata?: boolean;
+  /** Na leitura: só o hash do logo guardado (os bytes vêm por `getClientLogo`). */
+  logoHash?: string;
+  /** Na escrita (`upsertClient`): logo novo; `null` apaga o anterior. */
+  logo?: ClientLogo | null;
+}
+
+/**
+ * Erro ao conectar uma fonte, com um código estável para a API do web. A mensagem é pt-BR, pronta para mostrar, e
+ * nunca contém senha nem token.
+ */
+export type LinkErrorCode = 'invalid_request' | 'invalid_credentials' | 'too_many_attempts' | 'source_unavailable';
+export class LinkError extends Error {
+  constructor(
+    message: string,
+    readonly code: LinkErrorCode = 'invalid_credentials',
+  ) {
+    super(message);
+  }
 }
 
 /** Pedido de autorização em andamento (guardado entre as telas). */
@@ -55,17 +83,24 @@ export interface AuthCode {
 export interface TokenRecord {
   /** Hash SHA-256 do token (o token em claro nunca é guardado). */
   tokenHash: string;
-  kind: 'access' | 'refresh';
+  /** `session`: sessão do app web (cookie HttpOnly), validade renovada a cada uso. */
+  kind: 'access' | 'refresh' | 'session';
   clientId: string;
   userId: string;
   scope?: string;
   expiresAt: number;
+  createdAt?: number;
+  lastUsedAt?: number;
 }
 
 export interface OAuthStore {
   saveClient(c: OAuthClient): Promise<void>;
+  /** Cria ou atualiza (cliente fixo do web, clientes de documento de metadados). */
+  upsertClient(c: OAuthClient): Promise<void>;
   getClient(clientId: string): Promise<OAuthClient | null>;
+  getClientLogo(hash: string): Promise<Omit<ClientLogo, 'hash'> | null>;
   savePending(p: PendingAuthorization): Promise<void>;
+  /** Devolve também pedidos já expirados (quem chama decide entre 410 e 404). */
   getPending(id: string): Promise<PendingAuthorization | null>;
   deletePending(id: string): Promise<void>;
   saveCode(c: AuthCode): Promise<void>;
@@ -75,11 +110,19 @@ export interface OAuthStore {
   getToken(tokenHash: string): Promise<TokenRecord | null>;
   /** Rotação do refresh token: apaga o token usado. */
   deleteToken(tokenHash: string): Promise<void>;
+  /** Tokens válidos (não expirados) da pessoa. */
+  listTokens(userId: string): Promise<TokenRecord[]>;
+  /** Revoga um cliente para a pessoa: apaga todos os tokens dele. */
+  deleteTokensOfClient(userId: string, clientId: string): Promise<void>;
+  /** Marca uso (e, para sessão, estende a validade). */
+  touchToken(tokenHash: string, lastUsedAt: number, expiresAt?: number): Promise<void>;
 }
 
 /** Identifica ou cria o usuário (a ser ligado ao UserRepository do Núcleo). */
 export interface UserDirectory {
   findOrCreateByEmail(email: string): Promise<{ id: string }>;
+  /** Para o /me. */
+  findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null>;
 }
 
 export interface LinkStatus {
@@ -139,5 +182,10 @@ export interface SigaaLinkPort {
    * errada; senhas erradas demais (por transação e por usuário) são recusadas sem falar com o SIGAA.
    */
   conectar(txn: string, login: string, senha: string, userId: string): Promise<void>;
+  /**
+   * Só valida (mesmos limites de tentativa, com `chave` no lugar da transação) e devolve o login normalizado. Quem
+   * chama decide onde guardar. Lança `LinkError`.
+   */
+  validar(chave: string, login: string, senha: string, userId: string): Promise<string>;
   pendente(txn: string): boolean;
 }

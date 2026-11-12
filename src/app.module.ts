@@ -24,6 +24,7 @@ import { SigaaSession } from './infrastructure/sources/sigaa/session';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
 import { SigaaLive } from './infrastructure/sources/sigaa/sigaa-live';
 import { McpModule } from './interface/mcp/mcp.module';
+import { WebModule } from './interface/web/web.module';
 
 function googleHttp(clientId?: string, clientSecret?: string): GoogleHttp | undefined {
   return clientId && clientSecret ? new GoogleHttp(new GoogleAuth({ clientId, clientSecret })) : undefined;
@@ -73,7 +74,7 @@ export function buildLiveSources(
 // Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
 @Global()
 @Module({
-  imports: [PersistenceModule, McpModule],
+  imports: [PersistenceModule, McpModule, WebModule],
   controllers: [HealthController, UsuariosController, FontesController, DownloadController],
   providers: [
     IdentityService,

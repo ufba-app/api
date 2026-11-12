@@ -30,7 +30,9 @@ Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`mess
 1. O web gera `code_verifier`, `code_challenge` (S256) e `state`; guarda verifier e state em `sessionStorage`.
 2. Navega para `GET {API}/authorize?response_type=code&client_id=ufba-web&redirect_uri={WEB}/sign-in/callback&code_challenge=…&code_challenge_method=S256&state=…`.
 3. A API manda direto para o login do Google (só `@ufba.br`). No retorno, emite o code e redireciona para
-   `{WEB}/sign-in/callback?code=…&state=…` (ou `?error=access_denied&error_description=…`).
+   `{WEB}/sign-in/callback?code=…&state=…` (ou `?error=access_denied&error_description=…`, com
+   `error_description` em pt-BR pronto para mostrar, ex.: "marina@gmail.com não é um e-mail @ufba.br. Entre com a
+   sua conta institucional.").
 4. O web confere o `state` e chama:
 
 ```
@@ -168,12 +170,14 @@ GET /authorize/requests/{id} → 200
     "verified": true,
     "metadata": "present" | "absent"
   },
-  "sources": [ { "source": "sigaa" | "moodle" | "classroom", "status": "connected" | "disconnected" | "password_required" | "reconnect_required" } ],
+  "signedIn": true,
+  "sources": [ { "source": "sigaa" | "moodle" | "classroom", "status": "connected" | "disconnected" | "password_required" | "reconnect_required" } ] | null,
   "expiresAt": "ISO-8601"
 }
 ```
 
-- Sem sessão → `401 session_expired`: o web manda para `/sign-in?return=/authorize?request=<id>` e volta depois.
+- Funciona **sem sessão**: aí vem `signedIn: false` e `sources: null` (dá para mostrar "Claude quer acessar seus
+  dados" antes do login). O web manda para `/sign-in?return=/authorize?request=<id>` e volta depois.
 - `domain`: host do `redirect_uri`, sempre em ASCII (punycode). Mostrar em destaque, exatamente como vem.
 - `name`/`logoUrl`: de `config/verified-apps.json` se o domínio for verificado e a entrada tiver; senão do
   documento de metadados do cliente (quando `client_id` é uma URL https); senão `null`. O `client_name` do
