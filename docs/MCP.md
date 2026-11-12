@@ -158,7 +158,7 @@ Os dois clientes são do tipo **Aplicativo da Web** (o tipo Desktop de `docs/GOO
 
 ### Moodle
 
-O login acontece no navegador da pessoa; o servidor nunca vê a senha. O `launch.php` usa `urlscheme=web+ufba` (o AVA aceita); a tela registra o serviço como tratador desse esquema (`navigator.registerProtocolHandler`) e o navegador entrega o token em `GET /oauth/moodle/capture` (transação num cookie HttpOnly de 15 min). Plano B: colar o link em `POST /oauth/connect/moodle`. Com `moodlemobile://`, no Windows o token ia para o diálogo "Obter um aplicativo" e se perdia. `MOODLE_SITE_URL` (padrão `https://ava.ufba.br`), `MOODLE_URL_SCHEME` (padrão `web+ufba`). O AVA não envia o intermediário TLS; ele fica em `certs/` (ver `src/infrastructure/tls/extra-ca.ts`).
+O login acontece no navegador da pessoa; o servidor nunca vê a senha. O `launch.php` usa `urlscheme=web+ufba` (o AVA aceita); o app web registra a si mesmo como tratador desse esquema (`navigator.registerProtocolHandler`), recebe o link e o envia para `POST /connections/moodle` (ver docs/WEB-API.md). Com `moodlemobile://`, no Windows o token ia para o diálogo "Obter um aplicativo" e se perdia. `MOODLE_SITE_URL` (padrão `https://ava.ufba.br`), `MOODLE_URL_SCHEME` (padrão `web+ufba`). O AVA não envia o intermediário TLS; ele fica em `certs/` (ver `src/infrastructure/tls/extra-ca.ts`).
 
 ### Outras decisões
 
