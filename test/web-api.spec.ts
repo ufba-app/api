@@ -2,6 +2,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
+import { inspect } from 'node:util';
 import { ClientDirectory } from '../src/application/oauth/client-directory';
 import {
   GOOGLE_LINK,
@@ -36,7 +37,8 @@ const CLAUDE_CB = 'https://claude.ai/api/mcp/auth_callback';
 const META_ID = 'https://app.example/oauth/client.json';
 const META_CB = 'https://app.example/callback';
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]);
-const SENHA = 'senha-de-teste-123';
+// Marca única: o teste "canário" no fim confere que ela nunca saiu em log, erro ou resposta.
+const SENHA = 'CANARIO-web-7d1e-senha';
 
 const pkce = () => {
   const verifier = 'v'.repeat(64);
@@ -67,10 +69,20 @@ describe('API do app web (docs/WEB-API.md)', () => {
     pendente: () => false,
     validar: async (_k, login, senha) => {
       sigaaValidations.push(login);
-      if (senha !== SENHA) throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
+      if (senha.reveal() !== SENHA) throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
       return login.trim();
     },
   };
+
+  // Tudo o que o processo escreveria no terminal/log durante a suíte (ver o último teste, "canário").
+  const saida: string[] = [];
+  const guardar = (...a: unknown[]) =>
+    void saida.push(a.map((x) => (typeof x === 'string' ? x : inspect(x, { depth: 10 }))).join(' '));
+  const espioes = [
+    jest.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => (guardar(String(c)), true)),
+    jest.spyOn(process.stderr, 'write').mockImplementation((c: unknown) => (guardar(String(c)), true)),
+    ...(['log', 'info', 'warn', 'error', 'debug'] as const).map((m) => jest.spyOn(console, m).mockImplementation(guardar)),
+  ];
 
   beforeAll(async () => {
     process.env.SECRETS_KEY = Buffer.alloc(32, 1).toString('base64');
@@ -151,6 +163,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     delete process.env.WEB_ORIGIN;
     delete process.env.AUTH_ORIGIN;
     delete process.env.PUBLIC_URL;
+    for (const e of espioes) e.mockRestore();
   });
 
   const get = (path: string, cookie?: string) =>
@@ -327,7 +340,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const k = splitToken(tok.access_token).chave!;
     expect(k).toHaveLength(32);
     const opened = await cofre.abrir({ userId: me.id, clientId: c.clientId }, k);
-    expect(opened?.senha).toBe(SENHA);
+    expect(opened?.senha.reveal()).toBe(SENHA);
 
     // Apps autorizados: aparece, revoga, some e o token deixa de valer.
     const list = await (await get('/authorized-apps', cookie)).json() as any;
@@ -491,5 +504,24 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const list = (await (await get('/authorized-apps', cookie)).json()) as any;
       expect(list.apps[0]).toMatchObject({ verified: false, name: null, domain: 'claude.ai, evil.example' });
     });
+  });
+
+  // Fica por último: confere a saída da suíte inteira.
+  it('canário: a senha nunca aparece em log, erro ou resposta (inclusive JSON malformado com a senha)', async () => {
+    const cookie = await signIn();
+    const respostas: string[] = [];
+    for (const path of ['/connections/sigaa', '/session']) {
+      const r = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-ufba': '1', origin: WEB, cookie },
+        body: `{"login":"a","password":"${SENHA}"`,
+      });
+      respostas.push(await r.text());
+    }
+    const errada = await send('POST', '/connections/sigaa', { cookie, body: { login: 'a', password: `${SENHA}-x` } });
+    respostas.push(await errada.text());
+
+    expect(respostas.join('\n')).not.toContain(SENHA);
+    expect(saida.join('\n')).not.toContain(SENHA);
   });
 });

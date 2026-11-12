@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
@@ -410,7 +411,7 @@ export class OAuthController {
       return this.htmlError(res, e);
     }
     try {
-      await this.sigaa.conectar(p.id, b.login ?? '', b.senha ?? '', p.userId!);
+      await this.sigaa.conectar(p.id, b.login ?? '', Secret.of(b.senha ?? ''), p.userId!);
       await this.renderConnect(res, p.id, p.userId!, 'SIGAA validado: será guardado ao concluir.');
     } catch (e) {
       // A mensagem vem do SigaaLink (nunca contém a senha) e a tela não repete o que foi digitado.

@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
@@ -18,7 +19,7 @@ const ctx: SourceContext = {
   userId: 'u1',
   accountKey: 'sigaa:fulano',
   sessaoKey: 'u1:cliente1:fulano',
-  credentials: { kind: 'password', username: 'fulano', password: SENHA },
+  credentials: { kind: 'password', username: 'fulano', password: Secret.of(SENHA) },
 };
 
 /** Página principal da turma: só precisa do menu da turma (`form#formMenu`). */

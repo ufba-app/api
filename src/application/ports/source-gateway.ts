@@ -1,3 +1,4 @@
+import type { Secret } from '../shared/secret';
 /**
  * Porta das fontes (SIGAA, Moodle, Classroom, Calendar). Cada fonte implementa `SourceGateway` em
  * `infrastructure/sources/<fonte>/`. O gateway só BUSCA e NORMALIZA; quem grava e detecta mudança é o caso de uso
@@ -28,7 +29,7 @@ export type SyncScope =
  * `token` é o token já decifrado de uma conta `token-guardado` (Moodle, Google).
  */
 export type SourceCredentials =
-  | { kind: 'password'; username: string; password: string }
+  | { kind: 'password'; username: string; password: Secret }
   | { kind: 'token'; token: string };
 
 export interface SourceContext {

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Secret } from '../shared/secret';
 import { randomBytes } from 'node:crypto';
 import type { EncryptedSecret } from '../ports/repositories';
 import { SigaaCredentialRepository } from '../ports/repositories';
@@ -21,7 +22,7 @@ export class CredencialSigaaInvalidaError extends Error {
 
 interface Pendente {
   login: string;
-  senha: string;
+  senha: Secret;
   expiresAt: number;
 }
 
@@ -40,7 +41,7 @@ export class CofreSigaa {
     private readonly now: () => number = Date.now,
   ) {}
 
-  aguardar(txn: string, cred: { login: string; senha: string }): void {
+  aguardar(txn: string, cred: { login: string; senha: Secret }): void {
     this.limpar();
     this.porTransacao.set(txn, { ...cred, expiresAt: this.now() + TTL_TRANSACAO_MS });
   }
@@ -69,7 +70,7 @@ export class CofreSigaa {
     if (!p) return null;
     this.porCodigo.delete(codeHash);
     const k = randomBytes(32);
-    const secret = this.cifra(k).encrypt(p.senha);
+    const secret = this.cifra(k).encrypt(p.senha.reveal());
     await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: p.login, secret });
     return k;
   }
@@ -77,13 +78,13 @@ export class CofreSigaa {
   async abrir(
     quem: { userId: string; clientId: string },
     k: Buffer,
-  ): Promise<{ login: string; senha: string; credencialId: string } | null> {
+  ): Promise<{ login: string; senha: Secret; credencialId: string } | null> {
     const rec = await this.repo.find(quem.userId, quem.clientId);
     if (!rec) return null;
     if (rec.status === 'REAUTH_NEEDED') throw new CredencialSigaaInvalidaError();
-    let senha: string;
+    let senha: Secret;
     try {
-      senha = this.cifra(k).decrypt(rec.secret);
+      senha = Secret.of(this.cifra(k).decrypt(rec.secret));
     } catch {
       // K que não abre o cifrado (ex.: token antigo de uma autorização substituída). Sem detalhe do erro.
       throw new CredencialSigaaInvalidaError();
@@ -101,8 +102,8 @@ export class CofreSigaa {
   }
 
   /** Grava direto com uma K que o chamador já tem (a da sessão do app web). Nunca loga senha nem K. */
-  async gravar(quem: { userId: string; clientId: string }, cred: { login: string; senha: string }, k: Buffer): Promise<void> {
-    const secret = this.cifra(k).encrypt(cred.senha);
+  async gravar(quem: { userId: string; clientId: string }, cred: { login: string; senha: Secret }, k: Buffer): Promise<void> {
+    const secret = this.cifra(k).encrypt(cred.senha.reveal());
     await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cred.login, secret });
   }
 

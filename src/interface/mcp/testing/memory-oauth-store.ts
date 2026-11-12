@@ -1,3 +1,4 @@
+import type { Secret } from '../../../application/shared/secret';
 import {
   AuthCode,
   ClassroomLinkPort,
@@ -166,15 +167,15 @@ export class StubMoodleLink implements MoodleLinkPort {
 /** Stub do SIGAA: guarda a senha só em memória do teste e aceita qualquer coisa, exceto a senha "errada". */
 export class StubSigaaLink implements SigaaLinkPort {
   private readonly pend = new Set<string>();
-  async conectar(txn: string, login: string, senha: string): Promise<void> {
-    if (!login || senha === 'errada') throw new Error('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
+  async conectar(txn: string, login: string, senha: Secret): Promise<void> {
+    if (!login || senha.reveal() === 'errada') throw new Error('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
     this.pend.add(txn);
   }
   pendente(txn: string): boolean {
     return this.pend.has(txn);
   }
-  async validar(_chave: string, login: string, senha: string): Promise<string> {
-    if (!login.trim() || senha === 'errada') {
+  async validar(_chave: string, login: string, senha: Secret): Promise<string> {
+    if (!login.trim() || senha.reveal() === 'errada') {
       throw new LinkError('Não foi possível entrar: usuário ou senha do SIGAA incorretos.');
     }
     return login.trim();

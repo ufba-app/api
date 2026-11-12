@@ -1,9 +1,10 @@
 import type { SigaaHttpClient, SigaaHttpResponse } from './http-client';
+import type { Secret } from '../../../application/shared/secret';
 
 /** Usuário e senha chegam por requisição; ficam só na variável local de `login` e nunca são guardados. */
 export interface SigaaCredentials {
   login: string;
-  password: string;
+  password: Secret;
 }
 
 export class SigaaInvalidCredentialsError extends Error {
@@ -141,7 +142,7 @@ export class SigaaSession {
         acessibilidade: '',
         ...hiddenLoginFormFields(initial.body),
         'user.login': credentials.login,
-        'user.senha': credentials.password,
+        'user.senha': credentials.password.reveal(),
       },
     });
     this.captureCookie(response);

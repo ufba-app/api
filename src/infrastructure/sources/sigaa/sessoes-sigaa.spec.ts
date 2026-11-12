@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import { SessoesSigaa } from './sessoes-sigaa';
 import {
   SigaaInvalidCredentialsError,
@@ -5,7 +6,7 @@ import {
   type SigaaSession,
 } from './session';
 
-const cred = { login: 'fulano', password: 'senha-falsa' };
+const cred = { login: 'fulano', password: Secret.of('senha-falsa') };
 const MIN = 60_000;
 
 function fake(login: () => Promise<void> = () => Promise.resolve()) {

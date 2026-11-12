@@ -1,3 +1,4 @@
+import type { Secret } from '../shared/secret';
 /**
  * Portas do servidor OAuth 2.1 do serviço (clientes MCP como Claude).
  * O Núcleo (Forja) fornece usuários e SourceAccount; as fontes fornecem os vínculos.
@@ -188,11 +189,11 @@ export interface SigaaLinkPort {
    * 1 login real + GET do portal; se ok, guarda em memória até o /token. Erro com mensagem amigável se a senha estiver
    * errada; senhas erradas demais (por transação e por usuário) são recusadas sem falar com o SIGAA.
    */
-  conectar(txn: string, login: string, senha: string, userId: string): Promise<void>;
+  conectar(txn: string, login: string, senha: Secret, userId: string): Promise<void>;
   /**
    * Só valida (mesmos limites de tentativa, com `chave` no lugar da transação) e devolve o login normalizado. Quem
    * chama decide onde guardar. Lança `LinkError`.
    */
-  validar(chave: string, login: string, senha: string, userId: string): Promise<string>;
+  validar(chave: string, login: string, senha: Secret, userId: string): Promise<string>;
   pendente(txn: string): boolean;
 }

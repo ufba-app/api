@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import type { CofreSigaa } from '../../../application/sigaa/cofre-sigaa';
 import type { SigaaHttpClient, SigaaHttpRequest, SigaaHttpResponse } from './http-client';
 import { SigaaLink } from './sigaa-link';
@@ -43,8 +44,9 @@ describe('SigaaLink', () => {
   it('senha certa: guarda no cofre e faz 1 login + 1 GET do portal', async () => {
     const { http, requests } = fakeSigaa(true);
     const { cofre, aguardar } = fakeCofre();
-    await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA, 'u1');
-    expect(aguardar).toHaveBeenCalledWith('txn-1', { login: 'fulano', senha: SENHA });
+    await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', Secret.of(SENHA), 'u1');
+    expect(aguardar).toHaveBeenCalledWith('txn-1', { login: 'fulano', senha: expect.any(Secret) });
+    expect(aguardar.mock.calls[0][1].senha.reveal()).toBe(SENHA);
     expect(requests.filter((r) => r.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
     expect(requests.filter((r) => r.path === '/sigaa/portais/discente/discente.jsf')).toHaveLength(1);
   });
@@ -52,7 +54,7 @@ describe('SigaaLink', () => {
   it('senha errada: erro amigável, nada guardado, sem a senha na mensagem', async () => {
     const { http } = fakeSigaa(false);
     const { cofre, aguardar } = fakeCofre();
-    const erro = await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', SENHA, 'u1').catch((e: Error) => e);
+    const erro = await new SigaaLink(cofre, http).conectar('txn-1', 'fulano', Secret.of(SENHA), 'u1').catch((e: Error) => e);
     expect(erro).toBeInstanceOf(Error);
     expect((erro as Error).message).toContain('usuário ou senha do SIGAA incorretos');
     expect(String((erro as Error).message) + String((erro as Error).stack)).not.toContain(SENHA);
@@ -78,7 +80,7 @@ describe('SigaaLink', () => {
       return { link, sigaa, aguardar, avancar: (ms: number) => (agora += ms) };
     }
     const tentar = (link: SigaaLink, txn: string, user = 'u1', login = 'fulano') =>
-      link.conectar(txn, login, SENHA, user).then(
+      link.conectar(txn, login, Secret.of(SENHA), user).then(
         () => null,
         (e: Error) => e,
       );

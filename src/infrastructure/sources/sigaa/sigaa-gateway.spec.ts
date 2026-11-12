@@ -1,3 +1,4 @@
+import { Secret } from '../../../application/shared/secret';
 import type {
   SigaaHttpClient,
   SigaaHttpRequest,
@@ -83,7 +84,7 @@ describe('parsers', () => {
 });
 
 
-const ctx = (password = PASSWORD): SourceContext => ({
+const ctx = (password = Secret.of(PASSWORD)): SourceContext => ({
   userId: 'u1',
   accountKey: 'sigaa',
   credentials: { kind: 'password', username: 'u', password },

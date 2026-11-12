@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import type { EncryptedSecret, SigaaCredentialRecord } from '../ports/repositories';
 import { SigaaCredentialRepository } from '../ports/repositories';
@@ -48,7 +49,7 @@ function montar() {
 }
 
 async function guardar(cofre: CofreSigaa) {
-  cofre.aguardar('txn1', { login: 'aluno', senha: SENHA });
+  cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
   cofre.vincularCodigo('txn1', 'hash1');
   return cofre.gravarNoToken('hash1', quem);
 }
@@ -57,7 +58,7 @@ describe('CofreSigaa', () => {
   it('aguardar → vincularCodigo → gravarNoToken devolve K de 32 bytes e grava só cifrado', async () => {
     const { cofre, repo } = montar();
     expect(cofre.temPendente('txn1')).toBe(false);
-    cofre.aguardar('txn1', { login: 'aluno', senha: SENHA });
+    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
     expect(cofre.temPendente('txn1')).toBe(true);
     cofre.vincularCodigo('txn1', 'hash1');
     const k = await cofre.gravarNoToken('hash1', quem);
@@ -70,7 +71,9 @@ describe('CofreSigaa', () => {
   it('abrir com a K devolvida recupera login e senha', async () => {
     const { cofre } = montar();
     const k = await guardar(cofre);
-    await expect(cofre.abrir(quem, k!)).resolves.toEqual({ login: 'aluno', senha: SENHA, credencialId: 'cred1' });
+    const aberto = await cofre.abrir(quem, k!);
+    expect(aberto).toMatchObject({ login: 'aluno', credencialId: 'cred1' });
+    expect(aberto!.senha.reveal()).toBe(SENHA);
   });
 
   it('abrir com outra K falha', async () => {
@@ -88,7 +91,7 @@ describe('CofreSigaa', () => {
 
   it('pendente expira', async () => {
     const { cofre, avancar } = montar();
-    cofre.aguardar('txn1', { login: 'aluno', senha: SENHA });
+    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
     avancar(16 * 60_000);
     expect(cofre.temPendente('txn1')).toBe(false);
     cofre.vincularCodigo('txn1', 'hash1');
@@ -97,7 +100,7 @@ describe('CofreSigaa', () => {
 
   it('código vinculado expira em 5 min', async () => {
     const { cofre, avancar } = montar();
-    cofre.aguardar('txn1', { login: 'aluno', senha: SENHA });
+    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
     cofre.vincularCodigo('txn1', 'hash1');
     avancar(6 * 60_000);
     await expect(cofre.gravarNoToken('hash1', quem)).resolves.toBeNull();

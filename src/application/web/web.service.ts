@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import type { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
 import type { ClientDirectory, ClientView } from '../oauth/client-directory';
@@ -171,7 +172,7 @@ export class WebService {
   async connectSigaa(p: WebPrincipal, body: { login?: unknown; password?: unknown }): Promise<void> {
     if (!p.chave) throw sessionExpired();
     const login = typeof body.login === 'string' ? body.login : '';
-    const password = typeof body.password === 'string' ? body.password : '';
+    const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     let usuario: string;
     try {
       usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);

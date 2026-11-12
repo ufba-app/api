@@ -1,3 +1,4 @@
+import { Secret } from '../shared/secret';
 import type { LiveSource } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import type { SigaaCredentialRecord, SigaaCredentialRepository, SourceAccountRecord } from '../ports/repositories';
@@ -205,8 +206,9 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
       userId: 'u1',
       accountKey: 'sigaa:aluno',
       sessaoKey: 'u1:c1:aluno',
-      credentials: { kind: 'password', username: 'aluno', password: SENHA },
+      credentials: { kind: 'password', username: 'aluno', password: expect.any(Secret) },
     });
+    expect((chamadas[0].credentials as { password: Secret }).password.reveal()).toBe(SENHA);
   });
 
   it('chave errada: não conectado, sem vazar nada e sem chamar a fonte', async () => {
