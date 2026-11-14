@@ -1,0 +1,27 @@
+import { Module } from '@nestjs/common';
+import { DataController } from './data.controller';
+import {
+  AuthorizedAppsController,
+  AuthorizeRequestsController,
+  ClientLogosController,
+  ConnectionsController,
+  SessionController,
+} from './web.controllers';
+import { DataGuard, OptionalSessionGuard, SessionGuard } from './web-auth';
+
+/**
+ * API do app web (docs/WEB-API.md). As dependências (WebService, OAUTH_SERVICE, CLIENT_DIRECTORY, ConsultaService,
+ * AUTHENTICATORS) vêm do módulo global da raiz de composição.
+ */
+@Module({
+  controllers: [
+    SessionController,
+    ConnectionsController,
+    AuthorizeRequestsController,
+    AuthorizedAppsController,
+    ClientLogosController,
+    DataController,
+  ],
+  providers: [SessionGuard, OptionalSessionGuard, DataGuard],
+})
+export class WebModule {}

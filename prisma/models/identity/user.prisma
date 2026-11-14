@@ -1,0 +1,19 @@
+model User {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String?
+  // Preenchido pelo login do OAuth (tela de /authorize); usuários criados só por chave de API não têm.
+  email     String?  @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  apiKeys        ApiKey[]
+  sourceAccounts SourceAccount[]
+  profile        StudentProfile?
+  transcript     Transcript?
+  planItems      PlanItem[]
+  enrollments    Enrollment[]
+  oauthCodes     OAuthCode[]
+  oauthTokens    OAuthToken[]
+  sigaaCredentials SigaaCredential[]
+
+  @@map("users")
+}
