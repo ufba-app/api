@@ -91,7 +91,8 @@ export class MemoryComputers extends MemoryComputerDirectory {
     try {
       await this.sweep(userId);
       const { username } = await this.users.ensure(userId);
-      const known = typeof input.computerId === 'string' && UUID.test(input.computerId) ? await this.repo.find(input.computerId) : null;
+      const wanted = typeof input.computerId === 'string' && UUID.test(input.computerId) ? input.computerId.toLowerCase() : null;
+      const known = wanted ? await this.repo.find(wanted) : null;
       if (known && known.userId === userId && !known.revokedAt) {
         const rotated = await this.admin.rotateCredential(known.credentialId);
         await this.repo.reissue(known.id, {
@@ -110,7 +111,9 @@ export class MemoryComputers extends MemoryComputerDirectory {
           `Você já tem ${MAX_ACTIVE_COMPUTERS} computadores conectados. Remova um para conectar outro.`,
         );
       }
-      const id = randomUUID();
+      // O id gerado pelo instalador vale também na criação (a primeira chamada passa a ser idempotente: se a resposta
+      // se perder, repetir com o mesmo id troca a chave em vez de criar outro computador). Id de outra pessoa é ignorado.
+      const id = wanted && !known ? wanted : randomUUID();
       const issued = await this.admin.issueCredential(username, `pc:${id.slice(0, 8)}:${name}`);
       try {
         await this.repo.insert({

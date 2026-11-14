@@ -248,3 +248,25 @@ describe('manifesto de instalação', () => {
     expect(await fine.fetch()).toEqual(good);
   });
 });
+
+describe('computer_id gerado pelo instalador', () => {
+  it('vale na criação e a repetição troca a chave em vez de criar outro computador', async () => {
+    const fake = new FakeAiMemory(ROOT);
+    const url = await fake.start();
+    const admin = new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) });
+    const users = new MemoryUsers(admin, new InMemoryUserRepo(), new AesSecretCipher(Buffer.alloc(32, 3).toString('base64')));
+    const repo = new InMemoryComputerRepo();
+    const svc = new MemoryComputers(admin, users, repo);
+    const id = '3f2c1a9e-5b7d-4c1e-9a2b-0123456789ab';
+    const first = await svc.create(UID, { name: 'pc', os: 'linux', computerId: id });
+    expect(first.computerId).toBe(id);
+    const again = await svc.create(UID, { name: 'pc', os: 'linux', computerId: id });
+    expect(again.computerId).toBe(id);
+    expect(repo.rows.size).toBe(1);
+    expect(fake.authenticate(first.key.reveal())).toBeNull();
+    expect(fake.authenticate(again.key.reveal())).not.toBeNull();
+    const other = await svc.create(OTHER, { name: 'x', os: 'linux', computerId: id });
+    expect(other.computerId).not.toBe(id); // id de outra pessoa não é reaproveitado
+    await fake.stop();
+  });
+});
