@@ -9,7 +9,10 @@ Desenho: `docs/specs/2026-11-14-memoria-ufba.md`; resultado do spike e correçõ
 | 1 | `MemoryAdminClient`, `MemoryUsers.ensure`, tabela `memory_users`, fake do ai-memory, canário | feito |
 | 2 | proxy do MCP (`memory_*` filtrado), `memory_status`, limites, `instructions` | feito |
 | 3 | login de dispositivo, `POST /memory/computers`, confirmação, manifesto, rotas do web | feito |
-| 4 a 9 | telas, instaladores, conectar computador, projetos, papéis, endurecimento | a fazer |
+| 4 | telas `/device` e Computadores conectados (web) | em andamento (outro agente) |
+| 5 | instaladores e imagem do memory (repo `memory`) | em andamento (outro agente) |
+| 6 | `memory_connect_computer` e prompt `conectar-computador` | feito |
+| 7 a 9 | projetos, papéis, endurecimento | a fazer |
 
 ## Configuração (só nomes)
 
@@ -32,7 +35,7 @@ Desenho: `docs/specs/2026-11-14-memoria-ufba.md`; resultado do spike e correçõ
 - `MemoryProjectRegistry`: hoje o conjunto semeado `ufba-app/{api,web,docs}` (S12). A etapa 7 troca pela tabela de projetos; até lá o proxy não aceita projetos de pessoa/alunos.
 - `MemoryAccess`: gancho de quem pode usar a memória. Hoje aberto; a etapa 8 liga aos papéis do time (sem acesso não cria usuário no memory).
 - `interface/mcp/mcp-tools.ts`: o `McpServer` só registra Zod; `tools/list` e `tools/call` são decorados em `addMemoryTools` (usa `_requestHandlers` do SDK 1.32; o teste de contrato quebra se o SDK mudar).
-- `memory_connect_computer` e o prompt `conectar computador` entram na etapa 6; `os` do computador em `memory_status` vem de `memory_computers`.
+- `memory_connect_computer` (etapa 6, `application/memory/connect-guide.ts`): devolve só TEXTO (comando de uma linha por sistema, o que ele faz, aviso de pedir permissão antes, link `https://ufba.app/memory/computers`). Não executa nada, não fala com o memory e funciona mesmo com ele fora do ar. O prompt MCP `conectar-computador` (vira `/mcp__ufba__conectar-computador` no Claude Code) manda: `memory_status` → `memory_connect_computer` → explicar → pedir confirmação → só então rodar. Os comandos apontam para `https://ufba.app/install.ps1|sh` (bootstrap da etapa 5); `https://ufba.app/instalar` (baixar, ler e conferir o hash) é uma página do web ainda sem dono. O `os` de `memory_status` vem de `memory_computers`.
 
 ## Login de dispositivo e computadores (etapa 3)
 

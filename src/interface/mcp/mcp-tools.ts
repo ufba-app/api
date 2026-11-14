@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v4';
+import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memory/connect-guide';
 import { MEMORY_INSTRUCTIONS } from '../../application/memory/memory-proxy';
 import { McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 
@@ -153,7 +154,17 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal, memory?: McpMem
     (args) => run(() => uc.baixarAnexo(p, args)),
   );
 
-  if (withMemory) addMemoryTools(server, memory, p);
+  if (withMemory) {
+    addMemoryTools(server, memory, p);
+    server.registerPrompt(
+      CONNECT_PROMPT_NAME,
+      {
+        title: 'Conectar computador',
+        description: 'Conecta este computador à memória compartilhada da ufba.app (pede a sua confirmação antes de instalar).',
+      },
+      () => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: CONNECT_PROMPT_TEXT } }] }),
+    );
+  }
   return server;
 }
 

@@ -38,6 +38,8 @@ export const MEMORY_TOOL_CLASSES: Readonly<Record<string, MemoryToolClass>> = {
 
   // Nome que colide: o do memory NÃO é repassado; vale o da casa, que lê o estado da ufba.app.
   memory_status: 'house',
+  // Ferramenta da casa que o memory não tem; se um dia tiver, a da casa vale.
+  memory_connect_computer: 'house',
 };
 
 export function classOf(name: string): MemoryToolClass | undefined {

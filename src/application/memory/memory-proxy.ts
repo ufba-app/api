@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Secret } from '../shared/secret';
+import { connectComputerGuide, MEMORY_CONNECT_TOOL } from './connect-guide';
 import { MemoryComputerDirectory } from './device-ports';
 import {
   MemoryAccess,
@@ -98,9 +99,9 @@ export class MemoryProxy {
     if (!this.enabled() || !(await this.access.canUse(userId))) return [];
     try {
       await this.users.ensure(userId);
-      return [MEMORY_STATUS_TOOL, ...(await this.remoteTools(userId))];
+      return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL, ...(await this.remoteTools(userId))];
     } catch {
-      return [MEMORY_STATUS_TOOL];
+      return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL];
     }
   }
 
@@ -112,10 +113,12 @@ export class MemoryProxy {
   ): Promise<RemoteToolResult | null> {
     if (!name.startsWith('memory_')) return null;
     if (!this.enabled()) return failure(MSG.unavailable);
-    if (name !== 'memory_status' && !isForwardable(name)) {
+    if (name !== 'memory_status' && name !== MEMORY_CONNECT_TOOL.name && !isForwardable(name)) {
       return failure(`A ferramenta ${name} não está disponível neste servidor.`);
     }
     if (!(await this.access.canUse(userId))) return failure(MSG.notAllowed);
+    // Só texto: não fala com o memory nem cria usuário (funciona mesmo com o memory fora do ar).
+    if (name === MEMORY_CONNECT_TOOL.name) return { content: [{ type: 'text', text: connectComputerGuide(args.os) }] };
     try {
       await this.users.ensure(userId);
       return name === 'memory_status' ? await this.status(userId) : await this.forward(userId, name, args);

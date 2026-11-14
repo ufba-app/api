@@ -103,7 +103,8 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     const names = (await proxy.listTools(UID)).map((t) => t.name);
     expect(names[0]).toBe('memory_status');
     expect(names.filter((n) => n === 'memory_status')).toHaveLength(1);
-    expect(names).toHaveLength(19);
+    expect(names).toHaveLength(20);
+    expect(names[1]).toBe('memory_connect_computer');
     for (const n of ['memory_delete_page', 'memory_forget_sweep', 'memory_install_self_routing', 'memory_lint']) {
       expect(names).not.toContain(n);
     }
@@ -227,7 +228,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     await proxy.listTools(UID); // cria o usuário
     clock += CATALOG_TTL_MS + 1;
     await fake.stop();
-    expect((await proxy.listTools(UID)).map((t) => t.name)).toEqual(['memory_status']);
+    expect((await proxy.listTools(UID)).map((t) => t.name)).toEqual(['memory_status', 'memory_connect_computer']);
     const r = await proxy.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'api' });
     expect(r).toEqual({ isError: true, content: [{ type: 'text', text: expect.stringContaining('indisponível') }] });
     expect(JSON.stringify(r)).not.toMatch(/127\.0\.0\.1|aim_|root-token/);
@@ -258,6 +259,25 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     const r = await proxy.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'api' });
     expect(text(r)).toContain('não está liberada');
     expect(fake.users).toHaveLength(0);
+  });
+
+  it('memory_connect_computer devolve só texto: comando por sistema, permissão, sem segredo e sem falar com o memory', async () => {
+    const win = text(await proxy.call(UID, 'memory_connect_computer', { os: 'windows' }));
+    expect(win).toContain('irm https://ufba.app/install.ps1 | iex');
+    expect(win).not.toContain('install.sh');
+    expect(win).toContain('peça permissão');
+    const both = text(await proxy.call(UID, 'memory_connect_computer', { os: 'amiga' }));
+    expect(both).toContain('install.ps1');
+    expect(both).toContain('curl -fsSL https://ufba.app/install.sh | sh');
+    expect(both).toContain('https://ufba.app/memory/computers');
+    expect(both).toContain('sem o arquivo `.ai-memory.toml`');
+    expect(both).not.toMatch(/aim_|sudos/);
+    expect(fake.requests).toHaveLength(0);
+    expect(fake.users).toHaveLength(0);
+    await fake.stop();
+    const down = await proxy.call(UID, 'memory_connect_computer', {});
+    expect(down!.isError).toBeUndefined(); // texto estático: funciona com o memory fora do ar
+    fake = new FakeAiMemory(ROOT);
   });
 
   it('nome que não é de memória volta null (segue para as ferramentas da casa)', async () => {
@@ -304,7 +324,8 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(names).toContain('memory_status');
     expect(names).toContain('memory_query');
     expect(names).not.toContain('memory_delete_page');
-    expect(names).toHaveLength(FERRAMENTAS.length + 19);
+    expect(names).toHaveLength(FERRAMENTAS.length + 20);
+    expect(names).toContain('memory_connect_computer');
     expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
     const q = (await client.listTools()).tools.find((t) => t.name === 'memory_query')!;
     expect(q.inputSchema.properties).toHaveProperty('workspace');
@@ -323,11 +344,23 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(JSON.parse((status.content as { text: string }[])[0].text)).toMatchObject({ memory_available: true });
   });
 
+  it('prompt conectar-computador manda chamar memory_status, depois memory_connect_computer, e pedir confirmação', async () => {
+    client = await connect(true);
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((p) => p.name)).toEqual(['conectar-computador']);
+    const p = await client.getPrompt({ name: 'conectar-computador' });
+    const t = (p.messages[0].content as { text: string }).text;
+    expect(t.indexOf('memory_status')).toBeLessThan(t.indexOf('memory_connect_computer'));
+    expect(t).toContain('confirmação');
+    expect(t).toContain('Nunca rode comandos de instalação sem o meu OK');
+  });
+
   it('sem MEMORY_ROOT_TOKEN: só as ferramentas da casa e nada de instructions', async () => {
     client = await connect(false);
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([...FERRAMENTAS].sort());
     expect(client.getInstructions()).toBeUndefined();
+    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     expect(fake.requests).toHaveLength(0);
   });
 });
