@@ -56,6 +56,8 @@
               "project_name_taken",
               "not_project_owner",
               "invalid_email_domain",
+              "not_admin",
+              "role_not_found",
               "internal_error"
             ]
           },
@@ -2850,6 +2852,359 @@
         "responses": {
           "204": {
             "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/web/admin/team": {
+      "get": {
+        "operationId": "getAdminTeam",
+        "summary": "Papéis do time (somente leitura) e pessoas com papel",
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "grants": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "workspace": {
+                                  "type": "string"
+                                },
+                                "project": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "level": {
+                                  "type": "string",
+                                  "enum": [
+                                    "read",
+                                    "write"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "workspace",
+                                "project",
+                                "title",
+                                "level"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "description",
+                          "grants"
+                        ]
+                      }
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "userId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "userId",
+                          "name",
+                          "email",
+                          "roles"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "roles",
+                    "members"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/web/admin/team/members/{userId}/roles/{roleKey}": {
+      "put": {
+        "operationId": "assignTeamRole",
+        "summary": "Atribui um papel (concede os acessos do papel)",
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "userId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "roleKey",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unassignTeamRole",
+        "summary": "Retira um papel (revoga o que ficar sem sustentação)",
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "userId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "roleKey",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/web/admin/memory/sync": {
+      "get": {
+        "operationId": "getAdminMemorySync",
+        "summary": "Fila de reconciliação com falhas e projetos desconhecidos no memory",
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "failing": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "attempts": {
+                            "type": "integer"
+                          },
+                          "nextRunAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "lastError": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "email",
+                          "attempts",
+                          "nextRunAt",
+                          "lastError"
+                        ]
+                      }
+                    },
+                    "unknownProjects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "workspace": {
+                            "type": "string"
+                          },
+                          "project": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "workspace",
+                          "project"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "failing",
+                    "unknownProjects"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "description": "Erro `{ error, message }`",

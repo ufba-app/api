@@ -14,6 +14,7 @@ import {
   RenameComputerBody,
   TransferProjectBody,
 } from '../../application/web/contract';
+import { TeamRoles } from '../../application/memory/team-roles';
 import { MemoryWeb } from '../../application/web/memory-web.service';
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { ApiErrorFilter } from '../web/api-error.filter';
@@ -145,6 +146,39 @@ export class MemoryWebController {
   @HttpCode(204)
   async deleteProject(@Principal() p: WebPrincipal | null, @Param('id') id: string): Promise<void> {
     await this.memory.deleteProject(must(p), id);
+  }
+}
+
+/** Administração (só admin: o 403 `not_admin` vem do serviço). */
+@Controller('web/admin')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class MemoryAdminController {
+  constructor(private readonly team: TeamRoles) {}
+
+  @Get('team')
+  @Header('Cache-Control', 'no-store')
+  getTeam(@Principal() p: WebPrincipal | null) {
+    return this.team.overview(must(p).userId);
+  }
+
+  @Put('team/members/:userId/roles/:roleKey')
+  @HttpCode(204)
+  async assign(@Principal() p: WebPrincipal | null, @Param('userId') userId: string, @Param('roleKey') roleKey: string): Promise<void> {
+    await this.team.assign(must(p).userId, userId, roleKey);
+  }
+
+  @Delete('team/members/:userId/roles/:roleKey')
+  @HttpCode(204)
+  async unassign(@Principal() p: WebPrincipal | null, @Param('userId') userId: string, @Param('roleKey') roleKey: string): Promise<void> {
+    await this.team.unassign(must(p).userId, userId, roleKey);
+  }
+
+  @Get('memory/sync')
+  @Header('Cache-Control', 'no-store')
+  async sync(@Principal() p: WebPrincipal | null) {
+    const s = await this.team.sync(must(p).userId);
+    return { ...s, failing: s.failing.map((f) => ({ ...f, nextRunAt: f.nextRunAt.toISOString() })) };
   }
 }
 

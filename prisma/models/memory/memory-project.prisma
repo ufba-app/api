@@ -13,6 +13,7 @@ model MemoryProject {
   // Restrict: a posse é transferida ou o projeto é apagado ANTES de excluir a conta (ver MemoryDeparture).
   owner   User?                 @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   members MemoryProjectMember[]
+  teamGrants TeamRoleGrant[]
 
   @@unique([workspace, project])
   @@index([ownerId])

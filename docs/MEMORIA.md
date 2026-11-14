@@ -13,7 +13,8 @@ Desenho: `docs/specs/2026-11-14-memoria-ufba.md`; resultado do spike e correçõ
 | 5 | instaladores e imagem do memory (repo `memory`) | em andamento (outro agente) |
 | 6 | `memory_connect_computer` e prompt `conectar-computador` | feito |
 | 7 | Meus projetos, reconciliador, `DELETE /me` | feito |
-| 8 a 9 | papéis do time e Administração, endurecimento | a fazer |
+| 8 | papéis do time e Administração | feito |
+| 9 | endurecimento | a fazer |
 
 ## Configuração (só nomes)
 
@@ -67,7 +68,7 @@ Rotas do web (no `openapi.json`, prefixo `/web`): `device/lookup`, `device/decis
 
 ### Configuração nova (só nomes)
 
-- `MEMORY_ADMIN_EMAILS`: e-mails (separados por vírgula) dos administradores; hoje só alimenta `isAdmin` em `GET /web/memory/status` (a Administração é a etapa 8).
+- `MEMORY_ADMIN_EMAILS`: e-mails (separados por vírgula) dos administradores da memória (alimenta `isAdmin` em `GET /web/memory/status` e a Administração).
 - `MEMORY_INSTALL_MANIFEST_URL`: ver acima.
 
 ## Meus projetos, reconciliação e saída da conta (etapa 7)
@@ -77,6 +78,13 @@ Rotas do web (no `openapi.json`, prefixo `/web`): `device/lookup`, `device/decis
 - **Reconciliador** (`GrantReconciler`): por pessoa, nível efetivo = o MAIOR entre dono, convite e papel do time (`TeamGrantSource`, vazio até a etapa 8); compara com `GET /admin/users/{u}/grants` e emite só o que diverge, sempre com o projeto `restricted` antes do primeiro grant. Só mexe em projetos gerenciados. Roda ao mudar convite/papel, no primeiro uso do MCP (no máximo a cada 5 min por pessoa) e na varredura de 10 min (`MemoryScheduler` → `MemoryMaintenance`: projetos do time `restricted` no memory, revoga chave de computador não confirmada, retenta jobs, reconcilia quem tem acesso). Falha vira job com backoff (30 s até 30 min) e a tela mostra `sync: pending`. `MEMORY_SCHEDULER=off` desliga o agendador.
 - **S12:** o proxy só aceita projeto registrado em `memory_projects` (`DbProjectRegistry`); `unknownProjects()` lista o que existe no memory em `ufba-*` e a ufba.app não conhece (a Administração, etapa 8, mostra).
 - **`DELETE /me`** (`MemoryDeparture`, antes de apagar a pessoa): (1) revoga chaves de computador e de repasse; (2) projeto só dela é apagado no memory e aqui; (3) projeto compartilhado passa ao membro ativo mais antigo com escrita (sem escrita, ao ativo mais antigo; o conteúdo fica); (4) convites e grants dela saem; (5) usuário no memory vira "Ex-participante" e é desativado. Falha do memory interrompe a exclusão (503 `memory_unavailable`) e cada passo é idempotente. Sem memory configurado, só a parte do banco roda.
+
+## Papéis do time e Administração (etapa 8)
+
+- **Papéis** (`team_roles`, `team_role_grants`): configuração semeada por migração, **somente leitura** na API e na tela. `dev`: escreve em `ufba-app/api` e `web`, lê `docs`. `maintainer`: escreve nos três (`write` em `docs` publica no docs.ufba.app, por isso só ele). Mudar papel ou o que ele concede = migração/PR. Projeto novo do time = nova linha em `team_role_grants` (migração) e a próxima reconciliação concede a todos com o papel.
+- **Atribuição** (`user_team_roles`): só o admin. Admin = e-mails de `MEMORY_ADMIN_EMAILS` (sem diferença de maiúsculas; não é tabela editável por outros). Qualquer outra pessoa recebe 403 `not_admin` e nada é criado no memory.
+- **Rotas** (`/web/admin`, contrato): `GET team` (papéis com os projetos que concedem e as pessoas com seus papéis), `PUT team/members/{userId}/roles/{roleKey}` (corpo `{}` por causa da regra de CSRF; 404 `role_not_found`), `DELETE` do mesmo caminho, `GET memory/sync` (jobs com falha: só código/status; e projetos desconhecidos nos `ufba-*`).
+- **Efeito:** atribuir ou retirar reconcilia a pessoa na hora (falha vira job com backoff). O nível efetivo é o maior entre papel, convite e posse; retirar um papel só revoga o que nenhum convite ou outro papel sustenta. Projeto do time aparece em "Meus projetos" com `team: true` e `source: team`.
 
 ## Fatos do ai-memory que o código assume (spike)
 

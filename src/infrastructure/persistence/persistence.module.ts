@@ -18,6 +18,8 @@ import { MemoryUserRepository } from '../../application/memory/memory-ports';
 import { PrismaMemoryUserRepository } from './prisma-memory.repositories';
 import { DeviceAuthorizationRepository, MemoryComputerRepository } from '../../application/memory/device-ports';
 import { MemoryProjectRepository, MemorySyncJobRepository } from '../../application/memory/project-ports';
+import { TeamRoleRepository, UserLister } from '../../application/memory/team-ports';
+import { PrismaTeamRoleRepository, PrismaUserLister } from './prisma-team.repositories';
 import { PrismaMemoryProjectRepository, PrismaMemorySyncJobRepository } from './prisma-project.repositories';
 import { PrismaDeviceAuthorizationRepository, PrismaMemoryComputerRepository } from './prisma-device.repositories';
 import { PrismaOAuthStore, PrismaUserDirectory } from './prisma-oauth.repositories';
@@ -38,6 +40,8 @@ import { PrismaService } from './prisma.service';
     { provide: MemoryComputerRepository, useClass: PrismaMemoryComputerRepository },
     { provide: MemoryProjectRepository, useClass: PrismaMemoryProjectRepository },
     { provide: MemorySyncJobRepository, useClass: PrismaMemorySyncJobRepository },
+    { provide: TeamRoleRepository, useClass: PrismaTeamRoleRepository },
+    { provide: UserLister, useClass: PrismaUserLister },
     { provide: OAUTH_STORE, useClass: PrismaOAuthStore },
     { provide: USER_DIRECTORY, useClass: PrismaUserDirectory },
   ],
@@ -52,6 +56,8 @@ import { PrismaService } from './prisma.service';
     MemoryComputerRepository,
     MemoryProjectRepository,
     MemorySyncJobRepository,
+    TeamRoleRepository,
+    UserLister,
     OAUTH_STORE,
     USER_DIRECTORY,
   ],

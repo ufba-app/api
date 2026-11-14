@@ -3,12 +3,14 @@ import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
-import { DbProjectRegistry, NoTeamGrants, OpenMemoryAccess } from './application/memory/memory-defaults';
+import { DbProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
 import { GrantReconciler } from './application/memory/grant-reconciler';
 import { AccountDeparture, MemoryDeparture } from './application/memory/memory-departure';
 import { MemoryMaintenance } from './application/memory/memory-maintenance';
 import { MemoryProjects } from './application/memory/memory-projects';
 import { MemoryGrantSync, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource } from './application/memory/project-ports';
+import { DbTeamGrantSource, MemoryAdmins, TeamRoles } from './application/memory/team-roles';
+import { TeamRoleRepository, UserLister } from './application/memory/team-ports';
 import { MemoryScheduler } from './infrastructure/memory/memory-scheduler';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { DeviceAuthorizations } from './application/memory/device-authorizations';
@@ -123,8 +125,30 @@ export function buildLiveSources(
       useFactory: (projects: MemoryProjectRepository) => new DbProjectRegistry(projects),
       inject: [MemoryProjectRepository],
     },
-    // Papéis do time (etapa 8 troca por tabelas): até lá, ninguém recebe acesso por papel.
-    { provide: TeamGrantSource, useFactory: () => new NoTeamGrants() },
+    // Papéis do time: configuração semeada por migração; a atribuição por pessoa é do admin.
+    {
+      provide: TeamGrantSource,
+      useFactory: (roles: TeamRoleRepository) => new DbTeamGrantSource(roles),
+      inject: [TeamRoleRepository],
+    },
+    {
+      provide: MemoryAdmins,
+      useFactory: (directory: UserDirectory) => new MemoryAdmins(directory, MemoryAdmins.parse(process.env.MEMORY_ADMIN_EMAILS)),
+      inject: [USER_DIRECTORY],
+    },
+    {
+      provide: TeamRoles,
+      useFactory: (
+        admins: MemoryAdmins,
+        roles: TeamRoleRepository,
+        lister: UserLister,
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        reconciler: GrantReconciler,
+        directory: UserDirectory,
+      ) => new TeamRoles(admins, roles, lister, projects, jobs, reconciler, directory),
+      inject: [MemoryAdmins, TeamRoleRepository, UserLister, MemoryProjectRepository, MemorySyncJobRepository, GrantReconciler, USER_DIRECTORY],
+    },
     {
       provide: GrantReconciler,
       useFactory: (
@@ -234,19 +258,10 @@ export function buildLiveSources(
         computers: MemoryComputers,
         users: MemoryUsers,
         admin: MemoryAdmin,
-        directory: UserDirectory,
         projects: MemoryProjects,
-      ) =>
-        new MemoryWeb(
-          device,
-          computers,
-          users,
-          admin,
-          directory,
-          projects,
-          MemoryWeb.parseAdminEmails(process.env.MEMORY_ADMIN_EMAILS),
-        ),
-      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, USER_DIRECTORY, MemoryProjects],
+        admins: MemoryAdmins,
+      ) => new MemoryWeb(device, computers, users, admin, projects, admins),
+      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, MemoryProjects, MemoryAdmins],
     },
     {
       provide: SourceRegistry,
@@ -273,6 +288,7 @@ export function buildLiveSources(
     MemoryWeb,
     MemoryProjects,
     GrantReconciler,
+    TeamRoles,
     AccountDeparture,
     DownloadLinks,
     LiveSources,

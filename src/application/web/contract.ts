@@ -33,6 +33,8 @@ export const API_ERROR_CODES = [
   "project_name_taken",
   "not_project_owner",
   "invalid_email_domain",
+  "not_admin",
+  "role_not_found",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -222,6 +224,49 @@ export const ProjectDetail = ProjectView.extend({
 export const CreateProjectBody = z.object({ name: z.string().min(1).max(60) });
 export const MemberLevelBody = z.object({ level: z.enum(["read", "write"]) });
 export const TransferProjectBody = z.object({ email: z.string().min(3).max(200) });
+
+// ---- memória compartilhada: Administração (só admin) ----
+
+export const TeamRoleView = z.object({
+  key: z.string(),
+  description: z.string(),
+  grants: z.array(
+    z.object({
+      workspace: z.string(),
+      project: z.string(),
+      title: z.string(),
+      level: z.enum(["read", "write"]),
+    }),
+  ),
+});
+
+export const TeamMemberView = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  roles: z.array(z.string()),
+});
+
+/** Tabela de papéis somente leitura (mudar é migração) e as pessoas com os papéis atribuídos. */
+export const TeamResponse = z.object({
+  roles: z.array(TeamRoleView),
+  members: z.array(TeamMemberView),
+});
+
+export const MemorySyncResponse = z.object({
+  failing: z.array(
+    z.object({
+      name: z.string().nullable(),
+      email: z.string().nullable(),
+      attempts: z.number().int(),
+      nextRunAt: z.string().datetime(),
+      /** Só código/status (ex.: `unavailable:503`), nunca corpo de resposta. */
+      lastError: z.string().nullable(),
+    }),
+  ),
+  /** Projetos nos workspaces `ufba-*` que existem no memory e a ufba.app não conhece. */
+  unknownProjects: z.array(z.object({ workspace: z.string(), project: z.string() })),
+});
 
 // ---- dados (leitura ao vivo) ----
 

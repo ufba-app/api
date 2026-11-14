@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { DeviceAuthorizationRepository, MemoryComputerRepository } from '../src/application/memory/device-ports';
 import { MemoryAdmin, MemoryMcp, MemoryUserRepository } from '../src/application/memory/memory-ports';
 import { MemoryProjectRepository, MemorySyncJobRepository } from '../src/application/memory/project-ports';
+import { TeamRoleRepository } from '../src/application/memory/team-ports';
 import { OAUTH_STORE, USER_DIRECTORY } from '../src/application/oauth/oauth-ports';
 import { sha256Base64Url } from '../src/application/oauth/pkce';
 import { ApiKeyRepository } from '../src/application/ports/repositories';
@@ -83,6 +84,8 @@ describe('memória: Meus projetos e exclusão de conta (HTTP)', () => {
       .useValue(projects)
       .overrideProvider(MemorySyncJobRepository)
       .useValue(new InMemorySyncJobRepo())
+      .overrideProvider(TeamRoleRepository)
+      .useValue({ listRoles: async () => [], rolesOf: async () => [], listAssignments: async () => [] })
       .overrideProvider(MemoryAdmin)
       .useValue(new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) }))
       .overrideProvider(MemoryMcp)

@@ -3,7 +3,7 @@ import { ComputerView, MemoryComputers } from '../memory/memory-computers';
 import { MemoryAdmin } from '../memory/memory-ports';
 import { MemoryProjects } from '../memory/memory-projects';
 import { MemoryUsers } from '../memory/memory-users';
-import type { UserDirectory } from '../oauth/oauth-ports';
+import type { MemoryAdmins } from '../memory/team-roles';
 import type { WebPrincipal } from './web-api';
 
 export interface MemoryStatusView {
@@ -20,15 +20,9 @@ export class MemoryWeb {
     private readonly computers: MemoryComputers,
     private readonly users: MemoryUsers,
     private readonly admin: MemoryAdmin,
-    private readonly directory: UserDirectory,
     private readonly projects: MemoryProjects,
-    /** E-mails de administradores (`MEMORY_ADMIN_EMAILS`), já em minúsculas. */
-    private readonly adminEmails: ReadonlySet<string>,
+    private readonly admins: MemoryAdmins,
   ) {}
-
-  static parseAdminEmails(raw: string | undefined): Set<string> {
-    return new Set((raw ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
-  }
 
   lookup(p: WebPrincipal, ip: string | null, userCode: string) {
     return this.device.lookup(p.userId, ip, userCode);
@@ -48,10 +42,8 @@ export class MemoryWeb {
     };
   }
 
-  async isAdmin(userId: string): Promise<boolean> {
-    if (this.adminEmails.size === 0) return false;
-    const email = (await this.directory.findProfile(userId))?.email;
-    return Boolean(email && this.adminEmails.has(email.toLowerCase()));
+  isAdmin(userId: string): Promise<boolean> {
+    return this.admins.isAdmin(userId);
   }
 
   listProjects(p: WebPrincipal) {

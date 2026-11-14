@@ -18,6 +18,7 @@ model User {
   memoryUser       MemoryUser?
   ownedProjects    MemoryProject[]
   projectMembers   MemoryProjectMember[]
+  teamRoles        UserTeamRole[]
 
   @@map("users")
 }
