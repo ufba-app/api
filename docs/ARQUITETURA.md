@@ -56,6 +56,8 @@ Acoplamento aceito: alguns serviços de `application` usam o decorator `@Injecta
 
 Os adaptadores de `interface` são finos: validam a entrada e chamam casos de uso. Nenhuma lógica mora em controller nem em ferramenta.
 
+O contrato da API do web é Zod (`application/web/contract.ts`): o mesmo schema valida a entrada, dá os tipos e gera o `openapi.json` (`npm run openapi`). `test/openapi.spec.ts` falha se houver rota do Nest fora do contrato, e o CI falha se o arquivo não bater com o código.
+
 ### 2.2 Leitura ao vivo
 
 Cada consulta vai à fonte na hora, em nome da pessoa, e devolve o que veio. **Nada do conteúdo das fontes é copiado** hoje. A sincronização e a detecção de mudança por hash (`domain/sync`) foram removidas com a leitura ao vivo.

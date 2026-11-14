@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DataController } from './data.controller';
+import { OpenApiController } from './openapi.controller';
 import {
   AuthorizedAppsController,
   AuthorizeRequestsController,
@@ -21,6 +22,7 @@ import { DataGuard, OptionalSessionGuard, SessionGuard } from './web-auth';
     AuthorizedAppsController,
     ClientLogosController,
     DataController,
+    OpenApiController,
   ],
   providers: [SessionGuard, OptionalSessionGuard, DataGuard],
 })

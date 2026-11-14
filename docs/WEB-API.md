@@ -6,6 +6,11 @@ nenhuma tela: só JSON e redirecionamentos do OAuth.
 
 Nomes de código, rotas e chaves JSON em inglês; mensagens para a pessoa (`message`) em pt-BR.
 
+**Formatos: `openapi.json`.** Rotas, parâmetros, corpos, respostas e códigos de erro estão no
+[`openapi.json`](../openapi.json) (servido também em `GET {API}/openapi.json`), gerado dos schemas Zod de
+`src/application/web/contract.ts` com `npm run openapi`. O CI falha se o código mudar sem o arquivo. O web gera
+tipos e Zod a partir dele. Este documento fica com os **fluxos e as regras**.
+
 ## 1. Premissas
 
 - **Mesmo site.** Painel (`{WEB}` = `https://ufba.app`), auth (`{AUTH}` = `https://auth.ufba.app`) e API em `ufba.app`.
@@ -59,23 +64,7 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 
 ### Quem está logado
 
-```
-GET /me → 200
-{
-  "id": "uuid",
-  "email": "fulano@ufba.br",
-  "name": "string" | null,
-  "connections": {
-    "sigaa": { "status": "connected" | "disconnected" | "password_required", "login": "string" | null },
-    "moodle": { "status": "connected" | "disconnected" | "reconnect_required", "account": "string" | null },
-    "classroom": {
-      "available": true,
-      "apps": ["ufba", "guest"],
-      "accounts": [ { "email": "string", "status": "connected" | "reconnect_required" } ]
-    }
-  }
-}
-```
+`GET /me` → 200 `Me` (ver `openapi.json`).
 
 - `sigaa.password_required`: existe senha guardada, mas ela não abre com esta sessão (sessão nova depois de
   expirar) ou o SIGAA recusou a senha. A pessoa digita de novo.
@@ -178,23 +167,7 @@ DELETE /connections/classroom/{email}   → 204
    redireciona para o cliente: vai para `{AUTH}/authorize/error?error=<code>&message=<texto>`.
 2. O web pede os dados:
 
-```
-GET /authorize/requests/{id} → 200
-{
-  "id": "string",
-  "client": {
-    "domain": "claude.ai",
-    "redirectUri": "https://claude.ai/api/mcp/auth_callback",
-    "name": "Claude" | null,
-    "logoUrl": "https://api.ufba.app/client-logos/<sha256>" | null,
-    "verified": true,
-    "metadata": "present" | "absent"
-  },
-  "signedIn": true,
-  "sources": [ { "source": "sigaa" | "moodle" | "classroom", "status": "connected" | "disconnected" | "password_required" | "reconnect_required" } ] | null,
-  "expiresAt": "ISO-8601"
-}
-```
+`GET /authorize/requests/{id}` → 200 `RequestInfo`.
 
 - Funciona **sem sessão**: aí vem `signedIn: false` e `sources: null` (dá para mostrar "Claude quer acessar seus
   dados" antes do login). O web manda para `/sign-in?return=/authorize?request=<id>` e volta depois.
@@ -225,24 +198,7 @@ POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_
 
 ## 7. Apps autorizados
 
-```
-GET /authorized-apps → 200
-{
-  "apps": [
-    {
-      "clientId": "string",
-      "domain": "claude.ai",
-      "name": "Claude" | null,
-      "logoUrl": "string" | null,
-      "verified": true,
-      "authorizedAt": "ISO-8601",
-      "lastUsedAt": "ISO-8601" | null,
-      "sigaa": true
-    }
-  ]
-}
-DELETE /authorized-apps/{clientId} → 204
-```
+`GET /authorized-apps` → 200 `{ apps: AuthorizedApp[] }`; `DELETE /authorized-apps/{clientId}` → 204.
 
 - Lista os clientes com token válido da pessoa (o próprio web não entra).
 - Revogar apaga os tokens do cliente e a senha do SIGAA cifrada para ele. Efeito imediato.
@@ -262,23 +218,7 @@ GET /sources/{source}/announcements/{id}?account=    → { "announcement": Discu
 GET /sources/{source}/attachment?account=&ref=&name= → o arquivo (download)
 ```
 
-```ts
-type Course = { id: string; name: string; code?: string; url?: string };
-type Deadline = {
-  id: string; title: string; dueAt: string; courseId?: string; courseName?: string;
-  type?: string; description?: string; url?: string;
-};
-type ActivityType = 'assignment' | 'exam' | 'material' | 'forum' | 'announcement' | 'other';
-type Attachment = { name: string; mimeType?: string; sizeBytes?: number; ref: string };
-type Activity = {
-  id: string; type: ActivityType; title: string; section?: string; description?: string;
-  dueAt?: string; url?: string; attachments: Attachment[]; links?: string[];
-  openInBrowser?: { name: string; url: string }[]; forumId?: string;
-};
-type Discussion = {
-  id: string; title: string; message?: string; author?: string; publishedAt?: string; attachments: Attachment[];
-};
-```
+Os tipos (`Course`, `Deadline`, `Activity`, `Discussion`, `Attachment`) estão no `openapi.json`.
 
 - Datas em ISO-8601. Textos vêm como texto puro (renderizar como texto, nunca HTML).
 - Classroom: arquivos do Drive vêm em `openInBrowser` (a pessoa abre no Google); `attachment` só para anexos de

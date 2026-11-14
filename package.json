@@ -10,12 +10,14 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/src/main",
     "test": "jest",
+    "openapi": "nest build && node dist/src/openapi-cli.js",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",

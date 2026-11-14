@@ -18,7 +18,14 @@ import { Inject } from '@nestjs/common';
 import { AuthorizationRequests } from '../../application/web/authorization-requests.service';
 import { AuthorizedApps } from '../../application/web/authorized-apps.service';
 import { ConnectionsService } from '../../application/web/connections.service';
-import { sessionExpired, type WebPrincipal } from '../../application/web/web-api';
+import {
+  ClassroomStartQuery,
+  ConnectMoodleBody,
+  ConnectSigaaBody,
+  CreateSessionBody,
+  parseInput,
+} from '../../application/web/contract';
+import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { WebSessionService } from '../../application/web/web-session.service';
 import { ApiErrorFilter } from './api-error.filter';
 import {
@@ -32,12 +39,13 @@ import {
   webEnv,
 } from './web-auth';
 
-type Json = Record<string, unknown>;
-const body = (b: unknown): Json => (b && typeof b === 'object' ? (b as Json) : {});
 const must = (p: WebPrincipal | null): WebPrincipal => {
   if (!p) throw sessionExpired();
   return p;
 };
+
+const loginFailed = () =>
+  new ApiError(400, 'invalid_request', 'Não foi possível concluir o login. Tente entrar de novo.');
 
 /** Sessão do app web: trocar o code por cookie, sair, e quem está logado. */
 @Controller()
@@ -49,7 +57,8 @@ export class SessionController {
   async create(@Body() b: unknown, @Res() res: Response): Promise<void> {
     // Sem sessão ainda: o CSRF aqui é o mesmo (X-UFBA + Origin + JSON); o code+verifier de PKCE fazem o resto.
     checkCsrf(res.req);
-    const s = await this.web.createSession(body(b));
+    const input = parseInput(CreateSessionBody, b, loginFailed);
+    const s = await this.web.createSession(input);
     setSessionCookie(res, s.token, s.maxAgeMs);
     res.setHeader('Cache-Control', 'no-store');
     res.status(204).end();
@@ -92,7 +101,7 @@ export class ConnectionsController {
   @HttpCode(204)
   @UseGuards(SessionGuard)
   async sigaa(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
-    await this.web.connectSigaa(must(p), body(b));
+    await this.web.connectSigaa(must(p), parseInput(ConnectSigaaBody, b, invalidRequest));
   }
 
   @Delete('sigaa')
@@ -113,7 +122,7 @@ export class ConnectionsController {
   @HttpCode(204)
   @UseGuards(SessionGuard)
   async moodle(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
-    await this.web.connectMoodle(must(p), body(b));
+    await this.web.connectMoodle(must(p), parseInput(ConnectMoodleBody, b, invalidRequest));
   }
 
   @Delete('moodle')
@@ -126,8 +135,9 @@ export class ConnectionsController {
   /** Navegação de página inteira (não fetch): redireciona para o Google. */
   @Get('classroom/start')
   @UseGuards(SessionGuard)
-  async classroomStart(@Principal() p: WebPrincipal | null, @Query('app') app: string, @Res() res: Response) {
-    res.redirect(303, await this.web.classroomStart(must(p), app, webEnv().publicUrl));
+  async classroomStart(@Principal() p: WebPrincipal | null, @Query() q: unknown, @Res() res: Response) {
+    const { app } = parseInput(ClassroomStartQuery, q, invalidRequest);
+    res.redirect(303, await this.web.classroomStart(must(p), app ?? 'ufba', webEnv().publicUrl));
   }
 
   @Delete('classroom/:email')
