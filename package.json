@@ -1,5 +1,5 @@
 {
-  "name": "platform",
+  "name": "api",
   "version": "0.0.1",
   "description": "API REST e MCP que unificam SIGAA, Moodle, Classroom e Calendar",
   "license": "AGPL-3.0-only",
