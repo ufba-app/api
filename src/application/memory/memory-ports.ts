@@ -105,3 +105,38 @@ export abstract class MemoryUserRepository {
   ): Promise<boolean>;
   abstract markReady(userId: string): Promise<void>;
 }
+
+/** Ferramenta como o /mcp do ai-memory a descreve. */
+export interface RemoteTool {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+}
+
+/** Resultado de `tools/call`, repassado sem alterar. */
+export interface RemoteToolResult {
+  content: unknown[];
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+}
+
+/**
+ * Cliente do /mcp do ai-memory com a CHAVE DA PESSOA (nunca a root). Erros sem corpo: só `MemoryAdminError`
+ * (`unavailable` para queda/timeout/protocolo; `forbidden` para 401/403 da chave).
+ */
+export abstract class MemoryMcp {
+  abstract listTools(key: Secret): Promise<RemoteTool[]>;
+  abstract callTool(key: Secret, name: string, args: Record<string, unknown>): Promise<RemoteToolResult>;
+}
+
+/** Projetos que o proxy aceita (S12): só `workspace/projeto` registrado. Hoje o conjunto semeado; a etapa 7 usa o banco. */
+export abstract class MemoryProjectRegistry {
+  abstract isRegistered(workspace: string, project: string): Promise<boolean>;
+}
+
+/** Quem pode usar a memória pela ufba.app. A etapa 8 troca a implementação aberta pelos papéis do time. */
+export abstract class MemoryAccess {
+  abstract canUse(userId: string): Promise<boolean>;
+}

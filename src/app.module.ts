@@ -1,8 +1,11 @@
+import { USER_DIRECTORY, type UserDirectory } from './application/oauth/oauth-ports';
 import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
-import { MemoryAdmin, MemoryUserRepository } from './application/memory/memory-ports';
+import { SeededProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
+import { MemoryProxy } from './application/memory/memory-proxy';
+import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUserRepository } from './application/memory/memory-ports';
 import { MemoryUsers } from './application/memory/memory-users';
 import { LiveSources } from './application/ports/live-source';
 import { mcpExports, mcpProviders } from './mcp-wiring';
@@ -10,6 +13,7 @@ import { SecretCipher } from './application/ports/secret-cipher';
 import { SourceGateway, SourceRegistry } from './application/ports/source-gateway';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { MemoryAdminClient } from './infrastructure/memory/memory-admin.client';
+import { MemoryMcpClient } from './infrastructure/memory/memory-mcp.client';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { BearerGuard } from './interface/rest/auth.guard';
 import { DownloadController } from './interface/rest/download.controller';
@@ -95,9 +99,23 @@ export function buildLiveSources(
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
     {
       provide: MemoryUsers,
-      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, cipher: SecretCipher) =>
-        new MemoryUsers(admin, repo, cipher),
-      inject: [MemoryAdmin, MemoryUserRepository, SecretCipher],
+      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, cipher: SecretCipher, users: UserDirectory) =>
+        new MemoryUsers(admin, repo, cipher, async (id) => (await users.findProfile(id))?.name ?? null),
+      inject: [MemoryAdmin, MemoryUserRepository, SecretCipher, USER_DIRECTORY],
+    },
+    { provide: MemoryMcp, useFactory: () => MemoryMcpClient.fromEnv() },
+    { provide: MemoryProjectRegistry, useFactory: () => new SeededProjectRegistry() },
+    { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
+    {
+      provide: MemoryProxy,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        mcp: MemoryMcp,
+        registry: MemoryProjectRegistry,
+        access: MemoryAccess,
+      ) => new MemoryProxy(admin, users, mcp, registry, access),
+      inject: [MemoryAdmin, MemoryUsers, MemoryMcp, MemoryProjectRegistry, MemoryAccess],
     },
     {
       provide: SourceRegistry,
@@ -117,6 +135,7 @@ export function buildLiveSources(
     ConsultaService,
     MemoryAdmin,
     MemoryUsers,
+    MemoryProxy,
     DownloadLinks,
     LiveSources,
     ...mcpExports,

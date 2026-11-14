@@ -26,6 +26,8 @@ export class MemoryUsers {
     private readonly admin: MemoryAdmin,
     private readonly repo: MemoryUserRepository,
     private readonly cipher: SecretCipher,
+    /** Nome de exibição (Google) de quem será criado; só é consultado na criação. */
+    private readonly nameOf: (userId: string) => Promise<string | null> = async () => null,
   ) {}
 
   /** Garante usuário e chave de repasse. Idempotente; chamadas simultâneas da mesma pessoa viram uma só. */
@@ -51,6 +53,7 @@ export class MemoryUsers {
     let row = await this.repo.find(userId);
     if (row?.status === 'ready') return { username: row.memoryUsername };
     if (row?.status === 'disabled') throw new MemoryAdminError('forbidden');
+    displayName ??= await this.nameOf(userId);
     row ??= await this.repo.createIfAbsent({ userId, memoryUsername: memoryUsernameOf(userId) });
     if (row.status === 'ready') return { username: row.memoryUsername };
 

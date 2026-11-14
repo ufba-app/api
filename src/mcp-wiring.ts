@@ -43,7 +43,8 @@ import { SigaaLink } from './infrastructure/sources/sigaa/sigaa-link';
 import { MoodleLink } from './infrastructure/sources/moodle/moodle-link';
 import { AuthenticatorsMcpAuth } from './interface/mcp/mcp-auth';
 import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
-import { MCP_AUTH, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { MCP_AUTH, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { MemoryProxy } from './application/memory/memory-proxy';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
 
 /** Token do autenticador de access token OAuth (entra em AUTHENTICATORS junto da chave de API). */
@@ -164,6 +165,8 @@ export const mcpProviders: Provider[] = [
     ],
     inject: [IdentityService, OAUTH_ACCESS_AUTHENTICATOR],
   },
+  // Proxy de memória (memory_*): sem MEMORY_ROOT_TOKEN, `enabled()` é falso e o /mcp só tem as ferramentas da casa.
+  { provide: MCP_MEMORY, useExisting: MemoryProxy },
   {
     provide: MCP_AUTH,
     useFactory: (authenticators: Authenticator[]) => new AuthenticatorsMcpAuth(authenticators),
@@ -180,6 +183,7 @@ export const mcpExports = [
   CLIENT_DIRECTORY,
   MCP_USE_CASES,
   MCP_AUTH,
+  MCP_MEMORY,
   OAUTH_SERVICE,
   GOOGLE_LINK,
   MOODLE_LINK,

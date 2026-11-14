@@ -86,3 +86,35 @@ describe('canário: segredos da memória nunca aparecem em saída', () => {
     await fake.stop();
   });
 });
+
+describe('canário: o proxy do MCP não vaza chave de repasse nem token root', () => {
+  it('chamadas, bloqueios, queda do memory e inspeção do proxy', async () => {
+    const { SeededProjectRegistry, OpenMemoryAccess } = await import('../src/application/memory/memory-defaults');
+    const { MemoryProxy } = await import('../src/application/memory/memory-proxy');
+    const { MemoryMcpClient } = await import('../src/infrastructure/memory/memory-mcp.client');
+    const fake = new FakeAiMemory(ROOT);
+    const url = await fake.start();
+    const admin = new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) });
+    const users = new MemoryUsers(admin, new Repo(), new AesSecretCipher(Buffer.alloc(32, 9).toString('base64')));
+    const proxy = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), new SeededProjectRegistry(), new OpenMemoryAccess());
+    const uid = '01a1db61-e0d4-7261-ae1d-0b563922fde5';
+    const seen: unknown[] = [];
+
+    const output = await capture(async () => {
+      seen.push(await proxy.listTools(uid));
+      seen.push(await proxy.call(uid, 'memory_query', { workspace: 'ufba-app', project: 'api' }));
+      seen.push(await proxy.call(uid, 'memory_delete_page', {}));
+      seen.push(await proxy.call(uid, 'memory_status', {}));
+      await fake.stop();
+      seen.push(await proxy.call(uid, 'memory_query', { workspace: 'ufba-app', project: 'api' }));
+      seen.push(await proxy.call(uid, 'memory_status', {}));
+      seen.push(proxy, users);
+      console.log(inspect(seen, { depth: 10, showHidden: true }));
+      console.log(JSON.stringify(seen));
+    });
+
+    const secrets = [ROOT, FAKE_TEMP_PASSWORD, ...fake.credentials.map((c) => c.token)];
+    expect(fake.credentials.length).toBeGreaterThan(0);
+    for (const s of secrets) expect(output).not.toContain(s);
+  });
+});
