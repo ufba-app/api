@@ -1,7 +1,7 @@
 import type { RemoteTool } from './memory-ports';
 
 export const COMPUTERS_URL = 'https://ufba.app/memory/computers';
-export const INSTALL_PAGE_URL = 'https://ufba.app/instalar';
+export const INSTALLER_REPO_URL = 'https://github.com/ufba-app/memory';
 
 export const CONNECT_COMMANDS = {
   windows: 'irm https://ufba.app/install.ps1 | iex',
@@ -61,7 +61,7 @@ export function connectComputerGuide(os?: unknown): string {
     '  Nada é capturado de um repositório sem o arquivo `.ai-memory.toml`.',
     '',
     'Se este cliente não tem terminal, mostre o comando à pessoa para ela colar no terminal dela.',
-    `Prefere conferir o script antes de rodar? Baixe, leia e confira o hash em ${INSTALL_PAGE_URL}.`,
+    `Prefere ler o script antes de rodar? O código do instalador está em ${INSTALLER_REPO_URL} (o hash de cada versão fica no manifesto do release).`,
     `Para ver ou desconectar computadores: ${COMPUTERS_URL}`,
   ].join('\n');
 }
