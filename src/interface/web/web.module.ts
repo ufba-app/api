@@ -10,7 +10,7 @@ import {
 import { DataGuard, OptionalSessionGuard, SessionGuard } from './web-auth';
 
 /**
- * API do app web (docs/WEB-API.md). As dependências (WebService, OAUTH_SERVICE, CLIENT_DIRECTORY, ConsultaService,
+ * API do app web (docs/WEB-API.md). As dependências (casos de uso de application/web, OAUTH_SERVICE, CLIENT_DIRECTORY, ConsultaService,
  * AUTHENTICATORS) vêm do módulo global da raiz de composição.
  */
 @Module({

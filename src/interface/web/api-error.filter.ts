@@ -7,13 +7,16 @@ import {
 } from '../../application/live/consulta.service';
 import { LinkError } from '../../application/oauth/oauth-ports';
 import { SourceError } from '../../application/ports/source-gateway';
-import { ApiError } from '../../application/web/web.service';
+import { ApiError } from '../../application/web/web-api';
 
 const LINK_STATUS: Record<LinkError['code'], number> = {
   invalid_request: 400,
   invalid_credentials: 422,
   too_many_attempts: 429,
   source_unavailable: 502,
+  source_account_taken: 409,
+  source_account_mismatch: 409,
+  source_account_not_owned: 403,
 };
 
 /** Traduz qualquer erro para `{ error, message }`. Mensagens internas (500) nunca vão para fora. */

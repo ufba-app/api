@@ -3,12 +3,16 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
 import { inspect } from 'node:util';
+import { Secret } from '../src/application/shared/secret';
+import { UpsertSourceAccountInput } from '../src/application/ports/repositories';
 import { ClientDirectory } from '../src/application/oauth/client-directory';
 import {
   GOOGLE_LINK,
   LinkError,
   OAUTH_STORE,
   SIGAA_LINK,
+  MOODLE_LINK,
+  type VerifiedMoodleAccount,
   USER_DIRECTORY,
   type GoogleLinkPort,
   type SigaaLinkPort,
@@ -18,13 +22,15 @@ import {
   ApiKeyRepository,
   SigaaCredentialRepository,
   SourceAccountRecord,
+  SourceBindingRepository,
   SourceAccountRepository,
   UserRepository,
   type EncryptedSecret,
   type SigaaCredentialRecord,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
-import { WEB_CLIENT_ID, WebService } from '../src/application/web/web.service';
+import { WEB_CLIENT_ID } from '../src/application/web/web-api';
+import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
@@ -55,6 +61,39 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const creds = new Map<string, SigaaCredentialRecord>();
   const accounts: SourceAccountRecord[] = [];
   const sigaaValidations: string[] = [];
+  // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
+  const users = new (class extends MemoryUserDirectory {
+    override async deleteAccount(userId: string): Promise<void> {
+      await super.deleteAccount(userId);
+      for (let i = bindingRows.length - 1; i >= 0; i--) if (bindingRows[i].userId === userId) bindingRows.splice(i, 1);
+      for (let i = accounts.length - 1; i >= 0; i--) if (accounts[i].userId === userId) accounts.splice(i, 1);
+      for (const [k, c] of creds) if (c.userId === userId) creds.delete(k);
+    }
+  })();
+  // O que o "AVA" diz do token capturado (cada teste ajusta).
+  let moodleAccount: Omit<VerifiedMoodleAccount, 'token'> = {
+    siteUrl: 'https://ava.ufba.br',
+    host: 'ava.ufba.br',
+    moodleUserId: 1,
+    username: 'fulano',
+    auth: 'shibboleth',
+  };
+  const moodle = {
+    scheme: () => 'web+ufba',
+    launchUrl: async () => 'https://ava.ufba.br/admin/tool/mobile/launch.php',
+    verify: async (): Promise<VerifiedMoodleAccount> => ({ ...moodleAccount, token: Secret.of('wstoken-de-teste') }),
+  };
+  // Vínculos em memória, com a mesma unicidade dos dois lados que o banco impõe.
+  const bindingRows: { userId: string; source: string; hash: string }[] = [];
+  const bindings = {
+    findMine: async (u: string, s: string) => bindingRows.find((r) => r.userId === u && r.source === s)?.hash ?? null,
+    findOwner: async (s: string, h: string) => bindingRows.find((r) => r.source === s && r.hash === h)?.userId ?? null,
+    create: async (u: string, s: string, h: string) => {
+      if (bindingRows.some((r) => (r.userId === u && r.source === s) || (r.source === s && r.hash === h))) return false;
+      bindingRows.push({ userId: u, source: s, hash: h });
+      return true;
+    },
+  };
 
   const google: GoogleLinkPort = {
     loginEnabled: () => true,
@@ -114,17 +153,21 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .overrideProvider(OAUTH_STORE)
       .useValue(store)
       .overrideProvider(USER_DIRECTORY)
-      .useValue(new MemoryUserDirectory())
+      .useValue(users)
       .overrideProvider(CLIENT_DIRECTORY)
       .useValue(clients)
       .overrideProvider(GOOGLE_LINK)
       .useValue(google)
       .overrideProvider(SIGAA_LINK)
       .useValue(sigaa)
+      .overrideProvider(MOODLE_LINK)
+      .useValue(moodle)
       .overrideProvider(UserRepository)
       .useValue({})
       .overrideProvider(ApiKeyRepository)
       .useValue({ findActiveByHash: async () => null })
+      .overrideProvider(SourceBindingRepository)
+      .useValue(bindings)
       .overrideProvider(SigaaCredentialRepository)
       .useValue({
         upsert: async (i: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) => {
@@ -138,6 +181,22 @@ describe('API do app web (docs/WEB-API.md)', () => {
       })
       .overrideProvider(SourceAccountRepository)
       .useValue({
+        upsert: async (i: UpsertSourceAccountInput) => {
+          const rec: SourceAccountRecord = {
+            id: `${i.userId}:${i.provider}:${i.accountKey}`,
+            userId: i.userId,
+            provider: i.provider,
+            accountKey: i.accountKey,
+            siteUrl: i.siteUrl ?? null,
+            status: 'OK',
+            lastSyncedAt: null,
+            secret: i.secret ?? null,
+          };
+          const at = accounts.findIndex((a) => a.id === rec.id);
+          if (at >= 0) accounts[at] = rec;
+          else accounts.push(rec);
+          return rec;
+        },
         findByUserAndProvider: async (u: string, p: string) => accounts.filter((a) => a.userId === u && a.provider === p),
         listByUser: async (u: string) => accounts.filter((a) => a.userId === u),
         setStatus: async () => undefined,
@@ -153,7 +212,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     base = (await app.getUrl()).replace('[::1]', 'localhost');
     oauth = mod.get(OAUTH_SERVICE);
     cofre = mod.get(CofreSigaa);
-    await mod.get(WebService).ensureWebClient();
+    await mod.get(WebSessionService).ensureWebClient();
   });
 
   afterAll(async () => {
@@ -490,6 +549,86 @@ describe('API do app web (docs/WEB-API.md)', () => {
       });
       const list = (await (await get('/authorized-apps', cookie)).json()) as any;
       expect(list.apps[0]).toMatchObject({ verified: false, name: null, domain: 'claude.ai, evil.example' });
+    });
+  });
+
+  describe('vínculo fixo conta ↔ titular na fonte', () => {
+    const CPF_A = '123.456.789-09';
+    const CPF_B = '987.654.321-00';
+    const sigaaPost = (cookie: string, login: string) =>
+      send('POST', '/connections/sigaa', { cookie, body: { login, password: SENHA } });
+
+    it('SIGAA: liga no 1º CPF; o mesmo CPF (com ou sem máscara) reconecta; outro CPF é recusado antes de falar com o SIGAA', async () => {
+      const cookie = await signIn('vinc1');
+      expect((await sigaaPost(cookie, CPF_A)).status).toBe(204);
+      expect((await sigaaPost(cookie, '12345678909')).status).toBe(204);
+
+      const antes = sigaaValidations.length;
+      const r = await sigaaPost(cookie, CPF_B);
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_account_mismatch');
+      expect(sigaaValidations.length).toBe(antes); // nem tocou o SIGAA
+
+      // Desconectar apaga a senha, mas o vínculo fica.
+      expect((await send('DELETE', '/connections/sigaa', { cookie })).status).toBe(204);
+      expect((await sigaaPost(cookie, CPF_B)).status).toBe(409);
+      expect((await sigaaPost(cookie, CPF_A)).status).toBe(204);
+    });
+
+    it('SIGAA: CPF de outra conta é recusado só depois da senha certa (senha errada não revela nada)', async () => {
+      await sigaaPost(await signIn('dono-cpf'), '111.222.333-44');
+      const intruso = await signIn('intruso');
+      const errada = await send('POST', '/connections/sigaa', { cookie: intruso, body: { login: '11122233344', password: 'x' } });
+      expect(errada.status).toBe(422);
+      const r = await sigaaPost(intruso, '11122233344');
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_account_taken');
+      expect(((await (await get('/me', intruso)).json()) as any).connections.sigaa.status).toBe('disconnected');
+    });
+
+    it('Moodle: só a conta institucional (Shibboleth) com o mesmo usuário do e-mail de login', async () => {
+      const cookie = await signIn('aluna');
+      const post = () => send('POST', '/connections/moodle', { cookie, body: { link: 'web+ufba://token=x' } });
+
+      moodleAccount = { ...moodleAccount, moodleUserId: 50, username: 'outra.pessoa', auth: 'shibboleth' };
+      let r = await post();
+      expect(r.status).toBe(403);
+      expect(((await r.json()) as any).error).toBe('source_account_not_owned');
+
+      moodleAccount = { ...moodleAccount, username: 'aluna', auth: 'manual' };
+      expect((await post()).status).toBe(403);
+
+      moodleAccount = { ...moodleAccount, auth: 'shibboleth' };
+      expect((await post()).status).toBe(204);
+      const me = (await (await get('/me', cookie)).json()) as any;
+      expect(me.connections.moodle).toEqual({ status: 'connected', account: 'ava.ufba.br:aluna' });
+
+      // Mesmo usuário com outro id no AVA (conta recriada): esta conta do ufba.app já está ligada ao id anterior.
+      moodleAccount = { ...moodleAccount, moodleUserId: 51 };
+      r = await post();
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_account_mismatch');
+    });
+
+    it('excluir a conta apaga tudo e libera os vínculos: ao entrar de novo, pode ligar outro CPF', async () => {
+      let cookie = await signIn('recomeco');
+      expect((await sigaaPost(cookie, CPF_A.replace('123', '555'))).status).toBe(204);
+      expect((await sigaaPost(cookie, CPF_B)).status).toBe(409);
+
+      const del = await send('DELETE', '/me', { cookie });
+      expect(del.status).toBe(204);
+      expect(del.headers.get('set-cookie')).toMatch(/Max-Age=0/);
+      expect((await get('/me', cookie)).status).toBe(401);
+
+      cookie = await signIn('recomeco');
+      expect((await sigaaPost(cookie, CPF_B)).status).toBe(204);
+    });
+
+    it('excluir a conta exige sessão e CSRF', async () => {
+      const cookie = await signIn('cuidado');
+      expect((await send('DELETE', '/me', { cookie, csrf: false })).status).toBe(403);
+      expect((await send('DELETE', '/me')).status).toBe(401);
+      expect((await get('/me', cookie)).status).toBe(200);
     });
   });
 

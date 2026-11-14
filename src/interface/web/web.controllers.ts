@@ -15,7 +15,11 @@ import type { Response } from 'express';
 import type { ClientDirectory } from '../../application/oauth/client-directory';
 import { CLIENT_DIRECTORY } from './web-tokens';
 import { Inject } from '@nestjs/common';
-import { WebService, sessionExpired, type WebPrincipal } from '../../application/web/web.service';
+import { AuthorizationRequests } from '../../application/web/authorization-requests.service';
+import { AuthorizedApps } from '../../application/web/authorized-apps.service';
+import { ConnectionsService } from '../../application/web/connections.service';
+import { sessionExpired, type WebPrincipal } from '../../application/web/web-api';
+import { WebSessionService } from '../../application/web/web-session.service';
 import { ApiErrorFilter } from './api-error.filter';
 import {
   OptionalSessionGuard,
@@ -39,7 +43,7 @@ const must = (p: WebPrincipal | null): WebPrincipal => {
 @Controller()
 @UseFilters(ApiErrorFilter)
 export class SessionController {
-  constructor(private readonly web: WebService) {}
+  constructor(private readonly web: WebSessionService) {}
 
   @Post('session')
   async create(@Body() b: unknown, @Res() res: Response): Promise<void> {
@@ -68,12 +72,21 @@ export class SessionController {
   me(@Principal() p: WebPrincipal | null) {
     return this.web.me(must(p));
   }
+
+  /** Excluir a conta (e tudo dela, inclusive os vínculos com SIGAA e AVA). A tela confirma antes de chamar. */
+  @Delete('me')
+  @UseGuards(SessionGuard)
+  async removeAccount(@Principal() p: WebPrincipal | null, @Res() res: Response): Promise<void> {
+    await this.web.deleteAccount(must(p));
+    clearSessionCookie(res);
+    res.status(204).end();
+  }
 }
 
 @Controller('connections')
 @UseFilters(ApiErrorFilter)
 export class ConnectionsController {
-  constructor(private readonly web: WebService) {}
+  constructor(private readonly web: ConnectionsService) {}
 
   @Post('sigaa')
   @HttpCode(204)
@@ -128,12 +141,12 @@ export class ConnectionsController {
 @Controller('authorize/requests')
 @UseFilters(ApiErrorFilter)
 export class AuthorizeRequestsController {
-  constructor(private readonly web: WebService) {}
+  constructor(private readonly web: AuthorizationRequests) {}
 
   @Get(':id')
   @UseGuards(OptionalSessionGuard)
   info(@Param('id') id: string, @Principal() p: WebPrincipal | null) {
-    return this.web.requestInfo(id, p);
+    return this.web.info(id, p);
   }
 
   @Post(':id/approve')
@@ -154,19 +167,19 @@ export class AuthorizeRequestsController {
 @Controller('authorized-apps')
 @UseFilters(ApiErrorFilter)
 export class AuthorizedAppsController {
-  constructor(private readonly web: WebService) {}
+  constructor(private readonly web: AuthorizedApps) {}
 
   @Get()
   @UseGuards(SessionGuard)
   list(@Principal() p: WebPrincipal | null) {
-    return this.web.authorizedApps(must(p));
+    return this.web.list(must(p));
   }
 
   @Delete(':clientId')
   @HttpCode(204)
   @UseGuards(SessionGuard)
   async revoke(@Principal() p: WebPrincipal | null, @Param('clientId') clientId: string): Promise<void> {
-    await this.web.revokeApp(must(p), clientId);
+    await this.web.revoke(must(p), clientId);
   }
 }
 

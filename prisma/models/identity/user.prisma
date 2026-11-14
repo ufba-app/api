@@ -14,6 +14,7 @@ model User {
   oauthCodes     OAuthCode[]
   oauthTokens    OAuthToken[]
   sigaaCredentials SigaaCredential[]
+  sourceBindings   SourceBinding[]
 
   @@map("users")
 }

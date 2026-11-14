@@ -9,7 +9,7 @@ import {
 import type { Request, Response } from 'express';
 import { AUTHENTICATORS, type Authenticator } from '../../application/ports/authenticator';
 import type { OAuthService } from '../../application/oauth/oauth.service';
-import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web.service';
+import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { OAUTH_SERVICE } from '../mcp/oauth/oauth-tokens';
 
 /**

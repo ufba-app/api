@@ -1,3 +1,4 @@
+import type { BoundSource, SourceSubject } from '../../domain/identity/source-binding';
 import type { Provider } from './source-gateway';
 
 /** Segredo cifrado (AES-256-GCM). Nunca existe para SIGAA. */
@@ -98,4 +99,20 @@ export abstract class SigaaCredentialRepository {
   abstract find(userId: string, clientId: string): Promise<SigaaCredentialRecord | null>;
   abstract setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void>;
   abstract delete(userId: string, clientId: string): Promise<void>;
+}
+
+// ── Vínculo fixo conta ↔ titular na fonte (domain/identity/source-binding) ───
+
+export abstract class SourceBindingRepository {
+  /** Hash do titular a que esta conta está ligada nesta fonte. */
+  abstract findMine(userId: string, source: BoundSource): Promise<string | null>;
+  /** Conta do ufba.app dona deste titular. */
+  abstract findOwner(source: BoundSource, subjectHash: string): Promise<string | null>;
+  /** Cria o vínculo. `false` se outro vínculo chegou antes (unicidade nos dois sentidos). */
+  abstract create(userId: string, source: BoundSource, subjectHash: string): Promise<boolean>;
+}
+
+/** Transforma o titular (CPF, usuário do AVA) num hash estável e não reversível sem a chave do servidor. */
+export abstract class SubjectHasher {
+  abstract hash(subject: SourceSubject): string;
 }
