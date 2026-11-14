@@ -86,7 +86,7 @@ Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`
 - **TLS do AVA:** o `ava.ufba.br` não envia o certificado intermediário; ele fica em `certs/` e é carregado por `infrastructure/tls/extra-ca.ts`.
 - **`urlscheme` do AVA:** só letras, números, `.`, `+`, `-`, sem callback https; por isso `web+ufba` (o web captura `web+ufba://token=…`).
 - **Notas no AVA:** 504 em `gradereport_user_get_grade_items` em alguns cursos; o gateway trata como curso parcial.
-- **Sessão do SIGAA:** sem SSO nem API; login por formulário (`logar.do`); a sessão é o cookie `JSESSIONID`, presa a um nó, expira com ~25 a 30 min parada.
+- **Sessão do SIGAA:** sem SSO nem API; login por formulário (`logar.do`); a sessão é o cookie `JSESSIONID`, presa a um nó, expira com 25 min parada (medido). Expirada, o SIGAA responde `302` para `/sigaa/expirada.jsp`, sem corpo (o alerta é só da página que o navegador carrega). Guardamos o cookie por pessoa (`sigaa_sessions`, cifrado), com 20 min de ociosidade e uma trava por pessoa; a senha só é aberta (com a K do cliente que consulta) para logar.
 - **Classroom:** a volta do Google usa `PUBLIC_URL`; no Google Cloud os redirects são `https://api.ufba.app/oauth/callback/google` (app interno) e `/oauth/callback/classroom` (convidado).
 - **Logs do Prisma no Railway** aparecem com severidade "error" (é só stderr).
 - **Prazos do SIGAA** (`/sources/sigaa/deadlines`) nunca foram validados contra o SIGAA real.

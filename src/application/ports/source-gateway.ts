@@ -30,6 +30,11 @@ export type SyncScope =
  */
 export type SourceCredentials =
   | { kind: 'password'; username: string; password: Secret }
+  /**
+   * SIGAA nas consultas ao vivo: a senha NÃO vem pronta. `open` a abre (com a K do cliente que consulta) e só é chamada
+   * quando é preciso logar (sessão ausente, parada ou expirada). Com a sessão viva, a senha nunca é aberta.
+   */
+  | { kind: 'password-on-demand'; username: string; open: () => Promise<Secret> }
   | { kind: 'token'; token: Secret };
 
 export interface SourceContext {
@@ -38,8 +43,6 @@ export interface SourceContext {
   accountKey: string;
   siteUrl?: string;
   credentials: SourceCredentials;
-  /** Chave da sessão na fonte (SIGAA: `userId:clientId:login`), para reaproveitar o login entre consultas. */
-  sessaoKey?: string;
 }
 
 export interface FetchedCourseSpace {

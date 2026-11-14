@@ -96,9 +96,9 @@ export class CofreSigaa {
   async situacao(quem: {
     userId: string;
     clientId: string;
-  }): Promise<{ login: string; status: 'OK' | 'REAUTH_NEEDED' } | null> {
+  }): Promise<{ login: string; status: 'OK' | 'REAUTH_NEEDED'; credencialId: string } | null> {
     const rec = await this.repo.find(quem.userId, quem.clientId);
-    return rec ? { login: rec.login, status: rec.status } : null;
+    return rec ? { login: rec.login, status: rec.status, credencialId: rec.id } : null;
   }
 
   /** Grava direto com uma K que o chamador já tem (a da sessão do app web). Nunca loga senha nem K. */

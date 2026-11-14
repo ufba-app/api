@@ -124,8 +124,8 @@ describe('CofreSigaa', () => {
     const { cofre } = montar();
     await expect(cofre.situacao(quem)).resolves.toBeNull();
     await guardar(cofre);
-    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'OK' });
+    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'OK', credencialId: 'cred1' });
     await cofre.marcarInvalida('cred1');
-    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'REAUTH_NEEDED' });
+    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'REAUTH_NEEDED', credencialId: 'cred1' });
   });
 });

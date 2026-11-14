@@ -1,5 +1,5 @@
 import type { SigaaHttpClient, SigaaHttpResponse } from './http-client';
-import type { Secret } from '../../../application/shared/secret';
+import { Secret } from '../../../application/shared/secret';
 
 /** Usuário e senha chegam por requisição; ficam só na variável local de `login` e nunca são guardados. */
 export interface SigaaCredentials {
@@ -129,6 +129,17 @@ export class SigaaSession {
   private viewState: string | undefined;
 
   constructor(private readonly http: SigaaHttpClient) {}
+
+  /** Retoma uma sessão guardada (só o cookie; o ViewState nunca é guardado, cada consulta recomeça pelo portal). */
+  resume(cookie: Secret): void {
+    this.jsessionId = cookie.reveal();
+    this.viewState = undefined;
+  }
+
+  /** Cookie atual da sessão, para guardar cifrado. `undefined` antes do login. */
+  exportCookie(): Secret | undefined {
+    return this.jsessionId ? Secret.of(this.jsessionId) : undefined;
+  }
 
   async login(credentials: SigaaCredentials): Promise<void> {
     // A sessão precisa nascer na raiz (302 para /sigaa/public/home.jsf, semeia o JSESSIONID):

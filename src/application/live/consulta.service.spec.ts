@@ -121,9 +121,16 @@ const cifra = (k: Buffer) => ({
   },
 });
 
-function buildSigaa(opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError } = {}) {
+function buildSigaa(
+  opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError; sessaoViva?: boolean } = {},
+) {
   const chamadas: SourceContext[] = [];
+  const aberturas: string[] = [];
+  // Como o corretor de sessão real: só abre a senha (com a K do cliente) quando precisa logar.
   const registrar = async (ctx: SourceContext) => {
+    if (!opts.sessaoViva && ctx.credentials.kind === 'password-on-demand') {
+      aberturas.push((await ctx.credentials.open()).reveal());
+    }
     chamadas.push(ctx);
     if (opts.falha) throw opts.falha;
   };
@@ -161,7 +168,7 @@ function buildSigaa(opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEE
   const cofre = new CofreSigaa(repo, cifra);
   const accounts = { findByUserAndProvider: async () => [], listByUser: async () => [], setStatus: jest.fn() } as never;
   const cipher = { decrypt: () => 'nunca' } as never;
-  return { svc: new ConsultaService(live, accounts, cipher, cofre), chamadas, setStatus };
+  return { svc: new ConsultaService(live, accounts, cipher, cofre), chamadas, aberturas, setStatus };
 }
 
 const COM_CHAVE: Quem = { userId: 'u1', cliente: { clientId: 'c1', chave: K } };
@@ -198,17 +205,24 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
     expect(chamadas).toEqual([]);
   });
 
-  it('com chave: a fonte recebe credentials kind password', async () => {
-    const { svc, chamadas } = buildSigaa();
+  it('com chave: a fonte recebe a senha sob demanda (kind password-on-demand), que abre com a K do cliente', async () => {
+    const { svc, chamadas, aberturas } = buildSigaa();
     await expect(svc.listarCursos(COM_CHAVE, 'SIGAA')).resolves.toEqual([{ id: 't1', nome: 'Cálculo' }]);
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0]).toEqual({
       userId: 'u1',
       accountKey: 'sigaa:aluno',
-      sessaoKey: 'u1:c1:aluno',
-      credentials: { kind: 'password', username: 'aluno', password: expect.any(Secret) },
+      credentials: { kind: 'password-on-demand', username: 'aluno', open: expect.any(Function) },
     });
-    expect((chamadas[0].credentials as { password: Secret }).password.reveal()).toBe(SENHA);
+    expect(aberturas).toEqual([SENHA]);
+  });
+
+  it('com sessão viva a senha nunca é aberta (K só é usada quando precisa logar)', async () => {
+    const { svc, chamadas, aberturas } = buildSigaa({ sessaoViva: true });
+    await expect(svc.listarCursos(COM_CHAVE, 'SIGAA')).resolves.toEqual([{ id: 't1', nome: 'Cálculo' }]);
+    await expect(svc.prazos(COM_CHAVE, 'SIGAA')).resolves.toEqual([]);
+    expect(chamadas).toHaveLength(2);
+    expect(aberturas).toEqual([]);
   });
 
   it('chave errada: não conectado, sem vazar nada e sem chamar a fonte', async () => {

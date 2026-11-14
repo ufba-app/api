@@ -13,11 +13,13 @@ import {
   SourceAccountRepository,
   UserRepository,
 } from '../src/application/ports/repositories';
+import { Secret } from '../src/application/shared/secret';
 import { SecretCipher } from '../src/application/ports/secret-cipher';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { MoodleLive } from '../src/infrastructure/sources/moodle/moodle-live';
+import { MemorySigaaSessionStore } from '../src/infrastructure/sources/sigaa/memory-session-store';
 import { SessoesSigaa } from '../src/infrastructure/sources/sigaa/sessoes-sigaa';
 import type { SigaaSession } from '../src/infrastructure/sources/sigaa/session';
 import { SigaaLive } from '../src/infrastructure/sources/sigaa/sigaa-live';
@@ -39,6 +41,8 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
   const sigaaCalls: string[] = [];
   const fakeSigaa = {
     login: async () => void sigaaCalls.push('login'),
+    resume: () => undefined,
+    exportCookie: () => Secret.of('JSESSIONID=fake'),
     get: async (path: string) => (sigaaCalls.push(`GET ${path}`), ''),
     postback: async (path: string) => (sigaaCalls.push(`POST ${path}`), ''),
   } as unknown as SigaaSession;
@@ -118,7 +122,15 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
 
     const live = new LiveSources();
     live.register(new MoodleLive(fakeMoodle));
-    live.register(new SigaaLive(new SessoesSigaa(() => fakeSigaa)));
+    live.register(
+      new SigaaLive(
+        new SessoesSigaa(
+          () => fakeSigaa,
+          new MemorySigaaSessionStore(),
+          { encrypt: (s: string) => ({ ciphertext: s, iv: 'i', authTag: 't' }), decrypt: (e: { ciphertext: string }) => e.ciphertext } as never,
+        ),
+      ),
+    );
 
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
