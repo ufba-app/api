@@ -50,7 +50,7 @@ const view = (c: {
 });
 
 /** Memória no app web (cookie de sessão + CSRF). Contrato em `contract.ts`. */
-@Controller('web')
+@Controller()
 @UseFilters(ApiErrorFilter)
 @UseGuards(SessionGuard)
 export class MemoryWebController {
@@ -150,7 +150,7 @@ export class MemoryWebController {
 }
 
 /** Administração (só admin: o 403 `not_admin` vem do serviço). */
-@Controller('web/admin')
+@Controller('admin')
 @UseFilters(ApiErrorFilter)
 @UseGuards(SessionGuard)
 export class MemoryAdminController {

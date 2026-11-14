@@ -193,7 +193,7 @@ export const ROUTES: Route[] = [
   {
     id: "lookupDevice",
     method: "post",
-    path: "/web/device/lookup",
+    path: "/device/lookup",
     tag: "memory",
     auth: "session",
     summary: "Mostra quem pediu a conexão de um computador (código do terminal)",
@@ -203,7 +203,7 @@ export const ROUTES: Route[] = [
   {
     id: "decideDevice",
     method: "post",
-    path: "/web/device/decision",
+    path: "/device/decision",
     tag: "memory",
     auth: "session",
     summary: "Aprova ou nega a conexão de um computador",
@@ -213,7 +213,7 @@ export const ROUTES: Route[] = [
   {
     id: "getMemoryStatus",
     method: "get",
-    path: "/web/memory/status",
+    path: "/memory/status",
     tag: "memory",
     auth: "session",
     summary: "Estado da memória compartilhada da pessoa",
@@ -222,7 +222,7 @@ export const ROUTES: Route[] = [
   {
     id: "listMemoryComputers",
     method: "get",
-    path: "/web/memory/computers",
+    path: "/memory/computers",
     tag: "memory",
     auth: "session",
     summary: "Computadores conectados",
@@ -231,7 +231,7 @@ export const ROUTES: Route[] = [
   {
     id: "renameMemoryComputer",
     method: "patch",
-    path: "/web/memory/computers/{id}",
+    path: "/memory/computers/{id}",
     tag: "memory",
     auth: "session",
     summary: "Renomear um computador",
@@ -242,7 +242,7 @@ export const ROUTES: Route[] = [
   {
     id: "revokeMemoryComputer",
     method: "delete",
-    path: "/web/memory/computers/{id}",
+    path: "/memory/computers/{id}",
     tag: "memory",
     auth: "session",
     summary: "Desconectar um computador (revoga a chave dele)",
@@ -253,7 +253,7 @@ export const ROUTES: Route[] = [
   {
     id: "listMemoryProjects",
     method: "get",
-    path: "/web/memory/projects",
+    path: "/memory/projects",
     tag: "memory",
     auth: "session",
     summary: "Projetos de que a pessoa participa (dona, convidada ou do time)",
@@ -262,7 +262,7 @@ export const ROUTES: Route[] = [
   {
     id: "createMemoryProject",
     method: "post",
-    path: "/web/memory/projects",
+    path: "/memory/projects",
     tag: "memory",
     auth: "session",
     summary: "Cria um projeto (a pessoa vira dona)",
@@ -272,7 +272,7 @@ export const ROUTES: Route[] = [
   {
     id: "getMemoryProject",
     method: "get",
-    path: "/web/memory/projects/{id}",
+    path: "/memory/projects/{id}",
     tag: "memory",
     auth: "session",
     summary: "Detalhe do projeto, com membros (só para o dono) e o trecho do marcador",
@@ -282,7 +282,7 @@ export const ROUTES: Route[] = [
   {
     id: "setMemoryProjectMember",
     method: "put",
-    path: "/web/memory/projects/{id}/members/{email}",
+    path: "/memory/projects/{id}/members/{email}",
     tag: "memory",
     auth: "session",
     summary: "Convida ou muda o nível de um e-mail @ufba.br (só o dono)",
@@ -293,7 +293,7 @@ export const ROUTES: Route[] = [
   {
     id: "removeMemoryProjectMember",
     method: "delete",
-    path: "/web/memory/projects/{id}/members/{email}",
+    path: "/memory/projects/{id}/members/{email}",
     tag: "memory",
     auth: "session",
     summary: "Remove um membro (dono) ou sai do projeto (o próprio e-mail)",
@@ -303,7 +303,7 @@ export const ROUTES: Route[] = [
   {
     id: "transferMemoryProject",
     method: "post",
-    path: "/web/memory/projects/{id}/transfer",
+    path: "/memory/projects/{id}/transfer",
     tag: "memory",
     auth: "session",
     summary: "Passa a posse a um membro com escrita",
@@ -314,7 +314,7 @@ export const ROUTES: Route[] = [
   {
     id: "deleteMemoryProject",
     method: "delete",
-    path: "/web/memory/projects/{id}",
+    path: "/memory/projects/{id}",
     tag: "memory",
     auth: "session",
     summary: "Apaga o projeto e o conteúdo dele no memory (só o dono)",
@@ -325,7 +325,7 @@ export const ROUTES: Route[] = [
   {
     id: "getAdminTeam",
     method: "get",
-    path: "/web/admin/team",
+    path: "/admin/team",
     tag: "memory",
     auth: "session",
     summary: "Papéis do time (somente leitura) e pessoas com papel",
@@ -334,7 +334,7 @@ export const ROUTES: Route[] = [
   {
     id: "assignTeamRole",
     method: "put",
-    path: "/web/admin/team/members/{userId}/roles/{roleKey}",
+    path: "/admin/team/members/{userId}/roles/{roleKey}",
     tag: "memory",
     auth: "session",
     summary: "Atribui um papel (concede os acessos do papel)",
@@ -346,7 +346,7 @@ export const ROUTES: Route[] = [
   {
     id: "unassignTeamRole",
     method: "delete",
-    path: "/web/admin/team/members/{userId}/roles/{roleKey}",
+    path: "/admin/team/members/{userId}/roles/{roleKey}",
     tag: "memory",
     auth: "session",
     summary: "Retira um papel (revoga o que ficar sem sustentação)",
@@ -356,7 +356,7 @@ export const ROUTES: Route[] = [
   {
     id: "getAdminMemorySync",
     method: "get",
-    path: "/web/admin/memory/sync",
+    path: "/admin/memory/sync",
     tag: "memory",
     auth: "session",
     summary: "Fila de reconciliação com falhas e projetos desconhecidos no memory",

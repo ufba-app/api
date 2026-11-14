@@ -163,7 +163,7 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
 
   async function approvedToken(who = cookie): Promise<string> {
     const d = await startDevice();
-    const ok = await web('POST', '/web/device/decision', who, { userCode: d.body.user_code, decision: 'approve' });
+    const ok = await web('POST', '/device/decision', who, { userCode: d.body.user_code, decision: 'approve' });
     expect(ok.status).toBe(204);
     skipWait();
     const t = await poll(d.body.device_code);
@@ -199,10 +199,10 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
     expect((await poll(d.body.device_code)).body.error).toBe('slow_down');
     skipWait();
 
-    const info = await web('POST', '/web/device/lookup', cookie, { userCode: d.body.user_code.toLowerCase() });
+    const info = await web('POST', '/device/lookup', cookie, { userCode: d.body.user_code.toLowerCase() });
     expect(info.status).toBe(200);
     expect(await info.json()).toMatchObject({ computerName: 'Notebook da Fulana', os: 'windows' });
-    expect((await web('POST', '/web/device/decision', cookie, { userCode: d.body.user_code, decision: 'approve' })).status).toBe(204);
+    expect((await web('POST', '/device/decision', cookie, { userCode: d.body.user_code, decision: 'approve' })).status).toBe(204);
 
     skipWait();
     const t = await poll(d.body.device_code);
@@ -223,26 +223,26 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
     expect(JSON.stringify([...computers.rows.values()])).not.toContain(c.key);
 
     // antes da confirmação o computador não aparece e o token ainda vale
-    expect((await (await web('GET', '/web/memory/computers', cookie)).json() as any).computers).toEqual([]);
+    expect((await (await web('GET', '/memory/computers', cookie)).json() as any).computers).toEqual([]);
     expect((await installer('POST', `/memory/computers/${c.computer_id}/confirm`, token)).status).toBe(204);
     // token consumido: não abre mais nada
     expect((await installer('POST', '/memory/computers', token, { name: 'x', os: 'linux' })).status).toBe(401);
     expect((await installer('POST', `/memory/computers/${c.computer_id}/confirm`, token)).status).toBe(401);
 
-    const list = (await (await web('GET', '/web/memory/computers', cookie)).json()) as any;
+    const list = (await (await web('GET', '/memory/computers', cookie)).json()) as any;
     expect(list.computers).toHaveLength(1);
     expect(list.computers[0]).toMatchObject({ id: c.computer_id, name: 'Notebook da Fulana', os: 'windows', agents: ['claude-code'], installMode: 'fresh', revokedAt: null });
-    const status = (await (await web('GET', '/web/memory/status', cookie)).json()) as any;
+    const status = (await (await web('GET', '/memory/status', cookie)).json()) as any;
     expect(status).toMatchObject({ memoryAvailable: true, userReady: true, isAdmin: true });
     expect(status.computers).toHaveLength(1);
-    expect((await (await web('GET', '/web/memory/status', otherCookie)).json() as any).isAdmin).toBe(false);
+    expect((await (await web('GET', '/memory/status', otherCookie)).json() as any).isAdmin).toBe(false);
 
     // renomear e desconectar (a chave deixa de valer na hora)
-    expect((await web('PATCH', `/web/memory/computers/${c.computer_id}`, cookie, { name: 'Desktop' })).status).toBe(204);
-    expect(((await (await web('GET', '/web/memory/computers', cookie)).json()) as any).computers[0].name).toBe('Desktop');
-    expect((await web('DELETE', `/web/memory/computers/${c.computer_id}`, cookie)).status).toBe(204);
+    expect((await web('PATCH', `/memory/computers/${c.computer_id}`, cookie, { name: 'Desktop' })).status).toBe(204);
+    expect(((await (await web('GET', '/memory/computers', cookie)).json()) as any).computers[0].name).toBe('Desktop');
+    expect((await web('DELETE', `/memory/computers/${c.computer_id}`, cookie)).status).toBe(204);
     expect(fake.authenticate(c.key)).toBeNull();
-    expect(((await (await web('GET', '/web/memory/computers', cookie)).json()) as any).computers[0].revokedAt).toEqual(expect.any(String));
+    expect(((await (await web('GET', '/memory/computers', cookie)).json()) as any).computers[0].revokedAt).toEqual(expect.any(String));
   });
 
   it('o token curto não abre o /mcp, nem a API de dados, nem o web', async () => {
@@ -277,12 +277,12 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
     expect(b.computer_id).not.toBe(a.computer_id);
     expect(fake.authenticate(a.key)).not.toBeNull(); // a chave da Fulana segue valendo
     // e ela não consegue desconectar o computador dele
-    expect((await web('DELETE', `/web/memory/computers/${b.computer_id}`, cookie)).status).toBe(404);
+    expect((await web('DELETE', `/memory/computers/${b.computer_id}`, cookie)).status).toBe(404);
   });
 
   it('negar o pedido: o instalador recebe access_denied; código expirado e desconhecido são recusados', async () => {
     const d = await startDevice();
-    expect((await web('POST', '/web/device/decision', cookie, { userCode: d.body.user_code, decision: 'deny' })).status).toBe(204);
+    expect((await web('POST', '/device/decision', cookie, { userCode: d.body.user_code, decision: 'deny' })).status).toBe(204);
     skipWait();
     expect((await poll(d.body.device_code)).body.error).toBe('access_denied');
 
@@ -290,30 +290,30 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
     for (const r of devices.rows.values()) if (!r.userId && r.status === 'pending') r.expiresAt = new Date(Date.now() - 1000);
     skipWait();
     expect((await poll(e.body.device_code)).body.error).toBe('expired_token');
-    const lookup = await web('POST', '/web/device/lookup', cookie, { userCode: e.body.user_code });
+    const lookup = await web('POST', '/device/lookup', cookie, { userCode: e.body.user_code });
     expect(lookup.status).toBe(410);
     expect(((await lookup.json()) as any).error).toBe('device_code_expired');
 
-    const unknown = await web('POST', '/web/device/lookup', otherCookie, { userCode: 'BCDF-GHJK' });
+    const unknown = await web('POST', '/device/lookup', otherCookie, { userCode: 'BCDF-GHJK' });
     expect(unknown.status).toBe(404);
     expect(((await unknown.json()) as any).error).toBe('device_code_invalid');
     expect((await poll('device-code-que-nao-existe')).body.error).toBe('invalid_grant');
   });
 
   it('lookup e decisão exigem sessão; palpites errados são limitados (5 por pessoa)', async () => {
-    expect((await web('POST', '/web/device/lookup', null, { userCode: 'BCDF-GHJK' })).status).toBe(401);
+    expect((await web('POST', '/device/lookup', null, { userCode: 'BCDF-GHJK' })).status).toBe(401);
     const guesser = await session('user-99', 'sessao-palpiteiro');
     for (let i = 0; i < 5; i++) {
-      expect((await web('POST', '/web/device/lookup', guesser, { userCode: 'BCDF-GHJK' })).status).toBe(404);
+      expect((await web('POST', '/device/lookup', guesser, { userCode: 'BCDF-GHJK' })).status).toBe(404);
     }
-    const blocked = await web('POST', '/web/device/lookup', guesser, { userCode: 'BCDF-GHJK' });
+    const blocked = await web('POST', '/device/lookup', guesser, { userCode: 'BCDF-GHJK' });
     expect(blocked.status).toBe(429);
     // mesmo um código certo fica bloqueado enquanto durar o limite
     const d = await startDevice();
-    expect((await web('POST', '/web/device/lookup', guesser, { userCode: d.body.user_code })).status).toBe(429);
-    expect((await web('POST', '/web/device/lookup', cookie, { userCode: '' })).status).toBe(400);
+    expect((await web('POST', '/device/lookup', guesser, { userCode: d.body.user_code })).status).toBe(429);
+    expect((await web('POST', '/device/lookup', cookie, { userCode: '' })).status).toBe(400);
     // CSRF: sem X-UFBA a rota recusa
-    const noCsrf = await fetch(`${base}/web/device/lookup`, {
+    const noCsrf = await fetch(`${base}/device/lookup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie, origin: WEB },
       body: JSON.stringify({ userCode: 'BCDF-GHJK' }),
@@ -330,12 +330,12 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
 
   it('canário: token root, chaves, device_code, user_code e token curto nunca aparecem em saída', async () => {
     const d = await startDevice({ computer_name: 'CANARIO-nome' });
-    await web('POST', '/web/device/decision', cookie, { userCode: d.body.user_code, decision: 'approve' });
+    await web('POST', '/device/decision', cookie, { userCode: d.body.user_code, decision: 'approve' });
     skipWait();
     const t = await poll(d.body.device_code);
     const made = (await (await installer('POST', '/memory/computers', t.body.access_token, { name: 'c', os: 'linux' })).json()) as any;
     await installer('POST', '/memory/computers', 'token-ruim', { os: 'linux' });
-    await web('POST', '/web/device/lookup', cookie, { userCode: d.body.user_code });
+    await web('POST', '/device/lookup', cookie, { userCode: d.body.user_code });
     const secrets = [ROOT, d.body.device_code, d.body.user_code, d.body.user_code.replace('-', ''), t.body.access_token, made.key, ...fake.credentials.map((c) => c.token)];
     const text = out.join('\n');
     for (const s of secrets) expect(text).not.toContain(s);

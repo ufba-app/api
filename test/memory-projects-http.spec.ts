@@ -119,52 +119,52 @@ describe('memória: Meus projetos e exclusão de conta (HTTP)', () => {
   const enc = encodeURIComponent;
 
   it('exige sessão', async () => {
-    expect((await web('GET', '/web/memory/projects', null)).status).toBe(401);
-    expect((await web('POST', '/web/memory/projects', null, { name: 'x' })).status).toBe(401);
+    expect((await web('GET', '/memory/projects', null)).status).toBe(401);
+    expect((await web('POST', '/memory/projects', null, { name: 'x' })).status).toBe(401);
   });
 
   it('criar, listar, convidar, detalhar, mudar nível, transferir, sair e apagar', async () => {
-    const created = await web('POST', '/web/memory/projects', cFulana, { name: 'Meu TCC' });
+    const created = await web('POST', '/memory/projects', cFulana, { name: 'Meu TCC' });
     expect(created.status).toBe(201);
     const p = await json(created);
     expect(p).toMatchObject({ title: 'Meu TCC', role: 'owner', team: false, workspace: 'ufba-alunos', sync: 'ok' });
-    expect((await web('POST', '/web/memory/projects', cFulana, { name: 'meu tcc' })).status).toBe(409);
-    expect((await json(await web('POST', '/web/memory/projects', cFulana, { name: 'meu tcc' }))).error).toBe('project_name_taken');
-    expect((await web('POST', '/web/memory/projects', cFulana, { name: '' })).status).toBe(400);
+    expect((await web('POST', '/memory/projects', cFulana, { name: 'meu tcc' })).status).toBe(409);
+    expect((await json(await web('POST', '/memory/projects', cFulana, { name: 'meu tcc' }))).error).toBe('project_name_taken');
+    expect((await web('POST', '/memory/projects', cFulana, { name: '' })).status).toBe(400);
 
-    expect((await json(await web('GET', '/web/memory/projects', cBeltrano))).projects).toEqual([]);
-    const bad = await web('PUT', `/web/memory/projects/${p.id}/members/${enc('x@gmail.com')}`, cFulana, { level: 'read' });
+    expect((await json(await web('GET', '/memory/projects', cBeltrano))).projects).toEqual([]);
+    const bad = await web('PUT', `/memory/projects/${p.id}/members/${enc('x@gmail.com')}`, cFulana, { level: 'read' });
     expect(bad.status).toBe(400);
     expect((await json(bad)).error).toBe('invalid_email_domain');
 
-    expect((await web('PUT', `/web/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'read' })).status).toBe(204);
-    expect((await web('PUT', `/web/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'admin' })).status).toBe(400);
-    const mine = (await json(await web('GET', '/web/memory/projects', cBeltrano))).projects;
+    expect((await web('PUT', `/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'read' })).status).toBe(204);
+    expect((await web('PUT', `/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'admin' })).status).toBe(400);
+    const mine = (await json(await web('GET', '/memory/projects', cBeltrano))).projects;
     expect(mine).toHaveLength(1);
     expect(mine[0]).toMatchObject({ role: 'read', source: 'invite', membersCount: 2 });
     expect(fake.grants.some((g) => g.project === p.project && g.level === 'read')).toBe(true);
 
-    const owner = await json(await web('GET', `/web/memory/projects/${p.id}`, cFulana));
+    const owner = await json(await web('GET', `/memory/projects/${p.id}`, cFulana));
     expect(owner.members).toEqual([{ email: 'beltrano@ufba.br', name: null, level: 'read', status: 'active' }]);
     expect(owner.marker).toContain('server    = "ufba"');
-    expect((await json(await web('GET', `/web/memory/projects/${p.id}`, cBeltrano))).members).toEqual([]);
-    expect((await web('PUT', `/web/memory/projects/${p.id}/members/${enc('x@ufba.br')}`, cBeltrano, { level: 'read' })).status).toBe(403);
-    expect((await web('GET', `/web/memory/projects/inexistente`, cBeltrano)).status).toBe(404);
+    expect((await json(await web('GET', `/memory/projects/${p.id}`, cBeltrano))).members).toEqual([]);
+    expect((await web('PUT', `/memory/projects/${p.id}/members/${enc('x@ufba.br')}`, cBeltrano, { level: 'read' })).status).toBe(403);
+    expect((await web('GET', `/memory/projects/inexistente`, cBeltrano)).status).toBe(404);
 
-    await web('PUT', `/web/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'write' });
-    expect((await web('POST', `/web/memory/projects/${p.id}/transfer`, cFulana, { email: 'beltrano@ufba.br' })).status).toBe(204);
-    expect((await json(await web('GET', '/web/memory/projects', cBeltrano))).projects[0].role).toBe('owner');
-    expect((await web('DELETE', `/web/memory/projects/${p.id}/members/${enc('fulana@ufba.br')}`, cFulana)).status).toBe(204); // sai
-    expect((await json(await web('GET', '/web/memory/projects', cFulana))).projects).toEqual([]);
-    expect((await web('DELETE', `/web/memory/projects/${p.id}`, cFulana)).status).toBe(404);
-    expect((await web('DELETE', `/web/memory/projects/${p.id}`, cBeltrano)).status).toBe(204);
+    await web('PUT', `/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'write' });
+    expect((await web('POST', `/memory/projects/${p.id}/transfer`, cFulana, { email: 'beltrano@ufba.br' })).status).toBe(204);
+    expect((await json(await web('GET', '/memory/projects', cBeltrano))).projects[0].role).toBe('owner');
+    expect((await web('DELETE', `/memory/projects/${p.id}/members/${enc('fulana@ufba.br')}`, cFulana)).status).toBe(204); // sai
+    expect((await json(await web('GET', '/memory/projects', cFulana))).projects).toEqual([]);
+    expect((await web('DELETE', `/memory/projects/${p.id}`, cFulana)).status).toBe(404);
+    expect((await web('DELETE', `/memory/projects/${p.id}`, cBeltrano)).status).toBe(204);
     expect(fake.projects.has(`ufba-alunos/${p.project}`)).toBe(false);
     expect(projects.projects.size).toBe(0);
   });
 
   it('DELETE /me: chaves revogadas, projeto entregue, usuário desativado, conta apagada', async () => {
-    const p = await json(await web('POST', '/web/memory/projects', cFulana, { name: 'Herança' }));
-    await web('PUT', `/web/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'write' });
+    const p = await json(await web('POST', '/memory/projects', cFulana, { name: 'Herança' }));
+    await web('PUT', `/memory/projects/${p.id}/members/${enc('beltrano@ufba.br')}`, cFulana, { level: 'write' });
     const proxyKeys = fake.credentials.map((c) => c.token);
     expect(proxyKeys.length).toBeGreaterThan(0);
 
@@ -172,6 +172,6 @@ describe('memória: Meus projetos e exclusão de conta (HTTP)', () => {
     expect(fake.credentials.filter((c) => !c.revoked_at && fake.users.find((u) => u.id === c.user_id)?.name === 'Ex-participante')).toEqual([]);
     expect(fake.users.some((u) => u.name === 'Ex-participante' && u.disabled_at)).toBe(true);
     expect(projects.projects.get(p.id)!.ownerId).toBe(beltrano);
-    expect((await json(await web('GET', '/web/memory/projects', cBeltrano))).projects[0]).toMatchObject({ role: 'owner' });
+    expect((await json(await web('GET', '/memory/projects', cBeltrano))).projects[0]).toMatchObject({ role: 'owner' });
   });
 });

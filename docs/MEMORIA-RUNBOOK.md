@@ -35,14 +35,14 @@ No serviço `memory`: `AI_MEMORY_AUTH_TOKEN`, `AI_MEMORY_ALLOWED_HOSTS`, `AI_MEM
 
 ## Revogar acessos
 
-- Um computador: pela tela (Computadores conectados) ou `DELETE /web/memory/computers/{id}`. A chave morre na hora; os hooks daquele computador passam a falhar e param de capturar.
+- Um computador: pela tela (Computadores conectados) ou `DELETE /memory/computers/{id}`. A chave morre na hora; os hooks daquele computador passam a falhar e param de capturar.
 - Uma pessoa inteira: `DELETE /me` (revoga todas as chaves, entrega ou apaga projetos, desativa o usuário no memory). Se o memory estiver fora do ar a exclusão é interrompida (503) e pode ser repetida. `disable` do memory **não** revoga chaves: a API sempre revoga antes.
 - Chave de computador emitida e nunca confirmada pelo instalador: revogada pela varredura em 10 min.
 
 ## O que olhar
 
 - Log da API, linha `varredura:` a cada 10 min (contagens, sem nomes). `alerta:` aparece quando há pessoas com sincronização falhando ou projetos desconhecidos nos `ufba-*`; `limite de chamadas de memória atingido: user=… tool=…` mostra quem bateu o limite (nunca o conteúdo).
-- Tela Administração (`GET /web/admin/memory/sync`): fila de falhas (só código/status) e projetos que existem no memory e a ufba.app não conhece (criados por escrita direta, S12): adote (crie o registro) ou apague no memory.
+- Tela Administração (`GET /admin/memory/sync`): fila de falhas (só código/status) e projetos que existem no memory e a ufba.app não conhece (criados por escrita direta, S12): adote (crie o registro) ou apague no memory.
 - `memory_status` pelo MCP: `memory_available`, `user_ready`, computadores.
 
 ## Quando o memory cai

@@ -1736,7 +1736,7 @@
         }
       }
     },
-    "/web/device/lookup": {
+    "/device/lookup": {
       "post": {
         "operationId": "lookupDevice",
         "summary": "Mostra quem pediu a conexão de um computador (código do terminal)",
@@ -1844,7 +1844,7 @@
         }
       }
     },
-    "/web/device/decision": {
+    "/device/decision": {
       "post": {
         "operationId": "decideDevice",
         "summary": "Aprova ou nega a conexão de um computador",
@@ -1915,7 +1915,7 @@
         }
       }
     },
-    "/web/memory/status": {
+    "/memory/status": {
       "get": {
         "operationId": "getMemoryStatus",
         "summary": "Estado da memória compartilhada da pessoa",
@@ -2025,7 +2025,7 @@
         }
       }
     },
-    "/web/memory/computers": {
+    "/memory/computers": {
       "get": {
         "operationId": "listMemoryComputers",
         "summary": "Computadores conectados",
@@ -2123,7 +2123,7 @@
         }
       }
     },
-    "/web/memory/computers/{id}": {
+    "/memory/computers/{id}": {
       "patch": {
         "operationId": "renameMemoryComputer",
         "summary": "Renomear um computador",
@@ -2243,7 +2243,7 @@
         }
       }
     },
-    "/web/memory/projects": {
+    "/memory/projects": {
       "get": {
         "operationId": "listMemoryProjects",
         "summary": "Projetos de que a pessoa participa (dona, convidada ou do time)",
@@ -2466,7 +2466,7 @@
         }
       }
     },
-    "/web/memory/projects/{id}": {
+    "/memory/projects/{id}": {
       "get": {
         "operationId": "getMemoryProject",
         "summary": "Detalhe do projeto, com membros (só para o dono) e o trecho do marcador",
@@ -2657,7 +2657,7 @@
         }
       }
     },
-    "/web/memory/projects/{id}/members/{email}": {
+    "/memory/projects/{id}/members/{email}": {
       "put": {
         "operationId": "setMemoryProjectMember",
         "summary": "Convida ou muda o nível de um e-mail @ufba.br (só o dono)",
@@ -2795,7 +2795,7 @@
         }
       }
     },
-    "/web/memory/projects/{id}/transfer": {
+    "/memory/projects/{id}/transfer": {
       "post": {
         "operationId": "transferMemoryProject",
         "summary": "Passa a posse a um membro com escrita",
@@ -2866,7 +2866,7 @@
         }
       }
     },
-    "/web/admin/team": {
+    "/admin/team": {
       "get": {
         "operationId": "getAdminTeam",
         "summary": "Papéis do time (somente leitura) e pessoas com papel",
@@ -2992,7 +2992,7 @@
         }
       }
     },
-    "/web/admin/team/members/{userId}/roles/{roleKey}": {
+    "/admin/team/members/{userId}/roles/{roleKey}": {
       "put": {
         "operationId": "assignTeamRole",
         "summary": "Atribui um papel (concede os acessos do papel)",
@@ -3119,7 +3119,7 @@
         }
       }
     },
-    "/web/admin/memory/sync": {
+    "/admin/memory/sync": {
       "get": {
         "operationId": "getAdminMemorySync",
         "summary": "Fila de reconciliação com falhas e projetos desconhecidos no memory",
