@@ -325,6 +325,25 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect((await post('http://localhost:3003')).status).toBe(403);
   });
 
+  it('WEB_ORIGIN em lista (transição): a segunda origem também passa no CSRF', async () => {
+    const cookie = await signIn();
+    const OUTRA = 'http://localhost:3004';
+    const post = (origin: string) =>
+      fetch(`${base}/connections/sigaa`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-ufba': '1', origin, cookie },
+        body: JSON.stringify({ login: 'a', password: SENHA }),
+      });
+    expect((await post(OUTRA)).status).toBe(403);
+    process.env.WEB_ORIGIN = `${WEB},${OUTRA}`;
+    try {
+      expect((await post(WEB)).status).toBe(204);
+      expect((await post(OUTRA)).status).toBe(204);
+    } finally {
+      process.env.WEB_ORIGIN = WEB;
+    }
+  });
+
   it('sem sessão: 401 session_expired', async () => {
     const r = await get('/me');
     expect(r.status).toBe(401);

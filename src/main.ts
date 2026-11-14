@@ -3,7 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { WebSessionService } from './application/web/web-session.service';
 import { loadExtraCAs } from './infrastructure/tls/extra-ca';
-import { webEnv } from './interface/web/web-auth';
+import { validateOriginConfig, webEnv } from './interface/web/web-auth';
 
 async function bootstrap(): Promise<void> {
   // Intermediário que o AVA não envia (ver extra-ca.ts). Antes de qualquer conexão TLS.
@@ -18,8 +18,10 @@ async function bootstrap(): Promise<void> {
   if (process.env.NODE_ENV === 'production' && (!process.env.WEB_ORIGIN || !process.env.PUBLIC_URL)) {
     // Sem PUBLIC_URL a URL de callback viria do header Host (forjável) e o cookie perderia Secure/__Host-; sem
     // WEB_ORIGIN o CORS e os redirecionamentos apontariam para o web local.
-    throw new Error('Em produção defina WEB_ORIGIN e PUBLIC_URL (ex.: https://ufba.app e https://api.ufba.app)');
+    throw new Error('Em produção defina WEB_ORIGIN e PUBLIC_URL (ex.: https://meu.ufba.app e https://api.ufba.app)');
   }
+  // WEB_ORIGIN (lista, a primeira é a principal) e AUTH_ORIGIN: só origens, sem barra final nem curinga; https em produção.
+  validateOriginConfig(process.env, process.env.NODE_ENV === 'production');
   // Só as origens da casa (painel e auth), com cookie. Nunca '*'. X-UFBA força preflight nas rotas que mudam estado.
   const { origins, webOrigin, authOrigin } = webEnv();
   app.enableCors({
@@ -30,7 +32,7 @@ async function bootstrap(): Promise<void> {
     maxAge: 600,
   });
   await app.get(WebSessionService).ensureWebClient();
-  console.log(`[web] painel ${webOrigin}, auth ${authOrigin}`);
+  console.log(`[web] painel ${webOrigin} (origens aceitas: ${origins.join(", ")}), auth ${authOrigin}`);
 
   // Local por padrão: só 127.0.0.1. Em produção (Railway) defina HOST=0.0.0.0.
   await app.listen(process.env.PORT ?? 3000, process.env.HOST ?? '127.0.0.1');

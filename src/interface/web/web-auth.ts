@@ -12,19 +12,62 @@ import type { OAuthService } from '../../application/oauth/oauth.service';
 import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { OAUTH_SERVICE } from '../mcp/oauth/oauth-tokens';
 
+/** Lista separada por vírgula, sem espaços nem barras finais (tolerante; a validação estrita é `validateOriginConfig`). */
+function originList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+/**
+ * Valida `WEB_ORIGIN` (lista, a primeira é a principal) e `AUTH_ORIGIN` (único) no boot: cada item precisa ser só
+ * uma origem (esquema + host [+ porta]), sem barra final, sem curinga; em produção, https. Lança `Error`.
+ */
+export function validateOriginConfig(env: NodeJS.ProcessEnv, production: boolean): void {
+  const check = (name: string, value: string): void => {
+    if (value.includes('*')) throw new Error(`${name}: curinga não é permitido`);
+    if (value.endsWith('/')) throw new Error(`${name}: sem barra final (${value})`);
+    let u: URL;
+    try {
+      u = new URL(value);
+    } catch {
+      throw new Error(`${name}: origem inválida (${value})`);
+    }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error(`${name}: use http(s) (${value})`);
+    if (u.origin !== value) throw new Error(`${name}: informe só a origem, sem caminho, usuário ou parâmetros (${value})`);
+    if (production && u.protocol !== 'https:') throw new Error(`${name}: em produção use https (${value})`);
+  };
+  const raw = (env.WEB_ORIGIN ?? '').trim();
+  if (raw) {
+    const items = raw.split(',').map((o) => o.trim());
+    if (items.some((o) => !o)) throw new Error('WEB_ORIGIN: item vazio na lista');
+    items.forEach((o) => check('WEB_ORIGIN', o));
+  }
+  const auth = (env.AUTH_ORIGIN ?? '').trim();
+  if (auth) {
+    if (auth.includes(',')) throw new Error('AUTH_ORIGIN: aceita uma origem só');
+    check('AUTH_ORIGIN', auth);
+  }
+}
+
 /**
  * Origens do app web, lidas do ambiente a cada uso (os testes trocam o env). Todas as telas são do web; sem
  * `WEB_ORIGIN`, vale o web local de desenvolvimento (em produção o boot exige a variável, ver main.ts).
+ * `WEB_ORIGIN` aceita lista (transição entre domínios do painel): a PRIMEIRA é a principal (`webOrigin`, usada em
+ * qualquer redirect da API para o painel); todas entram em `origins` (CORS e checagem de Origin do CSRF).
  */
 export function webEnv() {
   const publicUrl = (process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
-  const webOrigin = (process.env.WEB_ORIGIN || 'http://localhost:3001').replace(/\/+$/, '');
-  // Telas de login e autorização (ex.: https://auth.ufba.app). Sem AUTH_ORIGIN, ficam no próprio WEB_ORIGIN.
+  const webOrigins = originList(process.env.WEB_ORIGIN);
+  if (!webOrigins.length) webOrigins.push('http://localhost:3001');
+  const webOrigin = webOrigins[0];
+  // Telas de login e autorização (ex.: https://auth.ufba.app). Sem AUTH_ORIGIN, ficam no próprio WEB_ORIGIN principal.
   const authOrigin = (process.env.AUTH_ORIGIN ?? '').replace(/\/+$/, '') || webOrigin;
   // Origens da casa: as únicas aceitas no CORS e na checagem de Origin do CSRF.
-  const origins = [...new Set([webOrigin, authOrigin].filter(Boolean))];
+  const origins = [...new Set([...webOrigins, authOrigin].filter(Boolean))];
   const secure = publicUrl.startsWith('https://');
-  return { publicUrl, webOrigin, authOrigin, origins, secure, cookieName: secure ? '__Host-ufba_session' : 'ufba_session' };
+  return { publicUrl, webOrigin, webOrigins, authOrigin, origins, secure, cookieName: secure ? '__Host-ufba_session' : 'ufba_session' };
 }
 
 export function readCookie(req: Request, name: string): string | undefined {
