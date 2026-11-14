@@ -14,6 +14,8 @@ import {
   PrismaSourceAccountRepository,
   PrismaUserRepository,
 } from './prisma-identity.repositories';
+import { MemoryUserRepository } from '../../application/memory/memory-ports';
+import { PrismaMemoryUserRepository } from './prisma-memory.repositories';
 import { PrismaOAuthStore, PrismaUserDirectory } from './prisma-oauth.repositories';
 import { PrismaService } from './prisma.service';
 
@@ -27,6 +29,7 @@ import { PrismaService } from './prisma.service';
     { provide: SourceAccountRepository, useClass: PrismaSourceAccountRepository },
     { provide: SigaaCredentialRepository, useClass: PrismaSigaaCredentialRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
+    { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
     { provide: OAUTH_STORE, useClass: PrismaOAuthStore },
     { provide: USER_DIRECTORY, useClass: PrismaUserDirectory },
   ],
@@ -36,6 +39,7 @@ import { PrismaService } from './prisma.service';
     SourceAccountRepository,
     SigaaCredentialRepository,
     SourceBindingRepository,
+    MemoryUserRepository,
     OAUTH_STORE,
     USER_DIRECTORY,
   ],

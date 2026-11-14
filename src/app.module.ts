@@ -2,11 +2,14 @@ import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
+import { MemoryAdmin, MemoryUserRepository } from './application/memory/memory-ports';
+import { MemoryUsers } from './application/memory/memory-users';
 import { LiveSources } from './application/ports/live-source';
 import { mcpExports, mcpProviders } from './mcp-wiring';
 import { SecretCipher } from './application/ports/secret-cipher';
 import { SourceGateway, SourceRegistry } from './application/ports/source-gateway';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
+import { MemoryAdminClient } from './infrastructure/memory/memory-admin.client';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { BearerGuard } from './interface/rest/auth.guard';
 import { DownloadController } from './interface/rest/download.controller';
@@ -88,6 +91,14 @@ export function buildLiveSources(
       inject: [SessoesSigaa],
     },
     { provide: SecretCipher, useFactory: () => new AesSecretCipher() },
+    // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
+    { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
+    {
+      provide: MemoryUsers,
+      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, cipher: SecretCipher) =>
+        new MemoryUsers(admin, repo, cipher),
+      inject: [MemoryAdmin, MemoryUserRepository, SecretCipher],
+    },
     {
       provide: SourceRegistry,
       useFactory: () => {
@@ -104,6 +115,8 @@ export function buildLiveSources(
     SourceRegistry,
     SecretCipher,
     ConsultaService,
+    MemoryAdmin,
+    MemoryUsers,
     DownloadLinks,
     LiveSources,
     ...mcpExports,
