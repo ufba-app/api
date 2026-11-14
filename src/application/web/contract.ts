@@ -23,6 +23,12 @@ export const API_ERROR_CODES = [
   "source_account_not_owned",
   "account_ambiguous",
   "not_supported",
+  "device_code_invalid",
+  "device_code_expired",
+  "computer_limit_reached",
+  "computer_not_found",
+  "memory_unavailable",
+  "memory_forbidden",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -130,6 +136,51 @@ export const AuthorizedApp = ClientView.omit({
 
 export const AuthorizedAppsResponse = z.object({
   apps: z.array(AuthorizedApp),
+});
+
+// ---- memória compartilhada: dispositivo e computadores ----
+
+/** Código que a pessoa viu no terminal (`XXXX-XXXX`; a API normaliza maiúsculas e hífen). */
+export const DeviceCodeBody = z.object({ userCode: z.string().min(1).max(32) });
+
+export const DeviceLookupResponse = z.object({
+  clientName: z.string(),
+  computerName: z.string().nullable(),
+  os: z.string().nullable(),
+  requestedAt: z.string().datetime(),
+  /** Rede aproximada de quem pediu (ex.: "rede 200.128.x.x"); a API não guarda geolocalização. */
+  approxLocation: z.string().nullable(),
+  /** A rede de quem aprova é bem diferente da de quem pediu: a tela destaca o aviso. */
+  ipDiffers: z.boolean(),
+});
+
+export const DeviceDecisionBody = z.object({
+  userCode: z.string().min(1).max(32),
+  decision: z.enum(["approve", "deny"]),
+});
+
+export const MemoryComputerView = z.object({
+  id: z.string(),
+  name: z.string(),
+  os: z.string(),
+  agents: z.array(z.string()),
+  installMode: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  lastSeenAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const MemoryComputersResponse = z.object({
+  computers: z.array(MemoryComputerView),
+});
+
+export const RenameComputerBody = z.object({ name: z.string().min(1).max(60) });
+
+export const MemoryStatusResponse = z.object({
+  memoryAvailable: z.boolean(),
+  userReady: z.boolean(),
+  isAdmin: z.boolean(),
+  computers: z.array(MemoryComputerView),
 });
 
 // ---- dados (leitura ao vivo) ----

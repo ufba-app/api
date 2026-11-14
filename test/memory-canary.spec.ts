@@ -96,7 +96,8 @@ describe('canário: o proxy do MCP não vaza chave de repasse nem token root', (
     const url = await fake.start();
     const admin = new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) });
     const users = new MemoryUsers(admin, new Repo(), new AesSecretCipher(Buffer.alloc(32, 9).toString('base64')));
-    const proxy = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), new SeededProjectRegistry(), new OpenMemoryAccess());
+    const { NoComputers } = await import('./support/memory-fakes');
+    const proxy = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), new SeededProjectRegistry(), new OpenMemoryAccess(), new NoComputers());
     const uid = '01a1db61-e0d4-7261-ae1d-0b563922fde5';
     const seen: unknown[] = [];
 

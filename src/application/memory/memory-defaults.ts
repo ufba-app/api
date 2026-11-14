@@ -23,3 +23,8 @@ export class OpenMemoryAccess extends MemoryAccess {
     return true;
   }
 }
+
+/** URL pública do memory que o instalador grava (a mesma que a API usa; sem barra final). */
+export function memoryPublicUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.MEMORY_URL || 'https://memory.ufba.app').replace(/\/+$/, '');
+}

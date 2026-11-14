@@ -11,7 +11,7 @@ extendZodWithOpenApi(z);
 /** Versão do contrato: suba em mudança que quebra cliente. */
 export const CONTRACT_VERSION = "1.0.0";
 
-type Method = "get" | "post" | "delete";
+type Method = "get" | "post" | "delete" | "patch";
 type Auth = "session" | "data" | "optional" | "none";
 
 interface Route {
@@ -187,6 +187,66 @@ export const ROUTES: Route[] = [
     auth: "session",
     summary: "Revogar um app",
     params: { clientId: z.string() },
+    ok: [204, null],
+  },
+  // memória compartilhada: dispositivo e computadores
+  {
+    id: "lookupDevice",
+    method: "post",
+    path: "/web/device/lookup",
+    tag: "memory",
+    auth: "session",
+    summary: "Mostra quem pediu a conexão de um computador (código do terminal)",
+    body: C.DeviceCodeBody,
+    ok: [200, C.DeviceLookupResponse],
+  },
+  {
+    id: "decideDevice",
+    method: "post",
+    path: "/web/device/decision",
+    tag: "memory",
+    auth: "session",
+    summary: "Aprova ou nega a conexão de um computador",
+    body: C.DeviceDecisionBody,
+    ok: [204, null],
+  },
+  {
+    id: "getMemoryStatus",
+    method: "get",
+    path: "/web/memory/status",
+    tag: "memory",
+    auth: "session",
+    summary: "Estado da memória compartilhada da pessoa",
+    ok: [200, C.MemoryStatusResponse],
+  },
+  {
+    id: "listMemoryComputers",
+    method: "get",
+    path: "/web/memory/computers",
+    tag: "memory",
+    auth: "session",
+    summary: "Computadores conectados",
+    ok: [200, C.MemoryComputersResponse],
+  },
+  {
+    id: "renameMemoryComputer",
+    method: "patch",
+    path: "/web/memory/computers/{id}",
+    tag: "memory",
+    auth: "session",
+    summary: "Renomear um computador",
+    params: { id: z.string() },
+    body: C.RenameComputerBody,
+    ok: [204, null],
+  },
+  {
+    id: "revokeMemoryComputer",
+    method: "delete",
+    path: "/web/memory/computers/{id}",
+    tag: "memory",
+    auth: "session",
+    summary: "Desconectar um computador (revoga a chave dele)",
+    params: { id: z.string() },
     ok: [204, null],
   },
   {

@@ -16,6 +16,8 @@ import {
 } from './prisma-identity.repositories';
 import { MemoryUserRepository } from '../../application/memory/memory-ports';
 import { PrismaMemoryUserRepository } from './prisma-memory.repositories';
+import { DeviceAuthorizationRepository, MemoryComputerRepository } from '../../application/memory/device-ports';
+import { PrismaDeviceAuthorizationRepository, PrismaMemoryComputerRepository } from './prisma-device.repositories';
 import { PrismaOAuthStore, PrismaUserDirectory } from './prisma-oauth.repositories';
 import { PrismaService } from './prisma.service';
 
@@ -30,6 +32,8 @@ import { PrismaService } from './prisma.service';
     { provide: SigaaCredentialRepository, useClass: PrismaSigaaCredentialRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
+    { provide: DeviceAuthorizationRepository, useClass: PrismaDeviceAuthorizationRepository },
+    { provide: MemoryComputerRepository, useClass: PrismaMemoryComputerRepository },
     { provide: OAUTH_STORE, useClass: PrismaOAuthStore },
     { provide: USER_DIRECTORY, useClass: PrismaUserDirectory },
   ],
@@ -40,6 +44,8 @@ import { PrismaService } from './prisma.service';
     SigaaCredentialRepository,
     SourceBindingRepository,
     MemoryUserRepository,
+    DeviceAuthorizationRepository,
+    MemoryComputerRepository,
     OAUTH_STORE,
     USER_DIRECTORY,
   ],

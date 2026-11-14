@@ -13,6 +13,8 @@ import { MemoryMcpClient } from '../src/infrastructure/memory/memory-mcp.client'
 import { FAKE_MEMORY_TOOLS, FakeAiMemory } from '../src/infrastructure/memory/testing/fake-ai-memory';
 import { FERRAMENTAS, buildMcpServer } from '../src/interface/mcp/mcp-tools';
 import type { McpUseCases } from '../src/interface/mcp/mcp-ports';
+import { MemoryComputers } from '../src/application/memory/memory-computers';
+import { InMemoryComputerRepo, NoComputers } from './support/memory-fakes';
 
 const ROOT = 'root-token-proxy-test-0003';
 const UID = '01a1db61-e0d4-7261-ae1d-0b563922fde5';
@@ -77,10 +79,11 @@ describe('proxy de memória contra o fake do ai-memory', () => {
   let admin: MemoryAdminClient;
   let users: MemoryUsers;
   let proxy: MemoryProxy;
+  let computers: MemoryComputers;
   let clock: number;
 
   const build = (access: MemoryAccess = new OpenMemoryAccess()) => {
-    proxy = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), new SeededProjectRegistry(), access, {
+    proxy = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), new SeededProjectRegistry(), access, computers, {
       now: () => clock,
     });
   };
@@ -91,6 +94,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     url = await fake.start();
     admin = new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) });
     users = new MemoryUsers(admin, new Repo(), new AesSecretCipher(Buffer.alloc(32, 5).toString('base64')));
+    computers = new MemoryComputers(admin, users, new InMemoryComputerRepo(), () => clock);
     build();
   });
   afterEach(() => fake.stop());
@@ -169,7 +173,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     expect(r!.isError).toBe(true);
     expect(fake.mcpCalls).toHaveLength(0);
     const reg = new SeededProjectRegistry([['ufba-app', 'forbidden']]);
-    const p2 = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess());
+    const p2 = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess(), computers);
     const r2 = await p2.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'forbidden' });
     expect(r2!.isError).toBe(true);
     expect(text(r2)).toContain('not authorized for ufba-app/forbidden');
@@ -202,14 +206,18 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     expect(first).toMatchObject({ memory_available: true, user_ready: true, connected_computers: [] });
     expect(String(first.hint)).toContain('memory_connect_computer');
 
-    const pc = await admin.issueCredential('u0b563922fde5', 'pc:ab12:notebook da Fulana');
-    await admin.issueCredential('u0b563922fde5', 'pc:cd34:desktop');
-    fake.authenticate(pc.token.reveal());
+    const a = await computers.create(UID, { name: 'notebook da Fulana', os: 'windows' });
+    const b = await computers.create(UID, { name: 'desktop', os: 'linux' });
+    await computers.create(UID, { name: 'nunca confirmado', os: 'macos' });
+    await computers.confirm(UID, a.computerId);
+    await computers.confirm(UID, b.computerId);
+    fake.authenticate(a.key.reveal());
     const next = JSON.parse(text(await proxy.call(UID, 'memory_status', {}))) as {
-      connected_computers: { name: string; last_seen: string | null }[];
+      connected_computers: { name: string; os: string; last_seen: string | null }[];
     };
     expect(next.connected_computers.map((c) => c.name).sort()).toEqual(['desktop', 'notebook da Fulana']);
     expect(next.connected_computers.find((c) => c.name === 'desktop')!.last_seen).toBeNull();
+    expect(next.connected_computers.find((c) => c.name === 'desktop')!.os).toBe('linux');
     expect(next.connected_computers.find((c) => c.name === 'notebook da Fulana')!.last_seen).toMatch(/^\d{4}-/);
     // a chave de repasse (ufba-proxy) não é um computador
     expect(JSON.stringify(next)).not.toContain('ufba-proxy');
@@ -236,6 +244,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
       new MemoryMcpClient({ baseUrl: url }),
       new SeededProjectRegistry(),
       new OpenMemoryAccess(),
+      new NoComputers(),
     );
     expect(p.enabled()).toBe(false);
     expect(await p.listTools(UID)).toEqual([]);
@@ -277,6 +286,7 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       new MemoryMcpClient({ baseUrl: url }),
       new SeededProjectRegistry(),
       new OpenMemoryAccess(),
+      new NoComputers(),
     );
     const server = buildMcpServer(house(), { userId: UID }, proxy);
     const [a, b] = InMemoryTransport.createLinkedPair();

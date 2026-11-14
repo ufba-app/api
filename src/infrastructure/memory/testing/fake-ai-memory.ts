@@ -97,6 +97,7 @@ export class FakeAiMemory {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
     const method = req.method ?? 'GET';
     if (path === '/mcp') return this.handleMcp(req, res, raw);
+    if (path === '/healthz') return this.reply(res, 200, { status: 'ok' });
     const body = raw ? (JSON.parse(raw) as Record<string, string>) : {};
     this.requests.push({ method, path, authorization: req.headers.authorization, body });
 

@@ -22,6 +22,12 @@ export class RateWindow {
     return true;
   }
 
+  /** Já bateu o limite na janela atual? (não registra nada) */
+  isFull(key: string): boolean {
+    const t = this.now();
+    return (this.hits.get(key) ?? []).filter((x) => t - x < this.windowMs).length >= this.limit;
+  }
+
   private sweep(t: number): void {
     for (const [k, v] of this.hits) if (v.every((x) => t - x >= this.windowMs)) this.hits.delete(k);
   }

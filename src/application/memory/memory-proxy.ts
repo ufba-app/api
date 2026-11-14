@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Secret } from '../shared/secret';
+import { MemoryComputerDirectory } from './device-ports';
 import {
   MemoryAccess,
   MemoryAdmin,
@@ -81,6 +82,7 @@ export class MemoryProxy {
     private readonly mcp: MemoryMcp,
     private readonly registry: MemoryProjectRegistry,
     private readonly access: MemoryAccess,
+    private readonly computers: MemoryComputerDirectory,
     opts: ProxyOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
@@ -159,15 +161,13 @@ export class MemoryProxy {
   }
 
   private async status(userId: string): Promise<RemoteToolResult> {
-    const user = await this.users.ensure(userId);
-    const creds = await this.admin.listCredentials(user.username);
-    const computers = creds
-      .filter((c) => c.label.startsWith('pc:') && !c.revokedAt)
-      .map((c) => ({
-        name: c.label.split(':').slice(2).join(':') || 'computador',
-        os: null,
-        last_seen: c.lastUsedAt ? c.lastUsedAt.toISOString() : null,
-      }));
+    await this.users.ensure(userId);
+    if (!(await this.admin.ping())) return this.statusDown();
+    const computers = (await this.computers.active(userId)).map((c) => ({
+      name: c.name,
+      os: c.os,
+      last_seen: c.lastSeen ? c.lastSeen.toISOString() : null,
+    }));
     return ok({
       memory_available: true,
       user_ready: true,

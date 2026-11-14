@@ -39,6 +39,11 @@ export class MemoryUsers {
     return p;
   }
 
+  /** A conta da pessoa no memory já está pronta (sem criar nada). */
+  async isReady(userId: string): Promise<boolean> {
+    return (await this.repo.find(userId))?.status === 'ready';
+  }
+
   /** A chave de repasse aberta, só para o proxy do MCP e para chamadas em nome da pessoa. */
   async proxyKey(userId: string): Promise<Secret> {
     const row = await this.repo.find(userId);

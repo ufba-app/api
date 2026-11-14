@@ -63,6 +63,8 @@ export class MemoryAdminError extends Error {
 export abstract class MemoryAdmin {
   /** Há URL e token root configurados? Sem isso as ferramentas `memory_*` simplesmente não existem. */
   abstract isConfigured(): boolean;
+  /** O servidor de memória responde (sem usar o token root). */
+  abstract ping(): Promise<boolean>;
   /** Cria o usuário "humano" e DESCARTA a senha temporária. `created: false` se o username já existia. */
   abstract createHumanUser(input: { username: string; name?: string }): Promise<{ created: boolean }>;
   abstract findUser(username: string): Promise<MemoryUserInfo | null>;

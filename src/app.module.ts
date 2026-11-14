@@ -5,6 +5,14 @@ import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
 import { SeededProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
 import { MemoryProxy } from './application/memory/memory-proxy';
+import { DeviceAuthorizations } from './application/memory/device-authorizations';
+import { DeviceAuthorizationRepository, MemoryComputerDirectory, MemoryComputerRepository } from './application/memory/device-ports';
+import { InstallManifests, ManifestSource } from './application/memory/install-manifest';
+import { MemoryComputers } from './application/memory/memory-computers';
+import { MemoryWeb } from './application/web/memory-web.service';
+import { HttpManifestSource } from './infrastructure/memory/http-manifest-source';
+import { MemoryModule } from './interface/memory/memory.module';
+import { webEnv } from './interface/web/web-auth';
 import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUserRepository } from './application/memory/memory-ports';
 import { MemoryUsers } from './application/memory/memory-users';
 import { LiveSources } from './application/ports/live-source';
@@ -81,7 +89,7 @@ export function buildLiveSources(
 // Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
 @Global()
 @Module({
-  imports: [PersistenceModule, McpModule, WebModule],
+  imports: [PersistenceModule, McpModule, WebModule, MemoryModule],
   controllers: [HealthController, UsuariosController, FontesController, DownloadController],
   providers: [
     IdentityService,
@@ -114,8 +122,40 @@ export function buildLiveSources(
         mcp: MemoryMcp,
         registry: MemoryProjectRegistry,
         access: MemoryAccess,
-      ) => new MemoryProxy(admin, users, mcp, registry, access),
-      inject: [MemoryAdmin, MemoryUsers, MemoryMcp, MemoryProjectRegistry, MemoryAccess],
+        computers: MemoryComputerDirectory,
+      ) => new MemoryProxy(admin, users, mcp, registry, access, computers),
+      inject: [MemoryAdmin, MemoryUsers, MemoryMcp, MemoryProjectRegistry, MemoryAccess, MemoryComputerDirectory],
+    },
+    {
+      provide: MemoryComputers,
+      useFactory: (admin: MemoryAdmin, users: MemoryUsers, repo: MemoryComputerRepository) =>
+        new MemoryComputers(admin, users, repo),
+      inject: [MemoryAdmin, MemoryUsers, MemoryComputerRepository],
+    },
+    { provide: MemoryComputerDirectory, useExisting: MemoryComputers },
+    {
+      provide: DeviceAuthorizations,
+      useFactory: (repo: DeviceAuthorizationRepository) =>
+        new DeviceAuthorizations(repo, { webOrigin: () => webEnv().webOrigin }),
+      inject: [DeviceAuthorizationRepository],
+    },
+    { provide: ManifestSource, useFactory: () => HttpManifestSource.fromEnv() },
+    {
+      provide: InstallManifests,
+      useFactory: (source: ManifestSource) => new InstallManifests(source),
+      inject: [ManifestSource],
+    },
+    {
+      provide: MemoryWeb,
+      useFactory: (
+        device: DeviceAuthorizations,
+        computers: MemoryComputers,
+        users: MemoryUsers,
+        admin: MemoryAdmin,
+        directory: UserDirectory,
+      ) =>
+        new MemoryWeb(device, computers, users, admin, directory, MemoryWeb.parseAdminEmails(process.env.MEMORY_ADMIN_EMAILS)),
+      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, USER_DIRECTORY],
     },
     {
       provide: SourceRegistry,
@@ -136,6 +176,10 @@ export function buildLiveSources(
     MemoryAdmin,
     MemoryUsers,
     MemoryProxy,
+    MemoryComputers,
+    DeviceAuthorizations,
+    InstallManifests,
+    MemoryWeb,
     DownloadLinks,
     LiveSources,
     ...mcpExports,

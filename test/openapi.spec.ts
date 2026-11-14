@@ -22,6 +22,7 @@ import { FontesController } from "../src/interface/rest/fontes.controller";
 import { DownloadController } from "../src/interface/rest/download.controller";
 import { McpController } from "../src/interface/mcp/mcp.controller";
 import { OAuthController } from "../src/interface/mcp/oauth/oauth.controller";
+import { MemoryInstallerController } from "../src/interface/memory/memory.controllers";
 import { OpenApiController } from "../src/interface/web/openapi.controller";
 import { buildOpenApi, openApiJson } from "../src/interface/web/openapi";
 
@@ -34,6 +35,7 @@ const OUTSIDE_CONTRACT: Type[] = [
   FontesController,
   DownloadController,
   OpenApiController,
+  MemoryInstallerController,
 ];
 
 function controllersOf(mod: Type, seen = new Set<Type>()): Type[] {
