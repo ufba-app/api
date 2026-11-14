@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AuthCode, ChaveDoClientePort, OAuthClient, OAuthStore, PendingAuthorization, TokenRecord } from './oauth-ports';
-import { OAuthAccessTokenAuthenticator, OAuthService, splitToken } from './oauth.service';
+import { OAuthAccessTokenAuthenticator, OAuthError, OAuthService, splitToken } from './oauth.service';
 import { sha256Base64Url } from './pkce';
 
 const VERIFIER = 'a'.repeat(50);
@@ -156,5 +156,57 @@ describe('splitToken', () => {
     expect(splitToken('abc.' + K_B64).base).toBe('abc');
     expect(splitToken('abc').chave).toBeUndefined();
     expect(splitToken('abc.curto').chave).toBeUndefined();
+  });
+});
+
+describe('transação do /authorize (e state do Google): 15 min, uso único', () => {
+  function comRelogio() {
+    let agora = 1_000_000;
+    const { store } = montar();
+    const users = { findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })), findProfile: jest.fn(async () => null), deleteAccount: jest.fn(async () => undefined) };
+    const svc = new OAuthService(store, users, () => agora);
+    return { svc, avancar: (ms: number) => (agora += ms) };
+  }
+  const iniciar = async (svc: OAuthService) => {
+    const c = await svc.registerClient({ redirect_uris: [REDIRECT] });
+    return svc.begin({
+      response_type: 'code',
+      client_id: c.clientId,
+      redirect_uri: REDIRECT,
+      code_challenge: CHALLENGE,
+      code_challenge_method: 'S256',
+    });
+  };
+
+  it('vale por 15 min: aos 14min59s ainda abre; aos 15 min vence, dizendo que venceu', async () => {
+    const { svc, avancar } = comRelogio();
+    const p = await iniciar(svc);
+    avancar(14 * 60_000 + 59_000);
+    await expect(svc.pending(p.id)).resolves.toMatchObject({ id: p.id });
+    avancar(1_000);
+    const err = await svc.pending(p.id).catch((e) => e);
+    expect(err).toBeInstanceOf(OAuthError);
+    expect(err.error).toBe('invalid_request');
+    expect(err.message).toContain('transação expirada');
+    expect(err.message).toContain('vale 15 min');
+    avancar(5 * 60_000);
+    await expect((async () => svc.pending(p.id))()).rejects.toThrow('expirada há 5 min');
+  });
+
+  it('uso único: depois de concluída, o mesmo id não existe mais (mensagem diferente da de vencida)', async () => {
+    const { svc } = comRelogio();
+    const p = await iniciar(svc);
+    await svc.identify(p.id, 'a@b.com');
+    await svc.complete(p.id);
+    const err = await svc.pending(p.id).catch((e) => e);
+    expect(err.message).toContain('não encontrada ou já utilizada');
+    expect(err.message).not.toContain('expirada');
+    await expect(svc.complete(p.id)).rejects.toThrow('não encontrada ou já utilizada');
+  });
+
+  it('id que nunca existiu: mesma resposta de "já utilizada", sem revelar nada', async () => {
+    const { svc } = comRelogio();
+    await expect(svc.pending('inexistente')).rejects.toThrow('não encontrada ou já utilizada');
+    await expect(svc.pending(undefined)).rejects.toThrow('não encontrada ou já utilizada');
   });
 });

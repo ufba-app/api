@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Inject, Logger, Optional, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
 import { GOOGLE_LINK, GoogleLinkPort, OAUTH_STORE, OAuthStore } from '../../../application/oauth/oauth-ports';
@@ -20,6 +20,8 @@ const errorParam = (req: Request): string | undefined =>
  */
 @Controller()
 export class OAuthController {
+  private readonly log = new Logger(OAuthController.name);
+
   constructor(
     @Inject(OAUTH_SERVICE) private readonly oauth: OAuthService,
     @Inject(OAUTH_STORE) private readonly store: OAuthStore,
@@ -129,6 +131,8 @@ export class OAuthController {
       p = await this.oauth.pending(state);
       if (p.clientId !== WEB_CLIENT_ID) throw new OAuthError('invalid_request', 'Pedido de login inválido.', 400);
     } catch (e) {
+      // Só o motivo (texto fixo, sem id nem código): distingue "venceu" de "já usada" nos logs.
+      this.log.warn(`login web recusado na volta do Google: ${e instanceof OAuthError ? e.message : 'erro inesperado'}`);
       return this.webError(res, e);
     }
     // Login do app web: identifica e emite o code direto (cliente da casa, sem consentimento).

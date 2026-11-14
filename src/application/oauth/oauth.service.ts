@@ -20,6 +20,21 @@ const ACCESS_TOUCH_EVERY_MS = 10 * 60 * 1000;
 const CODE_TTL_MS = 5 * 60 * 1000;
 export const PENDING_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Erros da transação do /authorize (pedido em andamento). Dois motivos distintos, com mensagem própria e fixa (sem
+ * id nem dado de ninguém): venceu (vale 15 min) ou não existe mais (já foi usada: uso único, ou nunca existiu).
+ */
+function transacaoExpirada(atrasoMs: number): OAuthError {
+  const min = Math.max(1, Math.round(atrasoMs / 60_000));
+  return new OAuthError(
+    'invalid_request',
+    `transação expirada há ${min} min (ela vale ${PENDING_TTL_MS / 60_000} min); recomece a autorização`,
+  );
+}
+function transacaoNaoEncontrada(): OAuthError {
+  return new OAuthError('invalid_request', 'transação não encontrada ou já utilizada; recomece a autorização');
+}
+
 /** Quem resolve um client_id (registro dinâmico no banco, ou documento de metadados quando é uma URL https). */
 export interface ClientResolver {
   get(clientId: string): Promise<OAuthClient | null>;
@@ -139,9 +154,8 @@ export class OAuthService {
 
   async pending(id: string | undefined): Promise<PendingAuthorization> {
     const p = id ? await this.store.getPending(id) : null;
-    if (!p || p.expiresAt <= this.now()) {
-      throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
-    }
+    if (!p) throw transacaoNaoEncontrada();
+    if (p.expiresAt <= this.now()) throw transacaoExpirada(this.now() - p.expiresAt);
     return p;
   }
 
@@ -181,9 +195,9 @@ export class OAuthService {
     if (!current.userId) throw new OAuthError('access_denied', 'usuário não identificado', 403);
     // Uso único atômico: de duas conclusões simultâneas só uma emite code (e só ela leva a senha do cofre).
     const p = await this.store.takePending(id);
-    if (!p || !p.userId || p.userId !== current.userId || p.expiresAt <= this.now()) {
-      throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
-    }
+    if (!p) throw transacaoNaoEncontrada();
+    if (!p.userId || p.userId !== current.userId) throw transacaoNaoEncontrada();
+    if (p.expiresAt <= this.now()) throw transacaoExpirada(this.now() - p.expiresAt);
     const code = randomToken();
     await this.store.saveCode({
       code,
@@ -201,7 +215,7 @@ export class OAuthService {
   async deny(id: string): Promise<string> {
     await this.pending(id);
     const p = await this.store.takePending(id);
-    if (!p) throw new OAuthError('invalid_request', 'transação expirada ou inválida; recomece a autorização');
+    if (!p) throw transacaoNaoEncontrada();
     return this.redirectBack(p, { error: 'access_denied' });
   }
 
