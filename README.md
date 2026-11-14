@@ -15,6 +15,8 @@ Serviço aberto que reúne, num só lugar, os dados acadêmicos de quem estuda n
 
 A `main` é protegida: toda mudança entra por branch e pull request. Antes de abrir o PR, `npm run build` e `npm test` precisam passar. A regra de dependência entre camadas é verificada por teste (`test/architecture.spec.ts`).
 
+A memória compartilhada do time é https://memory.ufba.app (workspace `ufba-app`, projeto `api`). Para usar, defina `AI_MEMORY_KEY` com a sua chave `aim_` (gerada em https://memory.ufba.app/manage); o `.mcp.json` lê a variável e a chave nunca entra no repositório.
+
 Credenciais (senha do SIGAA, tokens, a chave K, cookies de sessão) nunca vão para log, mensagem de erro ou resposta. Não logue corpo de requisição. Senha ou token novo entra no código já como `Secret.of(...)`, e `reveal()` só é chamado onde o valor sai de fato (a requisição à fonte e a cifragem). Os testes canário garantem isso: se um deles quebrar, o problema é o log, não o teste.
 
 ## Licença
