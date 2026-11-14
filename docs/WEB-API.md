@@ -73,11 +73,11 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 ## 3. Segurança das chamadas
 
 - O web chama a API direto do navegador com `credentials: 'include'`.
-- CORS: só as origens da casa, `WEB_ORIGIN` (painel) e `AUTH_ORIGIN` (login e autorização), com `Access-Control-Allow-Credentials: true`.
+- CORS: só as origens da casa, `WEB_ORIGIN` (painel; **lista separada por vírgula**, a primeira é a principal, usada nos redirects da API para o painel) e `AUTH_ORIGIN` (login e autorização, único), com `Access-Control-Allow-Credentials: true`.
 - Toda rota que **muda estado** (POST/PUT/PATCH/DELETE) com cookie exige:
   - `Content-Type: application/json` (exceto DELETE sem corpo);
   - header `X-UFBA: 1`;
-  - `Origin` igual a `WEB_ORIGIN` ou `AUTH_ORIGIN`.
+  - `Origin` igual a uma das origens de `WEB_ORIGIN` ou a `AUTH_ORIGIN`.
   Senão → `403 csrf_rejected`.
 - As rotas de dados (seção 7) aceitam também `Authorization: Bearer <access token>` (clientes OAuth de terceiros);
   com Bearer não há checagem de CSRF.
@@ -230,8 +230,8 @@ Os tipos (`Course`, `Deadline`, `Activity`, `Discussion`, `Attachment`) estão n
 | var | exemplo | |
 |---|---|---|
 | `PUBLIC_URL` | `https://api.ufba.app` | URL pública da API |
-| `WEB_ORIGIN` | `https://ufba.app` | painel; liga o modo web (CORS, CSRF, cliente `ufba-web`) |
-| `AUTH_ORIGIN` | `https://auth.ufba.app` | telas de login e `/authorize`; `redirect_uri` do `ufba-web`. Opcional: sem ela, usa `WEB_ORIGIN` |
+| `WEB_ORIGIN` | `https://meu.ufba.app` | painel; liga o modo web (CORS, CSRF, cliente `ufba-web`). Lista separada por vírgula na transição (`https://meu.ufba.app,https://ufba.app`): a primeira é a principal, todas valem para CORS e CSRF. Validada no boot (https em produção, sem barra final, sem curinga) |
+| `AUTH_ORIGIN` | `https://auth.ufba.app` | telas de login e `/authorize`; `redirect_uri` do `ufba-web`. Opcional: sem ela, usa a origem principal de `WEB_ORIGIN` |
 | `HOST` | `0.0.0.0` | no Railway |
 | `DATABASE_URL`, `SECRETS_KEY`, `GOOGLE_*` | | como antes |
 

@@ -54,7 +54,7 @@ WEB_ORIGIN=http://localhost:3001 AUTH_ORIGIN=http://localhost:3002 PUBLIC_URL=ht
   node --env-file=.env dist/src/main.js
 ```
 
-Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`. Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`.
+Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`. Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`. `WEB_ORIGIN` aceita lista separada por vírgula (a primeira é a principal, usada nos redirects para o painel; todas valem para CORS e CSRF); `AUTH_ORIGIN` é único; ambos são validados no boot (https em produção, sem barra final, sem curinga).
 
 ## Camadas
 
@@ -70,7 +70,7 @@ Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`
 - **Senha do SIGAA:** cifrada com uma chave K que só existe dentro do token OAuth de cada cliente (`<random>.<K>`); o banco guarda o cifrado e o sha256 do token. O servidor sozinho não abre a senha. Login do SIGAA é sempre o CPF (11 dígitos).
 - **Moodle e Google:** tokens cifrados com `SECRETS_KEY`.
 - **Vínculo fixo conta ↔ fonte** (`domain/identity/source-binding.ts`, `application/identity/source-bindings.ts`): SIGAA pelo CPF normalizado; Moodle pelo id do usuário no AVA (`auth=shibboleth` e `username@ufba.br` igual ao e-mail de login). Só o HMAC do titular é gravado (chave derivada da `SECRETS_KEY`); o CPF nunca. Erros: `source_account_taken` (409), `source_account_mismatch` (409), `source_account_not_owned` (403).
-- **Origens:** CORS e checagem de `Origin` aceitam só `WEB_ORIGIN`, `AUTH_ORIGIN` e `PUBLIC_URL`. Rotas com cookie que mudam estado exigem `X-UFBA: 1`, `Origin` da casa e JSON no corpo (DELETE pode ir sem corpo). Cookie `__Host-ufba_session` em https e `ufba_session` em http; painel, auth e API precisam estar no mesmo site (`ufba.app`). Nunca use `*.up.railway.app`.
+- **Origens:** CORS e checagem de `Origin` aceitam só as origens de `WEB_ORIGIN` (lista), `AUTH_ORIGIN` e `PUBLIC_URL`. Painel hoje: `https://meu.ufba.app` (transição a partir de `https://ufba.app`). Rotas com cookie que mudam estado exigem `X-UFBA: 1`, `Origin` da casa e JSON no corpo (DELETE pode ir sem corpo). Cookie `__Host-ufba_session` em https e `ufba_session` em http; painel, auth e API precisam estar no mesmo site (`ufba.app`). Nunca use `*.up.railway.app`.
 
 ## Contrato OpenAPI
 
