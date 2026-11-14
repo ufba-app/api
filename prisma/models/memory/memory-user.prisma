@@ -1,0 +1,22 @@
+// Usuário da pessoa no ai-memory (memory.ufba.app). O `memoryUsername` é anônimo (`u<12 hex>`): o servidor de memória
+// não recebe e-mail. A chave de repasse (`ufba-proxy`) é a que o proxy do MCP usa em nome da pessoa; fica cifrada com
+// a SECRETS_KEY (mesma cifra dos tokens do Moodle/Google). Chaves dos computadores NÃO ficam aqui (só na máquina).
+model MemoryUser {
+  userId         String @id @map("user_id") @db.Uuid
+  memoryUsername String @unique @map("memory_username")
+  // creating -> ready (retomável se a criação cair no meio) | disabled
+  status         String
+
+  proxyCredentialId     String? @map("proxy_credential_id")
+  proxyKeyCiphertext    String? @map("proxy_key_ciphertext")
+  proxyKeyIv            String? @map("proxy_key_iv")
+  proxyKeyAuthTag       String? @map("proxy_key_auth_tag")
+
+  // Nome do Google enviado ao memory (colegas veem quem escreveu).
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("memory_users")
+}
