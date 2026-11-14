@@ -105,6 +105,10 @@ export class MemoryUserDirectory implements UserDirectory {
     }
     return { id };
   }
+  async findByEmail(email: string) {
+    const id = this.byEmail.get(email.trim().toLowerCase());
+    return id ? { id } : null;
+  }
   async findProfile(userId: string) {
     for (const [email, id] of this.byEmail) if (id === userId) return { id, email, name: null };
     return null;

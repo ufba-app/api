@@ -1,6 +1,7 @@
 import { DeviceAuthorizations } from '../memory/device-authorizations';
 import { ComputerView, MemoryComputers } from '../memory/memory-computers';
 import { MemoryAdmin } from '../memory/memory-ports';
+import { MemoryProjects } from '../memory/memory-projects';
 import { MemoryUsers } from '../memory/memory-users';
 import type { UserDirectory } from '../oauth/oauth-ports';
 import type { WebPrincipal } from './web-api';
@@ -20,6 +21,7 @@ export class MemoryWeb {
     private readonly users: MemoryUsers,
     private readonly admin: MemoryAdmin,
     private readonly directory: UserDirectory,
+    private readonly projects: MemoryProjects,
     /** E-mails de administradores (`MEMORY_ADMIN_EMAILS`), já em minúsculas. */
     private readonly adminEmails: ReadonlySet<string>,
   ) {}
@@ -50,6 +52,34 @@ export class MemoryWeb {
     if (this.adminEmails.size === 0) return false;
     const email = (await this.directory.findProfile(userId))?.email;
     return Boolean(email && this.adminEmails.has(email.toLowerCase()));
+  }
+
+  listProjects(p: WebPrincipal) {
+    return this.projects.list(p.userId);
+  }
+
+  createProject(p: WebPrincipal, name: string) {
+    return this.projects.create(p.userId, name);
+  }
+
+  projectDetail(p: WebPrincipal, id: string) {
+    return this.projects.detail(p.userId, id);
+  }
+
+  setMember(p: WebPrincipal, id: string, email: string, level: 'read' | 'write') {
+    return this.projects.setMember(p.userId, id, email, level);
+  }
+
+  removeMember(p: WebPrincipal, id: string, email: string) {
+    return this.projects.removeMember(p.userId, id, email);
+  }
+
+  transferProject(p: WebPrincipal, id: string, email: string) {
+    return this.projects.transfer(p.userId, id, email);
+  }
+
+  deleteProject(p: WebPrincipal, id: string) {
+    return this.projects.remove(p.userId, id);
   }
 
   list(p: WebPrincipal) {

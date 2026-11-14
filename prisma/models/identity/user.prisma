@@ -16,6 +16,8 @@ model User {
   sigaaCredentials SigaaCredential[]
   sourceBindings   SourceBinding[]
   memoryUser       MemoryUser?
+  ownedProjects    MemoryProject[]
+  projectMembers   MemoryProjectMember[]
 
   @@map("users")
 }

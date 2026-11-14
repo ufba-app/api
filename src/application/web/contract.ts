@@ -29,6 +29,10 @@ export const API_ERROR_CODES = [
   "computer_not_found",
   "memory_unavailable",
   "memory_forbidden",
+  "project_not_found",
+  "project_name_taken",
+  "not_project_owner",
+  "invalid_email_domain",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -182,6 +186,42 @@ export const MemoryStatusResponse = z.object({
   isAdmin: z.boolean(),
   computers: z.array(MemoryComputerView),
 });
+
+// ---- memória compartilhada: Meus projetos ----
+
+export const ProjectView = z.object({
+  id: z.string(),
+  workspace: z.string(),
+  project: z.string(),
+  title: z.string(),
+  /** Projeto do time (sem dono; permissões vêm dos papéis). */
+  team: z.boolean(),
+  role: z.enum(["owner", "read", "write"]),
+  source: z.enum(["owner", "invite", "team"]),
+  membersCount: z.number().int(),
+  /** `pending` = a memória ainda está sendo sincronizada (tentando de novo). */
+  sync: z.enum(["ok", "pending"]),
+});
+
+export const ProjectsResponse = z.object({ projects: z.array(ProjectView) });
+
+export const ProjectMember = z.object({
+  email: z.string(),
+  name: z.string().nullable(),
+  level: z.enum(["read", "write"]),
+  status: z.enum(["pending", "active"]),
+});
+
+export const ProjectDetail = ProjectView.extend({
+  /** Só o dono recebe a lista; os demais recebem vazio. */
+  members: z.array(ProjectMember),
+  /** Trecho do `.ai-memory.toml` para colar na raiz do repositório. */
+  marker: z.string(),
+});
+
+export const CreateProjectBody = z.object({ name: z.string().min(1).max(60) });
+export const MemberLevelBody = z.object({ level: z.enum(["read", "write"]) });
+export const TransferProjectBody = z.object({ email: z.string().min(3).max(200) });
 
 // ---- dados (leitura ao vivo) ----
 

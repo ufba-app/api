@@ -132,3 +132,112 @@ export class NoComputers extends MemoryComputerDirectory {
     return [];
   }
 }
+
+// ---- projetos (etapa 7) ----
+
+import {
+  MemberRecord,
+  MemoryProjectRepository,
+  MemorySyncJobRepository,
+  ProjectRecord,
+  SyncJobRecord,
+  TeamGrantSource,
+} from '../../src/application/memory/project-ports';
+
+export class InMemoryProjectRepo extends MemoryProjectRepository {
+  projects = new Map<string, ProjectRecord>();
+  members: MemberRecord[] = [];
+  async insert(p: ProjectRecord) {
+    if ([...this.projects.values()].some((x) => x.workspace === p.workspace && x.project === p.project)) return false;
+    this.projects.set(p.id, { ...p });
+    return true;
+  }
+  async find(id: string) {
+    return this.projects.get(id) ?? null;
+  }
+  async findByCoordinates(workspace: string, project: string) {
+    return [...this.projects.values()].find((x) => x.workspace === workspace && x.project === project) ?? null;
+  }
+  async listAll() {
+    return [...this.projects.values()];
+  }
+  async listForUser(userId: string) {
+    return [...this.projects.values()].filter(
+      (p) => p.ownerId === userId || this.members.some((m) => m.projectId === p.id && m.userId === userId && m.status === 'active'),
+    );
+  }
+  async listOwnedBy(userId: string) {
+    return [...this.projects.values()].filter((p) => p.ownerId === userId);
+  }
+  async titleTakenBy(ownerId: string, title: string) {
+    return [...this.projects.values()].some((p) => p.ownerId === ownerId && p.title.toLowerCase() === title.toLowerCase());
+  }
+  async delete(id: string) {
+    this.projects.delete(id);
+    this.members = this.members.filter((m) => m.projectId !== id);
+  }
+  async setOwner(id: string, ownerId: string) {
+    this.projects.get(id)!.ownerId = ownerId;
+  }
+  async listMembers(projectId: string) {
+    return this.members.filter((m) => m.projectId === projectId).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async findMember(projectId: string, email: string) {
+    return this.members.find((m) => m.projectId === projectId && m.email === email) ?? null;
+  }
+  async upsertMember(m: MemberRecord) {
+    const i = this.members.findIndex((x) => x.projectId === m.projectId && x.email === m.email);
+    if (i >= 0) this.members[i] = { ...this.members[i], userId: m.userId, level: m.level, status: m.status, invitedBy: m.invitedBy };
+    else this.members.push({ ...m });
+  }
+  async deleteMember(projectId: string, email: string) {
+    this.members = this.members.filter((m) => !(m.projectId === projectId && m.email === email));
+  }
+  async listMembershipsOf(userId: string) {
+    return this.members.filter((m) => m.userId === userId);
+  }
+  async listPendingByEmail(email: string) {
+    return this.members.filter((m) => m.email === email && m.status === 'pending');
+  }
+  async bindMember(projectId: string, email: string, userId: string) {
+    const m = this.members.find((x) => x.projectId === projectId && x.email === email && x.status === 'pending');
+    if (m) Object.assign(m, { userId, status: 'active' });
+  }
+  async listInvolvedUserIds() {
+    return [
+      ...new Set([
+        ...[...this.projects.values()].map((p) => p.ownerId),
+        ...this.members.filter((m) => m.status === 'active').map((m) => m.userId),
+      ].filter((x): x is string => Boolean(x))),
+    ];
+  }
+}
+
+export class InMemorySyncJobRepo extends MemorySyncJobRepository {
+  jobs = new Map<string, SyncJobRecord>();
+  async schedule(userId: string, attempts: number, nextRunAt: Date, lastError: string | null) {
+    this.jobs.set(userId, { userId, attempts, nextRunAt, lastError });
+  }
+  async clear(userId: string) {
+    this.jobs.delete(userId);
+  }
+  async find(userId: string) {
+    return this.jobs.get(userId) ?? null;
+  }
+  async listDue(now: Date, limit: number) {
+    return [...this.jobs.values()].filter((j) => j.nextRunAt <= now).slice(0, limit);
+  }
+  async listAll(limit: number) {
+    return [...this.jobs.values()].slice(0, limit);
+  }
+}
+
+export class StubTeamGrants extends TeamGrantSource {
+  grants = new Map<string, { projectId: string; level: 'read' | 'write' }[]>();
+  async grantsFor(userId: string) {
+    return this.grants.get(userId) ?? [];
+  }
+  async involvedUserIds() {
+    return [...this.grants.keys()];
+  }
+}

@@ -1,5 +1,6 @@
 import type { OAuthStore, UserDirectory } from '../oauth/oauth-ports';
 import { OAuthError, type OAuthService } from '../oauth/oauth.service';
+import type { AccountDeparture } from '../memory/memory-departure';
 import type { CofreSigaa } from '../sigaa/cofre-sigaa';
 import type { ConnectionStatus } from './connection-status';
 import { ApiError, sessionExpired, WEB_CLIENT_ID, type Me, type WebPrincipal } from './web-api';
@@ -15,6 +16,8 @@ export class WebSessionService {
     /** Origem das telas de login (`AUTH_ORIGIN`, ou o painel). */
     private readonly authOrigin: string,
     private readonly now: () => number = Date.now,
+    /** Memória compartilhada: o que fazer antes de excluir a conta. */
+    private readonly departure?: AccountDeparture,
   ) {}
 
   webRedirectUri(): string {
@@ -58,6 +61,8 @@ export class WebSessionService {
    * as fontes. É o único jeito de trocar o SIGAA ou o AVA ligados à conta.
    */
   async deleteAccount(p: WebPrincipal): Promise<void> {
+    // Memória compartilhada: revoga chaves, entrega ou apaga projetos e desativa o usuário ANTES de apagar a pessoa.
+    await this.departure?.run(p.userId);
     await this.users.deleteAccount(p.userId);
   }
 

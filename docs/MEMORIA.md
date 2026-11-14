@@ -12,7 +12,8 @@ Desenho: `docs/specs/2026-11-14-memoria-ufba.md`; resultado do spike e correçõ
 | 4 | telas `/device` e Computadores conectados (web) | em andamento (outro agente) |
 | 5 | instaladores e imagem do memory (repo `memory`) | em andamento (outro agente) |
 | 6 | `memory_connect_computer` e prompt `conectar-computador` | feito |
-| 7 a 9 | projetos, papéis, endurecimento | a fazer |
+| 7 | Meus projetos, reconciliador, `DELETE /me` | feito |
+| 8 a 9 | papéis do time e Administração, endurecimento | a fazer |
 
 ## Configuração (só nomes)
 
@@ -68,6 +69,14 @@ Rotas do web (no `openapi.json`, prefixo `/web`): `device/lookup`, `device/decis
 
 - `MEMORY_ADMIN_EMAILS`: e-mails (separados por vírgula) dos administradores; hoje só alimenta `isAdmin` em `GET /web/memory/status` (a Administração é a etapa 8).
 - `MEMORY_INSTALL_MANIFEST_URL`: ver acima.
+
+## Meus projetos, reconciliação e saída da conta (etapa 7)
+
+- **Dados:** `memory_projects` (identificador estável `<slug>-<4 hex>` em `ufba-alunos`; `ownerId` nulo = projeto do time, semeado na migração com `ufba-app/{api,web,docs}`), `memory_project_members` (convite direto; `pending` até a pessoa ter conta) e `memory_sync_jobs`. "Pessoal" não é um tipo guardado: é o projeto de dono sem outro membro ativo, calculado na hora.
+- **Rotas do web** (contrato, prefixo `/web/memory/projects`): `GET` e `POST` (cria; a pessoa vira dona; 409 `project_name_taken`), `GET {id}` (dono vê membros; os demais, só o resumo; traz o trecho do `.ai-memory.toml`), `PUT {id}/members/{email}` (convida ou muda o nível; só `@ufba.br`, 400 `invalid_email_domain`), `DELETE {id}/members/{email}` (dono remove; membro sai), `POST {id}/transfer` (só para membro ativo com escrita; quem transferiu fica com escrita), `DELETE {id}` (apaga no memory e aqui). Só o dono gerencia (403 `not_project_owner`; quem não participa recebe 404).
+- **Reconciliador** (`GrantReconciler`): por pessoa, nível efetivo = o MAIOR entre dono, convite e papel do time (`TeamGrantSource`, vazio até a etapa 8); compara com `GET /admin/users/{u}/grants` e emite só o que diverge, sempre com o projeto `restricted` antes do primeiro grant. Só mexe em projetos gerenciados. Roda ao mudar convite/papel, no primeiro uso do MCP (no máximo a cada 5 min por pessoa) e na varredura de 10 min (`MemoryScheduler` → `MemoryMaintenance`: projetos do time `restricted` no memory, revoga chave de computador não confirmada, retenta jobs, reconcilia quem tem acesso). Falha vira job com backoff (30 s até 30 min) e a tela mostra `sync: pending`. `MEMORY_SCHEDULER=off` desliga o agendador.
+- **S12:** o proxy só aceita projeto registrado em `memory_projects` (`DbProjectRegistry`); `unknownProjects()` lista o que existe no memory em `ufba-*` e a ufba.app não conhece (a Administração, etapa 8, mostra).
+- **`DELETE /me`** (`MemoryDeparture`, antes de apagar a pessoa): (1) revoga chaves de computador e de repasse; (2) projeto só dela é apagado no memory e aqui; (3) projeto compartilhado passa ao membro ativo mais antigo com escrita (sem escrita, ao ativo mais antigo; o conteúdo fica); (4) convites e grants dela saem; (5) usuário no memory vira "Ex-participante" e é desativado. Falha do memory interrompe a exclusão (503 `memory_unavailable`) e cada passo é idempotente. Sem memory configurado, só a parte do banco roda.
 
 ## Fatos do ai-memory que o código assume (spike)
 

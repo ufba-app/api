@@ -13,6 +13,7 @@ import {
 } from './memory-ports';
 import { isForwardable } from './memory-tool-policy';
 import { MemoryUsers } from './memory-users';
+import { MemoryGrantSync } from './project-ports';
 import { RateWindow } from './rate-window';
 
 export const MEMORY_INSTRUCTIONS =
@@ -64,7 +65,11 @@ function hasScope(tool: RemoteTool): boolean {
 export interface ProxyOptions {
   now?: () => number;
   callsPerMinute?: number;
+  /** Reconciliador de acessos, chamado no máximo a cada 5 min por pessoa (convites e papéis valem no primeiro uso). */
+  sync?: MemoryGrantSync;
 }
+
+const SYNC_EVERY_MS = 5 * 60_000;
 
 /**
  * Proxy das ferramentas `memory_*`: lista de permissão por nome, escopo explícito e registrado, limites e chave de
@@ -76,6 +81,8 @@ export class MemoryProxy {
   private catalog: { tools: RemoteTool[]; at: number } | null = null;
   private readonly rate: RateWindow;
   private readonly now: () => number;
+  private readonly grants?: MemoryGrantSync;
+  private readonly syncedAt = new Map<string, number>();
 
   constructor(
     private readonly admin: MemoryAdmin,
@@ -87,6 +94,7 @@ export class MemoryProxy {
     opts: ProxyOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.grants = opts.sync;
     this.rate = new RateWindow(opts.callsPerMinute ?? CALLS_PER_MINUTE, 60_000, this.now);
   }
 
@@ -99,6 +107,7 @@ export class MemoryProxy {
     if (!this.enabled() || !(await this.access.canUse(userId))) return [];
     try {
       await this.users.ensure(userId);
+      await this.syncGrants(userId);
       return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL, ...(await this.remoteTools(userId))];
     } catch {
       return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL];
@@ -121,11 +130,22 @@ export class MemoryProxy {
     if (name === MEMORY_CONNECT_TOOL.name) return { content: [{ type: 'text', text: connectComputerGuide(args.os) }] };
     try {
       await this.users.ensure(userId);
+      await this.syncGrants(userId);
       return name === 'memory_status' ? await this.status(userId) : await this.forward(userId, name, args);
     } catch (e) {
       if (name === 'memory_status') return this.statusDown();
       return failure(e instanceof MemoryAdminError && e.kind === 'forbidden' ? MSG.refused : MSG.unavailable);
     }
+  }
+
+  /** Põe os acessos em dia (convites aceitos, papéis novos) sem travar a chamada se o reconciliador falhar. */
+  private async syncGrants(userId: string): Promise<void> {
+    if (!this.grants) return;
+    const t = this.now();
+    const last = this.syncedAt.get(userId);
+    if (last !== undefined && t - last < SYNC_EVERY_MS) return;
+    this.syncedAt.set(userId, t);
+    await this.grants.syncUser(userId).catch(() => undefined);
   }
 
   private async forward(userId: string, name: string, args: Record<string, unknown>): Promise<RemoteToolResult> {

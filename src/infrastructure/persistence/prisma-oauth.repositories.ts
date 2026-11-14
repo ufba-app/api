@@ -234,6 +234,10 @@ export class PrismaUserDirectory implements UserDirectory {
     return { id: user.id };
   }
 
+  async findByEmail(email: string): Promise<{ id: string } | null> {
+    return this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() }, select: { id: true } });
+  }
+
   async findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null> {
     return this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } });
   }

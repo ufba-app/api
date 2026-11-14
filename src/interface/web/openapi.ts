@@ -11,7 +11,7 @@ extendZodWithOpenApi(z);
 /** Versão do contrato: suba em mudança que quebra cliente. */
 export const CONTRACT_VERSION = "1.0.0";
 
-type Method = "get" | "post" | "delete" | "patch";
+type Method = "get" | "post" | "delete" | "patch" | "put";
 type Auth = "session" | "data" | "optional" | "none";
 
 interface Route {
@@ -246,6 +246,78 @@ export const ROUTES: Route[] = [
     tag: "memory",
     auth: "session",
     summary: "Desconectar um computador (revoga a chave dele)",
+    params: { id: z.string() },
+    ok: [204, null],
+  },
+  // memória compartilhada: Meus projetos
+  {
+    id: "listMemoryProjects",
+    method: "get",
+    path: "/web/memory/projects",
+    tag: "memory",
+    auth: "session",
+    summary: "Projetos de que a pessoa participa (dona, convidada ou do time)",
+    ok: [200, C.ProjectsResponse],
+  },
+  {
+    id: "createMemoryProject",
+    method: "post",
+    path: "/web/memory/projects",
+    tag: "memory",
+    auth: "session",
+    summary: "Cria um projeto (a pessoa vira dona)",
+    body: C.CreateProjectBody,
+    ok: [201, C.ProjectView],
+  },
+  {
+    id: "getMemoryProject",
+    method: "get",
+    path: "/web/memory/projects/{id}",
+    tag: "memory",
+    auth: "session",
+    summary: "Detalhe do projeto, com membros (só para o dono) e o trecho do marcador",
+    params: { id: z.string() },
+    ok: [200, C.ProjectDetail],
+  },
+  {
+    id: "setMemoryProjectMember",
+    method: "put",
+    path: "/web/memory/projects/{id}/members/{email}",
+    tag: "memory",
+    auth: "session",
+    summary: "Convida ou muda o nível de um e-mail @ufba.br (só o dono)",
+    params: { id: z.string(), email: z.string() },
+    body: C.MemberLevelBody,
+    ok: [204, null],
+  },
+  {
+    id: "removeMemoryProjectMember",
+    method: "delete",
+    path: "/web/memory/projects/{id}/members/{email}",
+    tag: "memory",
+    auth: "session",
+    summary: "Remove um membro (dono) ou sai do projeto (o próprio e-mail)",
+    params: { id: z.string(), email: z.string() },
+    ok: [204, null],
+  },
+  {
+    id: "transferMemoryProject",
+    method: "post",
+    path: "/web/memory/projects/{id}/transfer",
+    tag: "memory",
+    auth: "session",
+    summary: "Passa a posse a um membro com escrita",
+    params: { id: z.string() },
+    body: C.TransferProjectBody,
+    ok: [204, null],
+  },
+  {
+    id: "deleteMemoryProject",
+    method: "delete",
+    path: "/web/memory/projects/{id}",
+    tag: "memory",
+    auth: "session",
+    summary: "Apaga o projeto e o conteúdo dele no memory (só o dono)",
     params: { id: z.string() },
     ok: [204, null],
   },

@@ -1,11 +1,19 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Req, UseFilters, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Req, UseFilters, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { DeviceAuthorizations } from '../../application/memory/device-authorizations';
 import { InstallManifests, ManifestUnavailable } from '../../application/memory/install-manifest';
 import { memoryPublicUrl } from '../../application/memory/memory-defaults';
 import { MemoryComputers } from '../../application/memory/memory-computers';
-import { DeviceCodeBody, DeviceDecisionBody, parseInput, RenameComputerBody } from '../../application/web/contract';
+import {
+  CreateProjectBody,
+  DeviceCodeBody,
+  DeviceDecisionBody,
+  MemberLevelBody,
+  parseInput,
+  RenameComputerBody,
+  TransferProjectBody,
+} from '../../application/web/contract';
 import { MemoryWeb } from '../../application/web/memory-web.service';
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { ApiErrorFilter } from '../web/api-error.filter';
@@ -87,6 +95,56 @@ export class MemoryWebController {
   @HttpCode(204)
   async revoke(@Principal() p: WebPrincipal | null, @Param('id') id: string): Promise<void> {
     await this.memory.revoke(must(p), id);
+  }
+
+  // ---- Meus projetos ----
+
+  @Get('memory/projects')
+  @Header('Cache-Control', 'no-store')
+  async projects(@Principal() p: WebPrincipal | null) {
+    return { projects: await this.memory.listProjects(must(p)) };
+  }
+
+  @Post('memory/projects')
+  @HttpCode(201)
+  @Header('Cache-Control', 'no-store')
+  createProject(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    return this.memory.createProject(must(p), parseInput(CreateProjectBody, b, invalidRequest).name);
+  }
+
+  @Get('memory/projects/:id')
+  @Header('Cache-Control', 'no-store')
+  project(@Principal() p: WebPrincipal | null, @Param('id') id: string) {
+    return this.memory.projectDetail(must(p), id);
+  }
+
+  @Put('memory/projects/:id/members/:email')
+  @HttpCode(204)
+  async setMember(
+    @Principal() p: WebPrincipal | null,
+    @Param('id') id: string,
+    @Param('email') email: string,
+    @Body() b: unknown,
+  ): Promise<void> {
+    await this.memory.setMember(must(p), id, email, parseInput(MemberLevelBody, b, invalidRequest).level);
+  }
+
+  @Delete('memory/projects/:id/members/:email')
+  @HttpCode(204)
+  async removeMember(@Principal() p: WebPrincipal | null, @Param('id') id: string, @Param('email') email: string): Promise<void> {
+    await this.memory.removeMember(must(p), id, email);
+  }
+
+  @Post('memory/projects/:id/transfer')
+  @HttpCode(204)
+  async transfer(@Principal() p: WebPrincipal | null, @Param('id') id: string, @Body() b: unknown): Promise<void> {
+    await this.memory.transferProject(must(p), id, parseInput(TransferProjectBody, b, invalidRequest).email);
+  }
+
+  @Delete('memory/projects/:id')
+  @HttpCode(204)
+  async deleteProject(@Principal() p: WebPrincipal | null, @Param('id') id: string): Promise<void> {
+    await this.memory.deleteProject(must(p), id);
   }
 }
 

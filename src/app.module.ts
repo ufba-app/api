@@ -3,7 +3,13 @@ import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
-import { SeededProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
+import { DbProjectRegistry, NoTeamGrants, OpenMemoryAccess } from './application/memory/memory-defaults';
+import { GrantReconciler } from './application/memory/grant-reconciler';
+import { AccountDeparture, MemoryDeparture } from './application/memory/memory-departure';
+import { MemoryMaintenance } from './application/memory/memory-maintenance';
+import { MemoryProjects } from './application/memory/memory-projects';
+import { MemoryGrantSync, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource } from './application/memory/project-ports';
+import { MemoryScheduler } from './infrastructure/memory/memory-scheduler';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { DeviceAuthorizations } from './application/memory/device-authorizations';
 import { DeviceAuthorizationRepository, MemoryComputerDirectory, MemoryComputerRepository } from './application/memory/device-ports';
@@ -112,7 +118,74 @@ export function buildLiveSources(
       inject: [MemoryAdmin, MemoryUserRepository, SecretCipher, USER_DIRECTORY],
     },
     { provide: MemoryMcp, useFactory: () => MemoryMcpClient.fromEnv() },
-    { provide: MemoryProjectRegistry, useFactory: () => new SeededProjectRegistry() },
+    {
+      provide: MemoryProjectRegistry,
+      useFactory: (projects: MemoryProjectRepository) => new DbProjectRegistry(projects),
+      inject: [MemoryProjectRepository],
+    },
+    // Papéis do time (etapa 8 troca por tabelas): até lá, ninguém recebe acesso por papel.
+    { provide: TeamGrantSource, useFactory: () => new NoTeamGrants() },
+    {
+      provide: GrantReconciler,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        team: TeamGrantSource,
+        directory: UserDirectory,
+      ) =>
+        new GrantReconciler({
+          admin,
+          users,
+          projects,
+          jobs,
+          team,
+          emailOf: async (id) => (await directory.findProfile(id))?.email ?? null,
+        }),
+      inject: [MemoryAdmin, MemoryUsers, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource, USER_DIRECTORY],
+    },
+    { provide: MemoryGrantSync, useExisting: GrantReconciler },
+    {
+      provide: MemoryProjects,
+      useFactory: (
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        reconciler: GrantReconciler,
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        directory: UserDirectory,
+      ) =>
+        new MemoryProjects({
+          projects,
+          jobs,
+          reconciler,
+          admin,
+          users,
+          directory,
+          domain: (process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br').toLowerCase(),
+        }),
+      inject: [MemoryProjectRepository, MemorySyncJobRepository, GrantReconciler, MemoryAdmin, MemoryUsers, USER_DIRECTORY],
+    },
+    {
+      provide: MemoryDeparture,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        computers: MemoryComputers,
+        projects: MemoryProjectRepository,
+        service: MemoryProjects,
+        reconciler: GrantReconciler,
+      ) => new MemoryDeparture(admin, users, computers, projects, service, reconciler),
+      inject: [MemoryAdmin, MemoryUsers, MemoryComputers, MemoryProjectRepository, MemoryProjects, GrantReconciler],
+    },
+    { provide: AccountDeparture, useExisting: MemoryDeparture },
+    {
+      provide: MemoryMaintenance,
+      useFactory: (reconciler: GrantReconciler, computers: MemoryComputers) => new MemoryMaintenance(reconciler, computers),
+      inject: [GrantReconciler, MemoryComputers],
+    },
+    MemoryScheduler,
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
     {
       provide: MemoryProxy,
@@ -123,8 +196,17 @@ export function buildLiveSources(
         registry: MemoryProjectRegistry,
         access: MemoryAccess,
         computers: MemoryComputerDirectory,
-      ) => new MemoryProxy(admin, users, mcp, registry, access, computers),
-      inject: [MemoryAdmin, MemoryUsers, MemoryMcp, MemoryProjectRegistry, MemoryAccess, MemoryComputerDirectory],
+        sync: MemoryGrantSync,
+      ) => new MemoryProxy(admin, users, mcp, registry, access, computers, { sync }),
+      inject: [
+        MemoryAdmin,
+        MemoryUsers,
+        MemoryMcp,
+        MemoryProjectRegistry,
+        MemoryAccess,
+        MemoryComputerDirectory,
+        MemoryGrantSync,
+      ],
     },
     {
       provide: MemoryComputers,
@@ -153,9 +235,18 @@ export function buildLiveSources(
         users: MemoryUsers,
         admin: MemoryAdmin,
         directory: UserDirectory,
+        projects: MemoryProjects,
       ) =>
-        new MemoryWeb(device, computers, users, admin, directory, MemoryWeb.parseAdminEmails(process.env.MEMORY_ADMIN_EMAILS)),
-      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, USER_DIRECTORY],
+        new MemoryWeb(
+          device,
+          computers,
+          users,
+          admin,
+          directory,
+          projects,
+          MemoryWeb.parseAdminEmails(process.env.MEMORY_ADMIN_EMAILS),
+        ),
+      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, USER_DIRECTORY, MemoryProjects],
     },
     {
       provide: SourceRegistry,
@@ -180,6 +271,9 @@ export function buildLiveSources(
     DeviceAuthorizations,
     InstallManifests,
     MemoryWeb,
+    MemoryProjects,
+    GrantReconciler,
+    AccountDeparture,
     DownloadLinks,
     LiveSources,
     ...mcpExports,

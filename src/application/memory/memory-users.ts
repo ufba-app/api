@@ -44,6 +44,21 @@ export class MemoryUsers {
     return (await this.repo.find(userId))?.status === 'ready';
   }
 
+  async isDisabled(userId: string): Promise<boolean> {
+    return (await this.repo.find(userId))?.status === 'disabled';
+  }
+
+  /** Revoga a chave de repasse (exclusão de conta). Credencial que já não existe no memory não é erro. */
+  async revokeProxyKey(userId: string): Promise<void> {
+    const row = await this.repo.find(userId);
+    if (!row?.proxyCredentialId) return;
+    try {
+      await this.admin.revokeCredential(row.proxyCredentialId);
+    } catch (e) {
+      if (!(e instanceof MemoryAdminError && e.kind === 'not_found')) throw e;
+    }
+  }
+
   /** A chave de repasse aberta, só para o proxy do MCP e para chamadas em nome da pessoa. */
   async proxyKey(userId: string): Promise<Secret> {
     const row = await this.repo.find(userId);

@@ -29,7 +29,9 @@ import {
   type SigaaCredentialRecord,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
+import { MemoryProjectRepository } from '../src/application/memory/project-ports';
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
+import { InMemoryProjectRepo } from './support/memory-fakes';
 import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
@@ -162,6 +164,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(sigaa)
       .overrideProvider(MOODLE_LINK)
       .useValue(moodle)
+      .overrideProvider(MemoryProjectRepository)
+      .useValue(new InMemoryProjectRepo())
       .overrideProvider(UserRepository)
       .useValue({})
       .overrideProvider(ApiKeyRepository)

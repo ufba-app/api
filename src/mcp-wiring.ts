@@ -45,6 +45,7 @@ import { AuthenticatorsMcpAuth } from './interface/mcp/mcp-auth';
 import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
 import { MCP_AUTH, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
 import { MemoryProxy } from './application/memory/memory-proxy';
+import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
 
 /** Token do autenticador de access token OAuth (entra em AUTHENTICATORS junto da chave de API). */
@@ -86,9 +87,15 @@ export const mcpProviders: Provider[] = [
   },
   {
     provide: WebSessionService,
-    useFactory: (oauth: OAuthService, store: OAuthStore, users: UserDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
-      new WebSessionService(oauth, store, users, cofre, status, webEnv().authOrigin),
-    inject: [OAUTH_SERVICE, OAUTH_STORE, USER_DIRECTORY, CofreSigaa, ConnectionStatus],
+    useFactory: (
+      oauth: OAuthService,
+      store: OAuthStore,
+      users: UserDirectory,
+      cofre: CofreSigaa,
+      status: ConnectionStatus,
+      departure: AccountDeparture,
+    ) => new WebSessionService(oauth, store, users, cofre, status, webEnv().authOrigin, Date.now, departure),
+    inject: [OAUTH_SERVICE, OAUTH_STORE, USER_DIRECTORY, CofreSigaa, ConnectionStatus, AccountDeparture],
   },
   {
     provide: ConnectionsService,
