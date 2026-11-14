@@ -10,7 +10,8 @@ import type {
   TipoAtividade,
 } from '../../application/ports/live-source';
 import type { Provider } from '../../application/ports/source-gateway';
-import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
+import { AccountQuery, AttachmentQuery, CoursesQuery, parseInput } from '../../application/web/contract';
+import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { contentDisposition } from '../rest/download.controller';
 import { ApiErrorFilter } from './api-error.filter';
 import { DataGuard, Principal } from './web-auth';
@@ -116,15 +117,16 @@ export class DataController {
   async courses(
     @Principal() p: WebPrincipal | null,
     @Param('source') source: string,
-    @Query('account') acc?: string,
-    @Query('all') all?: string,
+    @Query() q?: unknown,
   ) {
+    const { account: acc, all } = parseInput(CoursesQuery, q, invalidRequest);
     const list = await this.consulta.listarCursos(quem(p), provider(source), account(acc), { todas: all === 'true' });
     return { courses: list.map(toCourse) };
   }
 
   @Get('sources/:source/deadlines')
-  async deadlines(@Principal() p: WebPrincipal | null, @Param('source') source: string, @Query('account') acc?: string) {
+  async deadlines(@Principal() p: WebPrincipal | null, @Param('source') source: string, @Query() q?: unknown) {
+    const acc = parseInput(AccountQuery, q, invalidRequest).account;
     const list = await this.consulta.prazos(quem(p), provider(source), account(acc));
     return { deadlines: list.map(toDeadline) };
   }
@@ -134,8 +136,9 @@ export class DataController {
     @Principal() p: WebPrincipal | null,
     @Param('source') source: string,
     @Param('courseId') courseId: string,
-    @Query('account') acc?: string,
+    @Query() q?: unknown,
   ) {
+    const acc = parseInput(AccountQuery, q, invalidRequest).account;
     const list = await this.consulta.verCurso(quem(p), provider(source), account(acc), courseId);
     return { courseId, activities: list.map(toActivity) };
   }
@@ -145,8 +148,9 @@ export class DataController {
     @Principal() p: WebPrincipal | null,
     @Param('source') source: string,
     @Param('forumId') forumId: string,
-    @Query('account') acc?: string,
+    @Query() q?: unknown,
   ) {
+    const acc = parseInput(AccountQuery, q, invalidRequest).account;
     const list = await this.consulta.verForum(quem(p), provider(source), account(acc), forumId);
     return { forumId, discussions: list.map(toDiscussion) };
   }
@@ -156,8 +160,9 @@ export class DataController {
     @Principal() p: WebPrincipal | null,
     @Param('source') source: string,
     @Param('id') id: string,
-    @Query('account') acc?: string,
+    @Query() q?: unknown,
   ) {
+    const acc = parseInput(AccountQuery, q, invalidRequest).account;
     return { announcement: toDiscussion(await this.consulta.verAviso(quem(p), provider(source), account(acc), id)) };
   }
 
@@ -165,12 +170,12 @@ export class DataController {
   async attachment(
     @Principal() p: WebPrincipal | null,
     @Param('source') source: string,
-    @Query('ref') ref: string,
-    @Query('name') name: string | undefined,
-    @Query('account') acc: string | undefined,
+    @Query() q: unknown,
     @Res() res: Response,
   ): Promise<void> {
-    if (!ref) throw new ApiError(400, 'invalid_request', 'Informe o anexo (ref).');
+    const { ref, name, account: acc } = parseInput(AttachmentQuery, q, () =>
+      new ApiError(400, 'invalid_request', 'Informe o anexo (ref).'),
+    );
     const f = await this.consulta.baixar(quem(p), provider(source), account(acc), ref);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', f.mimeType);

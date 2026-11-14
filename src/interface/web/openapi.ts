@@ -1,0 +1,395 @@
+import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV31,
+  extendZodWithOpenApi,
+} from "@asteasolutions/zod-to-openapi";
+import { z, type ZodTypeAny } from "zod";
+import * as C from "../../application/web/contract";
+
+extendZodWithOpenApi(z);
+
+/** Versão do contrato: suba em mudança que quebra cliente. */
+export const CONTRACT_VERSION = "1.0.0";
+
+type Method = "get" | "post" | "delete";
+type Auth = "session" | "data" | "optional" | "none";
+
+interface Route {
+  /** operationId (nome da função no cliente gerado). */
+  id: string;
+  method: Method;
+  path: string;
+  summary: string;
+  tag: string;
+  auth: Auth;
+  params?: Record<string, ZodTypeAny>;
+  query?: z.AnyZodObject;
+  body?: ZodTypeAny;
+  /** Status de sucesso e corpo (sem corpo = `null`). */
+  ok: [number, ZodTypeAny | null] | [number, "redirect" | "binary" | "image"];
+}
+
+const source = { source: C.SourceName };
+
+/** Todas as rotas do contrato. O teste `openapi.spec.ts` falha se o Nest tiver rota fora daqui (ou o contrário). */
+export const ROUTES: Route[] = [
+  // sessão
+  {
+    id: "createSession",
+    method: "post",
+    path: "/session",
+    tag: "session",
+    auth: "none",
+    summary: "Troca o code do login (PKCE) pelo cookie de sessão",
+    body: C.CreateSessionBody,
+    ok: [204, null],
+  },
+  {
+    id: "signOut",
+    method: "delete",
+    path: "/session",
+    tag: "session",
+    auth: "session",
+    summary: "Sair",
+    ok: [204, null],
+  },
+  {
+    id: "getMe",
+    method: "get",
+    path: "/me",
+    tag: "session",
+    auth: "session",
+    summary: "Quem está logado e o estado das conexões",
+    ok: [200, C.Me],
+  },
+  {
+    id: "deleteAccount",
+    method: "delete",
+    path: "/me",
+    tag: "session",
+    auth: "session",
+    summary: "Excluir a conta (único jeito de trocar o SIGAA ou o AVA ligados)",
+    ok: [204, null],
+  },
+  // conexões
+  {
+    id: "connectSigaa",
+    method: "post",
+    path: "/connections/sigaa",
+    tag: "connections",
+    auth: "session",
+    summary: "Conectar o SIGAA (CPF e senha)",
+    body: C.ConnectSigaaBody,
+    ok: [204, null],
+  },
+  {
+    id: "disconnectSigaa",
+    method: "delete",
+    path: "/connections/sigaa",
+    tag: "connections",
+    auth: "session",
+    summary: "Desconectar o SIGAA (o vínculo com o CPF fica)",
+    ok: [204, null],
+  },
+  {
+    id: "startMoodle",
+    method: "post",
+    path: "/connections/moodle/start",
+    tag: "connections",
+    auth: "session",
+    summary: "Link para abrir o login do AVA",
+    ok: [200, C.MoodleStartResponse],
+  },
+  {
+    id: "connectMoodle",
+    method: "post",
+    path: "/connections/moodle",
+    tag: "connections",
+    auth: "session",
+    summary: "Conectar o Moodle com o link capturado",
+    body: C.ConnectMoodleBody,
+    ok: [204, null],
+  },
+  {
+    id: "disconnectMoodle",
+    method: "delete",
+    path: "/connections/moodle",
+    tag: "connections",
+    auth: "session",
+    summary: "Desconectar o Moodle (o vínculo fica)",
+    ok: [204, null],
+  },
+  {
+    id: "startClassroom",
+    method: "get",
+    path: "/connections/classroom/start",
+    tag: "connections",
+    auth: "session",
+    summary: "Navegação de página inteira: redireciona para o Google",
+    query: C.ClassroomStartQuery,
+    ok: [303, "redirect"],
+  },
+  {
+    id: "disconnectClassroom",
+    method: "delete",
+    path: "/connections/classroom/{email}",
+    tag: "connections",
+    auth: "session",
+    summary: "Desconectar uma conta do Classroom",
+    params: { email: z.string() },
+    ok: [204, null],
+  },
+  // autorização de clientes
+  {
+    id: "getAuthorizationRequest",
+    method: "get",
+    path: "/authorize/requests/{id}",
+    tag: "authorize",
+    auth: "optional",
+    summary: "Quem pede acesso (com sessão, inclui o estado das fontes)",
+    params: { id: z.string() },
+    ok: [200, C.RequestInfo],
+  },
+  {
+    id: "approveAuthorizationRequest",
+    method: "post",
+    path: "/authorize/requests/{id}/approve",
+    tag: "authorize",
+    auth: "session",
+    summary: "Aprovar o pedido",
+    params: { id: z.string() },
+    ok: [200, C.RedirectResponse],
+  },
+  {
+    id: "denyAuthorizationRequest",
+    method: "post",
+    path: "/authorize/requests/{id}/deny",
+    tag: "authorize",
+    auth: "session",
+    summary: "Recusar o pedido",
+    params: { id: z.string() },
+    ok: [200, C.RedirectResponse],
+  },
+  {
+    id: "listAuthorizedApps",
+    method: "get",
+    path: "/authorized-apps",
+    tag: "authorize",
+    auth: "session",
+    summary: "Apps autorizados",
+    ok: [200, C.AuthorizedAppsResponse],
+  },
+  {
+    id: "revokeAuthorizedApp",
+    method: "delete",
+    path: "/authorized-apps/{clientId}",
+    tag: "authorize",
+    auth: "session",
+    summary: "Revogar um app",
+    params: { clientId: z.string() },
+    ok: [204, null],
+  },
+  {
+    id: "getClientLogo",
+    method: "get",
+    path: "/client-logos/{hash}",
+    tag: "authorize",
+    auth: "none",
+    summary: "Logo de cliente, baixado e validado pela API",
+    params: { hash: z.string() },
+    ok: [200, "image"],
+  },
+  // dados
+  {
+    id: "listAccounts",
+    method: "get",
+    path: "/accounts",
+    tag: "data",
+    auth: "data",
+    summary: "Contas conectadas",
+    ok: [200, C.AccountsResponse],
+  },
+  {
+    id: "listCourses",
+    method: "get",
+    path: "/sources/{source}/courses",
+    tag: "data",
+    auth: "data",
+    summary: "Turmas",
+    params: source,
+    query: C.CoursesQuery,
+    ok: [200, C.CoursesResponse],
+  },
+  {
+    id: "listDeadlines",
+    method: "get",
+    path: "/sources/{source}/deadlines",
+    tag: "data",
+    auth: "data",
+    summary: "Prazos",
+    params: source,
+    query: C.AccountQuery,
+    ok: [200, C.DeadlinesResponse],
+  },
+  {
+    id: "getCourse",
+    method: "get",
+    path: "/sources/{source}/courses/{courseId}",
+    tag: "data",
+    auth: "data",
+    summary: "Atividades de uma turma",
+    params: { ...source, courseId: z.string() },
+    query: C.AccountQuery,
+    ok: [200, C.CourseResponse],
+  },
+  {
+    id: "getForum",
+    method: "get",
+    path: "/sources/{source}/forums/{forumId}",
+    tag: "data",
+    auth: "data",
+    summary: "Discussões de um fórum",
+    params: { ...source, forumId: z.string() },
+    query: C.AccountQuery,
+    ok: [200, C.ForumResponse],
+  },
+  {
+    id: "getAnnouncement",
+    method: "get",
+    path: "/sources/{source}/announcements/{id}",
+    tag: "data",
+    auth: "data",
+    summary: "Um aviso",
+    params: { ...source, id: z.string() },
+    query: C.AccountQuery,
+    ok: [200, C.AnnouncementResponse],
+  },
+  {
+    id: "downloadAttachment",
+    method: "get",
+    path: "/sources/{source}/attachment",
+    tag: "data",
+    auth: "data",
+    summary: "Baixar um anexo",
+    params: source,
+    query: C.AttachmentQuery,
+    ok: [200, "binary"],
+  },
+];
+
+const SECURITY: Record<Auth, Record<string, string[]>[] | undefined> = {
+  session: [{ session: [] }],
+  data: [{ bearer: [] }, { session: [] }],
+  optional: [{ session: [] }, {}],
+  none: undefined,
+};
+
+/** Documento OpenAPI 3.1 do contrato. Determinístico: é o que `npm run openapi` grava e `GET /openapi.json` serve. */
+export function buildOpenApi(): Record<string, unknown> {
+  const reg = new OpenAPIRegistry();
+  reg.registerComponent("securitySchemes", "session", {
+    type: "apiKey",
+    in: "cookie",
+    name: "__Host-ufba_session",
+    description:
+      "Cookie de sessão do app web (`ufba_session` em http local). Rotas que mudam estado exigem também `X-UFBA: 1` e `Origin` de uma origem da casa.",
+  });
+  reg.registerComponent("securitySchemes", "bearer", {
+    type: "http",
+    scheme: "bearer",
+    description: "Token OAuth de cliente autorizado ou chave de API. Sem CSRF.",
+  });
+
+  const error = reg.register("ApiError", C.ApiErrorBody);
+  const named: [string, ZodTypeAny][] = [
+    ["Me", C.Me],
+    ["RequestInfo", C.RequestInfo],
+    ["ClientView", C.ClientView],
+    ["AuthorizedApp", C.AuthorizedApp],
+    ["Course", C.Course],
+    ["Deadline", C.Deadline],
+    ["Activity", C.Activity],
+    ["Discussion", C.Discussion],
+    ["Attachment", C.Attachment],
+  ];
+  for (const [name, schema] of named) reg.register(name, schema);
+
+  const csrf = z
+    .literal("1")
+    .openapi({ description: "Força preflight (CSRF)." });
+
+  for (const r of ROUTES) {
+    const mutating = r.method !== "get" && r.auth !== "data";
+    const [status, body] = r.ok;
+    const success =
+      body === null
+        ? { description: "OK" }
+        : body === "redirect"
+          ? { description: "Redireciona (Location)" }
+          : body === "binary"
+            ? {
+                description: "Arquivo",
+                content: {
+                  "application/octet-stream": {
+                    schema: z.string().openapi({ format: "binary" }),
+                  },
+                },
+              }
+            : body === "image"
+              ? {
+                  description: "Imagem",
+                  content: {
+                    "image/*": {
+                      schema: z.string().openapi({ format: "binary" }),
+                    },
+                  },
+                }
+              : {
+                  description: "OK",
+                  content: { "application/json": { schema: body } },
+                };
+    reg.registerPath({
+      method: r.method,
+      path: r.path,
+      operationId: r.id,
+      summary: r.summary,
+      tags: [r.tag],
+      ...(SECURITY[r.auth] ? { security: SECURITY[r.auth] } : {}),
+      request: {
+        ...(r.params ? { params: z.object(r.params) } : {}),
+        ...(r.query ? { query: r.query } : {}),
+        ...(mutating ? { headers: z.object({ "X-UFBA": csrf }) } : {}),
+        ...(r.body
+          ? {
+              body: {
+                required: true,
+                content: { "application/json": { schema: r.body } },
+              },
+            }
+          : {}),
+      },
+      responses: {
+        [status]: success,
+        default: {
+          description: "Erro `{ error, message }`",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    });
+  }
+
+  return new OpenApiGeneratorV31(reg.definitions).generateDocument({
+    openapi: "3.1.0",
+    info: {
+      title: "ufba.app API",
+      version: CONTRACT_VERSION,
+      description:
+        "API do app web e da leitura ao vivo. Fluxos e regras: docs/WEB-API.md. MCP e OAuth ficam fora deste contrato.",
+    },
+    servers: [{ url: "https://api.ufba.app" }],
+  }) as unknown as Record<string, unknown>;
+}
+
+/** JSON exato do `openapi.json` versionado (o CI compara). */
+export const openApiJson = (): string =>
+  `${JSON.stringify(buildOpenApi(), null, 2)}\n`;
