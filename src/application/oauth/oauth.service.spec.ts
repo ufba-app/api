@@ -63,6 +63,7 @@ function montar(chaves?: Partial<ChaveDoClientePort>, store: OAuthStore = new St
   };
   const users = {
     findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })),
+    findByEmail: jest.fn(async () => null),
     findProfile: jest.fn(async () => null),
     deleteAccount: jest.fn(async () => undefined),
   };
@@ -128,7 +129,7 @@ describe('OAuthService com a chave do cliente', () => {
   });
 
   it('sem porta (testes sem SIGAA) tudo segue funcionando', async () => {
-    const svc = new OAuthService(new StoreEspia(), { findOrCreateByEmail: async () => ({ id: 'u1' }), findProfile: async () => null, deleteAccount: async () => undefined });
+    const svc = new OAuthService(new StoreEspia(), { findOrCreateByEmail: async () => ({ id: 'u1' }), findByEmail: async () => null, findProfile: async () => null, deleteAccount: async () => undefined });
     const { clientId, code } = await emitirCode(svc);
     const t = await trocar(svc, clientId, code);
     expect(t.access_token).not.toContain('.');

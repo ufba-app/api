@@ -1,8 +1,28 @@
+import { USER_DIRECTORY, type UserDirectory } from './application/oauth/oauth-ports';
 import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
-import { MemoryAdmin, MemoryUserRepository } from './application/memory/memory-ports';
+import { DbProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
+import { GrantReconciler } from './application/memory/grant-reconciler';
+import { AccountDeparture, MemoryDeparture } from './application/memory/memory-departure';
+import { MemoryMaintenance } from './application/memory/memory-maintenance';
+import { MemoryProjects } from './application/memory/memory-projects';
+import { MemoryGrantSync, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource } from './application/memory/project-ports';
+import { DbTeamGrantSource, MemoryAdmins, TeamRoles } from './application/memory/team-roles';
+import { TeamRoleRepository, UserLister } from './application/memory/team-ports';
+import { ProxyKeyRotation, ProxyKeyStore, DEFAULT_MAX_AGE_DAYS } from './application/memory/proxy-key-rotation';
+import { MemoryScheduler } from './infrastructure/memory/memory-scheduler';
+import { MemoryProxy } from './application/memory/memory-proxy';
+import { DeviceAuthorizations } from './application/memory/device-authorizations';
+import { DeviceAuthorizationRepository, MemoryComputerDirectory, MemoryComputerRepository } from './application/memory/device-ports';
+import { InstallManifests, ManifestSource } from './application/memory/install-manifest';
+import { MemoryComputers } from './application/memory/memory-computers';
+import { MemoryWeb } from './application/web/memory-web.service';
+import { HttpManifestSource } from './infrastructure/memory/http-manifest-source';
+import { MemoryModule } from './interface/memory/memory.module';
+import { webEnv } from './interface/web/web-auth';
+import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUserRepository } from './application/memory/memory-ports';
 import { MemoryUsers } from './application/memory/memory-users';
 import { LiveSources } from './application/ports/live-source';
 import { mcpExports, mcpProviders } from './mcp-wiring';
@@ -10,6 +30,7 @@ import { SecretCipher } from './application/ports/secret-cipher';
 import { SourceGateway, SourceRegistry } from './application/ports/source-gateway';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { MemoryAdminClient } from './infrastructure/memory/memory-admin.client';
+import { MemoryMcpClient } from './infrastructure/memory/memory-mcp.client';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { BearerGuard } from './interface/rest/auth.guard';
 import { DownloadController } from './interface/rest/download.controller';
@@ -77,7 +98,7 @@ export function buildLiveSources(
 // Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
 @Global()
 @Module({
-  imports: [PersistenceModule, McpModule, WebModule],
+  imports: [PersistenceModule, McpModule, WebModule, MemoryModule],
   controllers: [HealthController, UsuariosController, FontesController, DownloadController],
   providers: [
     IdentityService,
@@ -95,9 +116,162 @@ export function buildLiveSources(
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
     {
       provide: MemoryUsers,
-      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, cipher: SecretCipher) =>
-        new MemoryUsers(admin, repo, cipher),
-      inject: [MemoryAdmin, MemoryUserRepository, SecretCipher],
+      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, cipher: SecretCipher, users: UserDirectory) =>
+        new MemoryUsers(admin, repo, cipher, async (id) => (await users.findProfile(id))?.name ?? null),
+      inject: [MemoryAdmin, MemoryUserRepository, SecretCipher, USER_DIRECTORY],
+    },
+    { provide: MemoryMcp, useFactory: () => MemoryMcpClient.fromEnv() },
+    {
+      provide: MemoryProjectRegistry,
+      useFactory: (projects: MemoryProjectRepository) => new DbProjectRegistry(projects),
+      inject: [MemoryProjectRepository],
+    },
+    // Papéis do time: configuração semeada por migração; a atribuição por pessoa é do admin.
+    {
+      provide: TeamGrantSource,
+      useFactory: (roles: TeamRoleRepository) => new DbTeamGrantSource(roles),
+      inject: [TeamRoleRepository],
+    },
+    {
+      provide: MemoryAdmins,
+      useFactory: (directory: UserDirectory) => new MemoryAdmins(directory, MemoryAdmins.parse(process.env.MEMORY_ADMIN_EMAILS)),
+      inject: [USER_DIRECTORY],
+    },
+    {
+      provide: TeamRoles,
+      useFactory: (
+        admins: MemoryAdmins,
+        roles: TeamRoleRepository,
+        lister: UserLister,
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        reconciler: GrantReconciler,
+        directory: UserDirectory,
+      ) => new TeamRoles(admins, roles, lister, projects, jobs, reconciler, directory),
+      inject: [MemoryAdmins, TeamRoleRepository, UserLister, MemoryProjectRepository, MemorySyncJobRepository, GrantReconciler, USER_DIRECTORY],
+    },
+    {
+      provide: GrantReconciler,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        team: TeamGrantSource,
+        directory: UserDirectory,
+      ) =>
+        new GrantReconciler({
+          admin,
+          users,
+          projects,
+          jobs,
+          team,
+          emailOf: async (id) => (await directory.findProfile(id))?.email ?? null,
+        }),
+      inject: [MemoryAdmin, MemoryUsers, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource, USER_DIRECTORY],
+    },
+    { provide: MemoryGrantSync, useExisting: GrantReconciler },
+    {
+      provide: MemoryProjects,
+      useFactory: (
+        projects: MemoryProjectRepository,
+        jobs: MemorySyncJobRepository,
+        reconciler: GrantReconciler,
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        directory: UserDirectory,
+      ) =>
+        new MemoryProjects({
+          projects,
+          jobs,
+          reconciler,
+          admin,
+          users,
+          directory,
+          domain: (process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br').toLowerCase(),
+        }),
+      inject: [MemoryProjectRepository, MemorySyncJobRepository, GrantReconciler, MemoryAdmin, MemoryUsers, USER_DIRECTORY],
+    },
+    {
+      provide: MemoryDeparture,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        computers: MemoryComputers,
+        projects: MemoryProjectRepository,
+        service: MemoryProjects,
+        reconciler: GrantReconciler,
+      ) => new MemoryDeparture(admin, users, computers, projects, service, reconciler),
+      inject: [MemoryAdmin, MemoryUsers, MemoryComputers, MemoryProjectRepository, MemoryProjects, GrantReconciler],
+    },
+    { provide: AccountDeparture, useExisting: MemoryDeparture },
+    {
+      provide: MemoryMaintenance,
+      useFactory: (reconciler: GrantReconciler, computers: MemoryComputers, rotation: ProxyKeyRotation) => {
+        const days = Number(process.env.MEMORY_PROXY_KEY_MAX_AGE_DAYS);
+        return new MemoryMaintenance(reconciler, computers, rotation, Number.isFinite(days) && days >= 0 ? days : DEFAULT_MAX_AGE_DAYS);
+      },
+      inject: [GrantReconciler, MemoryComputers, ProxyKeyRotation],
+    },
+    {
+      provide: ProxyKeyRotation,
+      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, store: ProxyKeyStore, cipher: SecretCipher) =>
+        new ProxyKeyRotation(admin, repo, store, cipher),
+      inject: [MemoryAdmin, MemoryUserRepository, ProxyKeyStore, SecretCipher],
+    },
+    MemoryScheduler,
+    { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
+    {
+      provide: MemoryProxy,
+      useFactory: (
+        admin: MemoryAdmin,
+        users: MemoryUsers,
+        mcp: MemoryMcp,
+        registry: MemoryProjectRegistry,
+        access: MemoryAccess,
+        computers: MemoryComputerDirectory,
+        sync: MemoryGrantSync,
+      ) => new MemoryProxy(admin, users, mcp, registry, access, computers, { sync }),
+      inject: [
+        MemoryAdmin,
+        MemoryUsers,
+        MemoryMcp,
+        MemoryProjectRegistry,
+        MemoryAccess,
+        MemoryComputerDirectory,
+        MemoryGrantSync,
+      ],
+    },
+    {
+      provide: MemoryComputers,
+      useFactory: (admin: MemoryAdmin, users: MemoryUsers, repo: MemoryComputerRepository) =>
+        new MemoryComputers(admin, users, repo),
+      inject: [MemoryAdmin, MemoryUsers, MemoryComputerRepository],
+    },
+    { provide: MemoryComputerDirectory, useExisting: MemoryComputers },
+    {
+      provide: DeviceAuthorizations,
+      useFactory: (repo: DeviceAuthorizationRepository) =>
+        new DeviceAuthorizations(repo, { webOrigin: () => webEnv().webOrigin }),
+      inject: [DeviceAuthorizationRepository],
+    },
+    { provide: ManifestSource, useFactory: () => HttpManifestSource.fromEnv() },
+    {
+      provide: InstallManifests,
+      useFactory: (source: ManifestSource) => new InstallManifests(source),
+      inject: [ManifestSource],
+    },
+    {
+      provide: MemoryWeb,
+      useFactory: (
+        device: DeviceAuthorizations,
+        computers: MemoryComputers,
+        users: MemoryUsers,
+        admin: MemoryAdmin,
+        projects: MemoryProjects,
+        admins: MemoryAdmins,
+      ) => new MemoryWeb(device, computers, users, admin, projects, admins),
+      inject: [DeviceAuthorizations, MemoryComputers, MemoryUsers, MemoryAdmin, MemoryProjects, MemoryAdmins],
     },
     {
       provide: SourceRegistry,
@@ -117,6 +291,15 @@ export function buildLiveSources(
     ConsultaService,
     MemoryAdmin,
     MemoryUsers,
+    MemoryProxy,
+    MemoryComputers,
+    DeviceAuthorizations,
+    InstallManifests,
+    MemoryWeb,
+    MemoryProjects,
+    GrantReconciler,
+    TeamRoles,
+    AccountDeparture,
     DownloadLinks,
     LiveSources,
     ...mcpExports,

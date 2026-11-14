@@ -112,6 +112,19 @@ export class MemoryAdminClient extends MemoryAdmin {
     return this.root !== undefined;
   }
 
+  async ping(): Promise<boolean> {
+    try {
+      const res = await this.fetchImpl(new URL('/healthz', this.base), {
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      await res.body?.cancel().catch(() => undefined);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async createHumanUser(input: { username: string; name?: string }): Promise<{ created: boolean }> {
     try {
       // A resposta tem `temporary_password`: nem é lida.

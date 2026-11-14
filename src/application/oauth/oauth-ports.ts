@@ -138,6 +138,8 @@ export interface OAuthStore {
 /** Identifica ou cria o usuário (a ser ligado ao UserRepository do Núcleo). */
 export interface UserDirectory {
   findOrCreateByEmail(email: string): Promise<{ id: string }>;
+  /** Sem criar: quem ainda não tem conta volta null (convite pendente). */
+  findByEmail(email: string): Promise<{ id: string } | null>;
   /** Para o /me. */
   findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null>;
   /** Exclui a pessoa e tudo dela (cascata no banco), inclusive pedidos de autorização em andamento. */

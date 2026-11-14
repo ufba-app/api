@@ -26,6 +26,8 @@ export class MemoryUsers {
     private readonly admin: MemoryAdmin,
     private readonly repo: MemoryUserRepository,
     private readonly cipher: SecretCipher,
+    /** Nome de exibição (Google) de quem será criado; só é consultado na criação. */
+    private readonly nameOf: (userId: string) => Promise<string | null> = async () => null,
   ) {}
 
   /** Garante usuário e chave de repasse. Idempotente; chamadas simultâneas da mesma pessoa viram uma só. */
@@ -35,6 +37,26 @@ export class MemoryUsers {
     const p = this.doEnsure(userId, displayName ?? null).finally(() => this.inflight.delete(userId));
     this.inflight.set(userId, p);
     return p;
+  }
+
+  /** A conta da pessoa no memory já está pronta (sem criar nada). */
+  async isReady(userId: string): Promise<boolean> {
+    return (await this.repo.find(userId))?.status === 'ready';
+  }
+
+  async isDisabled(userId: string): Promise<boolean> {
+    return (await this.repo.find(userId))?.status === 'disabled';
+  }
+
+  /** Revoga a chave de repasse (exclusão de conta). Credencial que já não existe no memory não é erro. */
+  async revokeProxyKey(userId: string): Promise<void> {
+    const row = await this.repo.find(userId);
+    if (!row?.proxyCredentialId) return;
+    try {
+      await this.admin.revokeCredential(row.proxyCredentialId);
+    } catch (e) {
+      if (!(e instanceof MemoryAdminError && e.kind === 'not_found')) throw e;
+    }
   }
 
   /** A chave de repasse aberta, só para o proxy do MCP e para chamadas em nome da pessoa. */
@@ -51,6 +73,7 @@ export class MemoryUsers {
     let row = await this.repo.find(userId);
     if (row?.status === 'ready') return { username: row.memoryUsername };
     if (row?.status === 'disabled') throw new MemoryAdminError('forbidden');
+    displayName ??= await this.nameOf(userId);
     row ??= await this.repo.createIfAbsent({ userId, memoryUsername: memoryUsernameOf(userId) });
     if (row.status === 'ready') return { username: row.memoryUsername };
 

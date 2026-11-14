@@ -2,6 +2,7 @@ import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Post, Query,
 import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
 import { GOOGLE_LINK, GoogleLinkPort, OAUTH_STORE, OAuthStore } from '../../../application/oauth/oauth-ports';
+import { DEVICE_GRANT, DeviceAuthorizations } from '../../../application/memory/device-authorizations';
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
 import { ConnectionsService } from '../../../application/web/connections.service';
 import { WEB_CLIENT_ID } from '../../../application/web/web-api';
@@ -24,6 +25,7 @@ export class OAuthController {
     @Inject(OAUTH_STORE) private readonly store: OAuthStore,
     @Inject(GOOGLE_LINK) private readonly google: GoogleLinkPort,
     @Optional() private readonly connections?: ConnectionsService,
+    @Optional() private readonly device?: DeviceAuthorizations,
   ) {}
 
   /** Erro de /authorize: página de erro do web (nunca volta ao cliente, que não é confiável aqui). */
@@ -61,10 +63,15 @@ export class OAuthController {
       token_endpoint: `${base}/token`,
       registration_endpoint: `${base}/register`,
       response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code', 'refresh_token'],
+      grant_types_supported: [
+        'authorization_code',
+        'refresh_token',
+        ...(this.device ? [DEVICE_GRANT] : []),
+      ],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
       client_id_metadata_document_supported: true,
+      ...(this.device ? { device_authorization_endpoint: `${base}/oauth/device_authorization` } : {}),
     };
   }
 
@@ -151,6 +158,33 @@ export class OAuthController {
     return res.redirect(303, await this.connections.classroomCallback({ state, code, error }, session, baseUrl(req)));
   }
 
+  // ---- login de dispositivo (RFC 8628): só o instalador da memória, `ufba-installer` e `memory:connect` ----
+
+  @Post('oauth/device_authorization')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  async deviceAuthorization(
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    try {
+      if (!this.device) throw new OAuthError('unsupported_grant_type', 'login de dispositivo indisponível', 404);
+      const s = (k: string) => (typeof body?.[k] === 'string' ? (body[k] as string) : undefined);
+      res.json(
+        await this.device.start({
+          clientId: s('client_id'),
+          scope: s('scope'),
+          computerName: s('computer_name'),
+          os: s('os'),
+          ip: req.ip ?? null,
+        }),
+      );
+    } catch (e) {
+      this.oauthJson(res, e);
+    }
+  }
+
   // ---- /token ----
 
   @Post('token')
@@ -158,6 +192,12 @@ export class OAuthController {
   @Header('Cache-Control', 'no-store')
   async token(@Body() body: TokenParams, @Res() res: Response) {
     try {
+      if (body?.grant_type === DEVICE_GRANT) {
+        if (!this.device) throw new OAuthError('unsupported_grant_type', 'login de dispositivo indisponível');
+        const b = body as unknown as Record<string, string | undefined>;
+        res.json(await this.device.poll({ deviceCode: b.device_code, clientId: b.client_id }));
+        return;
+      }
       res.json(await this.oauth.token(body ?? {}));
     } catch (e) {
       this.oauthJson(res, e);

@@ -5,6 +5,15 @@
 
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
 export const MCP_AUTH = Symbol('MCP_AUTH');
+export const MCP_MEMORY = Symbol('MCP_MEMORY');
+
+/** Ferramentas `memory_*` (proxy do ai-memory + `memory_status`). Opcional: sem ele o /mcp só tem as ferramentas da casa. */
+export interface McpMemory {
+  enabled(): boolean;
+  listTools(userId: string): Promise<{ name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> }[]>;
+  /** `null` quando o nome não é de memória. */
+  call(userId: string, name: string, args: Record<string, unknown>): Promise<{ content: unknown[]; structuredContent?: Record<string, unknown>; isError?: boolean } | null>;
+}
 
 export type Fonte = 'moodle' | 'classroom' | 'sigaa';
 

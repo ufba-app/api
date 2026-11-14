@@ -1,0 +1,38 @@
+// Papéis do time: atalho de permissões. Tabelas de CONFIGURAÇÃO semeadas por migração (mudar papel ou o que ele
+// concede é migração/PR, nunca tela por pessoa: `write` em docs publica no docs.ufba.app). Só a atribuição por pessoa
+// (`UserTeamRole`) muda em tempo de execução, e só pelo admin (MEMORY_ADMIN_EMAILS).
+model TeamRole {
+  key         String @id // dev | maintainer
+  description String
+
+  grants      TeamRoleGrant[]
+  assignments UserTeamRole[]
+
+  @@map("team_roles")
+}
+
+model TeamRoleGrant {
+  roleKey   String @map("role_key")
+  projectId String @map("project_id") @db.Uuid
+  level     String // read | write
+
+  role    TeamRole      @relation(fields: [roleKey], references: [key], onDelete: Cascade)
+  project MemoryProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([roleKey, projectId])
+  @@map("team_role_grants")
+}
+
+model UserTeamRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleKey    String   @map("role_key")
+  assignedBy String?  @map("assigned_by") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role TeamRole @relation(fields: [roleKey], references: [key], onDelete: Cascade)
+
+  @@id([userId, roleKey])
+  @@index([roleKey])
+  @@map("user_team_roles")
+}

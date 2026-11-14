@@ -1,6 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v4';
-import { McpPrincipal, McpUseCases } from './mcp-ports';
+import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memory/connect-guide';
+import { MEMORY_INSTRUCTIONS } from '../../application/memory/memory-proxy';
+import { McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 
 const FONTE = z
   .enum(['moodle', 'classroom', 'sigaa'])
@@ -54,8 +57,12 @@ async function run<T>(fn: () => Promise<T>) {
 }
 
 /** Cria um servidor MCP para uma requisição, com ferramentas finas sobre os casos de uso. */
-export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
-  const server = new McpServer({ name: 'platform', version: '0.1.0' });
+export function buildMcpServer(uc: McpUseCases, p: McpPrincipal, memory?: McpMemory): McpServer {
+  const withMemory = memory?.enabled() === true;
+  const server = new McpServer(
+    { name: 'platform', version: '0.1.0' },
+    withMemory ? { instructions: MEMORY_INSTRUCTIONS } : undefined,
+  );
 
   server.registerTool(
     'listar_contas',
@@ -147,5 +154,41 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal): McpServer {
     (args) => run(() => uc.baixarAnexo(p, args)),
   );
 
+  if (withMemory) {
+    addMemoryTools(server, memory, p);
+    server.registerPrompt(
+      CONNECT_PROMPT_NAME,
+      {
+        title: 'Conectar computador',
+        description: 'Conecta este computador à memória compartilhada da ufba.app (pede a sua confirmação antes de instalar).',
+      },
+      () => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: CONNECT_PROMPT_TEXT } }] }),
+    );
+  }
   return server;
+}
+
+type Handler = (req: unknown, extra: unknown) => Promise<{ tools?: unknown[] } & Record<string, unknown>>;
+
+/**
+ * Soma as ferramentas `memory_*` às da casa. O McpServer só registra ferramentas com schema Zod; as do ai-memory
+ * chegam com JSON Schema, então os dois handlers (`tools/list` e `tools/call`) são decorados: a lista é a soma e a
+ * chamada vai ao proxy quando o nome é de memória (senão, ao handler original). O teste de contrato (mcp-memory.spec)
+ * quebra se uma atualização do SDK mudar esse ponto.
+ */
+function addMemoryTools(server: McpServer, memory: McpMemory, p: McpPrincipal): void {
+  const handlers = (server.server as unknown as { _requestHandlers: Map<string, Handler> })._requestHandlers;
+  const houseList = handlers.get('tools/list');
+  const houseCall = handlers.get('tools/call');
+  if (!houseList || !houseCall) throw new Error('McpServer sem handlers de ferramentas');
+
+  server.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
+    const base = await houseList(req, extra);
+    const remote = await memory.listTools(p.userId);
+    return { ...base, tools: [...(base.tools ?? []), ...remote] } as never;
+  });
+  server.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+    const result = await memory.call(p.userId, req.params.name, (req.params.arguments ?? {}) as Record<string, unknown>);
+    return (result ?? (await houseCall(req, extra))) as never;
+  });
 }

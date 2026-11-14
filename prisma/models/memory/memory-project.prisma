@@ -1,0 +1,53 @@
+// Projetos da memória compartilhada. Fonte da verdade do estado desejado: a ufba.app; o ai-memory só reflete via
+// grant/revoke. `ownerId` nulo = projeto do time (papéis, etapa 8). Projeto "pessoal" não é um tipo guardado: é o de
+// dono sem nenhum outro membro ativo, calculado na hora.
+model MemoryProject {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  workspace String
+  project   String
+  // Nome que a pessoa digitou; `project` é o identificador estável (`<slug>-<4 hex>`).
+  title     String
+  ownerId   String?  @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Restrict: a posse é transferida ou o projeto é apagado ANTES de excluir a conta (ver MemoryDeparture).
+  owner   User?                 @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  members MemoryProjectMember[]
+  teamGrants TeamRoleGrant[]
+
+  @@unique([workspace, project])
+  @@index([ownerId])
+  @@map("memory_projects")
+}
+
+// Convite direto (Meus projetos). `userId` é nulo enquanto a pessoa não tem conta (convite `pending`); o dono do
+// projeto não tem linha aqui (o acesso dele vem de `ownerId`).
+model MemoryProjectMember {
+  projectId String   @map("project_id") @db.Uuid
+  email     String
+  userId    String?  @map("user_id") @db.Uuid
+  level     String // read | write
+  status    String // pending | active
+  invitedBy String?  @map("invited_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project MemoryProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, email])
+  @@index([userId])
+  @@index([email])
+  @@map("memory_project_members")
+}
+
+// Fila de reconciliação com o memory (uma linha por pessoa; `lastError` só guarda código/status, nunca corpo).
+model MemorySyncJob {
+  userId    String   @id @map("user_id") @db.Uuid
+  attempts  Int      @default(0)
+  nextRunAt DateTime @map("next_run_at")
+  lastError String?  @map("last_error")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([nextRunAt])
+  @@map("memory_sync_jobs")
+}

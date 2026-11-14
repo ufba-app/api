@@ -23,6 +23,18 @@ export const API_ERROR_CODES = [
   "source_account_not_owned",
   "account_ambiguous",
   "not_supported",
+  "device_code_invalid",
+  "device_code_expired",
+  "computer_limit_reached",
+  "computer_not_found",
+  "memory_unavailable",
+  "memory_forbidden",
+  "project_not_found",
+  "project_name_taken",
+  "not_project_owner",
+  "invalid_email_domain",
+  "not_admin",
+  "role_not_found",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -130,6 +142,130 @@ export const AuthorizedApp = ClientView.omit({
 
 export const AuthorizedAppsResponse = z.object({
   apps: z.array(AuthorizedApp),
+});
+
+// ---- memória compartilhada: dispositivo e computadores ----
+
+/** Código que a pessoa viu no terminal (`XXXX-XXXX`; a API normaliza maiúsculas e hífen). */
+export const DeviceCodeBody = z.object({ userCode: z.string().min(1).max(32) });
+
+export const DeviceLookupResponse = z.object({
+  clientName: z.string(),
+  computerName: z.string().nullable(),
+  os: z.string().nullable(),
+  requestedAt: z.string().datetime(),
+  /** Rede aproximada de quem pediu (ex.: "rede 200.128.x.x"); a API não guarda geolocalização. */
+  approxLocation: z.string().nullable(),
+  /** A rede de quem aprova é bem diferente da de quem pediu: a tela destaca o aviso. */
+  ipDiffers: z.boolean(),
+});
+
+export const DeviceDecisionBody = z.object({
+  userCode: z.string().min(1).max(32),
+  decision: z.enum(["approve", "deny"]),
+});
+
+export const MemoryComputerView = z.object({
+  id: z.string(),
+  name: z.string(),
+  os: z.string(),
+  agents: z.array(z.string()),
+  installMode: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  lastSeenAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const MemoryComputersResponse = z.object({
+  computers: z.array(MemoryComputerView),
+});
+
+export const RenameComputerBody = z.object({ name: z.string().min(1).max(60) });
+
+export const MemoryStatusResponse = z.object({
+  memoryAvailable: z.boolean(),
+  userReady: z.boolean(),
+  isAdmin: z.boolean(),
+  computers: z.array(MemoryComputerView),
+});
+
+// ---- memória compartilhada: Meus projetos ----
+
+export const ProjectView = z.object({
+  id: z.string(),
+  workspace: z.string(),
+  project: z.string(),
+  title: z.string(),
+  /** Projeto do time (sem dono; permissões vêm dos papéis). */
+  team: z.boolean(),
+  role: z.enum(["owner", "read", "write"]),
+  source: z.enum(["owner", "invite", "team"]),
+  membersCount: z.number().int(),
+  /** `pending` = a memória ainda está sendo sincronizada (tentando de novo). */
+  sync: z.enum(["ok", "pending"]),
+});
+
+export const ProjectsResponse = z.object({ projects: z.array(ProjectView) });
+
+export const ProjectMember = z.object({
+  email: z.string(),
+  name: z.string().nullable(),
+  level: z.enum(["read", "write"]),
+  status: z.enum(["pending", "active"]),
+});
+
+export const ProjectDetail = ProjectView.extend({
+  /** Só o dono recebe a lista; os demais recebem vazio. */
+  members: z.array(ProjectMember),
+  /** Trecho do `.ai-memory.toml` para colar na raiz do repositório. */
+  marker: z.string(),
+});
+
+export const CreateProjectBody = z.object({ name: z.string().min(1).max(60) });
+export const MemberLevelBody = z.object({ level: z.enum(["read", "write"]) });
+export const TransferProjectBody = z.object({ email: z.string().min(3).max(200) });
+
+// ---- memória compartilhada: Administração (só admin) ----
+
+export const TeamRoleView = z.object({
+  key: z.string(),
+  description: z.string(),
+  grants: z.array(
+    z.object({
+      workspace: z.string(),
+      project: z.string(),
+      title: z.string(),
+      level: z.enum(["read", "write"]),
+    }),
+  ),
+});
+
+export const TeamMemberView = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  roles: z.array(z.string()),
+});
+
+/** Tabela de papéis somente leitura (mudar é migração) e as pessoas com os papéis atribuídos. */
+export const TeamResponse = z.object({
+  roles: z.array(TeamRoleView),
+  members: z.array(TeamMemberView),
+});
+
+export const MemorySyncResponse = z.object({
+  failing: z.array(
+    z.object({
+      name: z.string().nullable(),
+      email: z.string().nullable(),
+      attempts: z.number().int(),
+      nextRunAt: z.string().datetime(),
+      /** Só código/status (ex.: `unavailable:503`), nunca corpo de resposta. */
+      lastError: z.string().nullable(),
+    }),
+  ),
+  /** Projetos nos workspaces `ufba-*` que existem no memory e a ufba.app não conhece. */
+  unknownProjects: z.array(z.object({ workspace: z.string(), project: z.string() })),
 });
 
 // ---- dados (leitura ao vivo) ----
