@@ -48,6 +48,20 @@ const CREDENTIAL_REJECTION_MARKERS = [
   'usuário e/ou senha',
 ];
 
+/**
+ * Sessão expirada em consulta pontual: o SIGAA responde 302 para `/sigaa/expirada.jsp`, sem corpo e sem cookie
+ * (observado em 14/11/2026 com um JSESSIONID vencido). A página com o alerta "Sua sessão foi expirada" é a que o
+ * navegador carrega ao seguir o redirect; como não seguimos redirects, o que chega aqui é só o 302.
+ */
+function isExpiredRedirect(r: SigaaHttpResponse): boolean {
+  if (r.status !== 302 || !r.headers.location) return false;
+  try {
+    return new URL(r.headers.location, 'https://x.invalid').pathname === '/sigaa/expirada.jsp';
+  } catch {
+    return false;
+  }
+}
+
 function isLoginFormResponse(r: SigaaHttpResponse): boolean {
   return (
     r.status === 200 &&
@@ -238,7 +252,7 @@ export class SigaaSession {
       cookie: this.jsessionId,
     });
     this.captureCookie(response);
-    if (isLoginFormResponse(response)) throw new SigaaSessionExpiredError();
+    if (isLoginFormResponse(response) || isExpiredRedirect(response)) throw new SigaaSessionExpiredError();
     if (capturesViewState) this.captureViewState(response.body);
     return response;
   }
