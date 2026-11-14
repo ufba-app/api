@@ -29,7 +29,8 @@ import {
   type SigaaCredentialRecord,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
-import { WEB_CLIENT_ID, WebService } from '../src/application/web/web.service';
+import { WEB_CLIENT_ID } from '../src/application/web/web-api';
+import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
@@ -211,7 +212,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     base = (await app.getUrl()).replace('[::1]', 'localhost');
     oauth = mod.get(OAUTH_SERVICE);
     cofre = mod.get(CofreSigaa);
-    await mod.get(WebService).ensureWebClient();
+    await mod.get(WebSessionService).ensureWebClient();
   });
 
   afterAll(async () => {

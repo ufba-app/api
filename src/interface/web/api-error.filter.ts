@@ -7,7 +7,7 @@ import {
 } from '../../application/live/consulta.service';
 import { LinkError } from '../../application/oauth/oauth-ports';
 import { SourceError } from '../../application/ports/source-gateway';
-import { ApiError } from '../../application/web/web.service';
+import { ApiError } from '../../application/web/web-api';
 
 const LINK_STATUS: Record<LinkError['code'], number> = {
   invalid_request: 400,

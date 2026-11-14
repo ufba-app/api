@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { WebService } from './application/web/web.service';
+import { WebSessionService } from './application/web/web-session.service';
 import { loadExtraCAs } from './infrastructure/tls/extra-ca';
 import { webEnv } from './interface/web/web-auth';
 
@@ -29,7 +29,7 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ['Content-Type', 'X-UFBA', 'Authorization'],
     maxAge: 600,
   });
-  await app.get(WebService).ensureWebClient();
+  await app.get(WebSessionService).ensureWebClient();
   console.log(`[web] painel ${webOrigin}, auth ${authOrigin}`);
 
   // Local por padrão: só 127.0.0.1. Em produção (Railway) defina HOST=0.0.0.0.

@@ -18,7 +18,11 @@ import {
   type UserDirectory,
 } from './application/oauth/oauth-ports';
 import { ClientDirectory } from './application/oauth/client-directory';
-import { WebService } from './application/web/web.service';
+import { AuthorizationRequests } from './application/web/authorization-requests.service';
+import { AuthorizedApps } from './application/web/authorized-apps.service';
+import { ConnectionStatus } from './application/web/connection-status';
+import { ConnectionsService } from './application/web/connections.service';
+import { WebSessionService } from './application/web/web-session.service';
 import { FileVerifiedApps, HttpsClientMetadataFetcher } from './infrastructure/oauth/client-metadata';
 import { webEnv } from './interface/web/web-auth';
 import { CLIENT_DIRECTORY } from './interface/web/web-tokens';
@@ -72,14 +76,23 @@ export const mcpProviders: Provider[] = [
       new OAuthService(store, users, Date.now, chaves, clients),
     inject: [OAUTH_STORE, USER_DIRECTORY, CHAVE_DO_CLIENTE, CLIENT_DIRECTORY],
   },
-  // API do app web (sessão, conexões, autorização, apps autorizados). WEB_ORIGIN liga o redirecionamento de /authorize.
+  // API do app web: um caso de uso por responsabilidade (sessão, conexões, autorização, apps autorizados).
   {
-    provide: WebService,
+    provide: ConnectionStatus,
+    useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort) =>
+      new ConnectionStatus(cofre, accounts, classroom),
+    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK],
+  },
+  {
+    provide: WebSessionService,
+    useFactory: (oauth: OAuthService, store: OAuthStore, users: UserDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
+      new WebSessionService(oauth, store, users, cofre, status, webEnv().authOrigin),
+    inject: [OAUTH_SERVICE, OAUTH_STORE, USER_DIRECTORY, CofreSigaa, ConnectionStatus],
+  },
+  {
+    provide: ConnectionsService,
     useFactory: (
-      oauth: OAuthService,
-      store: OAuthStore,
       users: UserDirectory,
-      clients: ClientDirectory,
       cofre: CofreSigaa,
       sigaa: SigaaLinkPort,
       moodle: MoodleLinkPort,
@@ -88,16 +101,12 @@ export const mcpProviders: Provider[] = [
       identity: IdentityService,
       bindings: SourceBindings,
     ) =>
-      new WebService(oauth, store, users, clients, cofre, sigaa, moodle, classroom, accounts, identity, bindings, {
+      new ConnectionsService(users, cofre, sigaa, moodle, classroom, accounts, identity, bindings, {
         webOrigin: webEnv().webOrigin,
-        authOrigin: webEnv().authOrigin,
         institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br',
       }),
     inject: [
-      OAUTH_SERVICE,
-      OAUTH_STORE,
       USER_DIRECTORY,
-      CLIENT_DIRECTORY,
       CofreSigaa,
       SIGAA_LINK,
       MOODLE_LINK,
@@ -106,6 +115,17 @@ export const mcpProviders: Provider[] = [
       IdentityService,
       SourceBindings,
     ],
+  },
+  {
+    provide: AuthorizationRequests,
+    useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
+      new AuthorizationRequests(oauth, clients, cofre, status),
+    inject: [OAUTH_SERVICE, CLIENT_DIRECTORY, CofreSigaa, ConnectionStatus],
+  },
+  {
+    provide: AuthorizedApps,
+    useFactory: (store: OAuthStore, clients: ClientDirectory, cofre: CofreSigaa) => new AuthorizedApps(store, clients, cofre),
+    inject: [OAUTH_STORE, CLIENT_DIRECTORY, CofreSigaa],
   },
   // Vínculo fixo conta ↔ titular na fonte (CPF no SIGAA, usuário do AVA no Moodle).
   {
@@ -153,7 +173,10 @@ export const mcpProviders: Provider[] = [
 
 /** O que o módulo global exporta para o `McpModule` e o `BearerGuard`. */
 export const mcpExports = [
-  WebService,
+  WebSessionService,
+  ConnectionsService,
+  AuthorizationRequests,
+  AuthorizedApps,
   CLIENT_DIRECTORY,
   MCP_USE_CASES,
   MCP_AUTH,

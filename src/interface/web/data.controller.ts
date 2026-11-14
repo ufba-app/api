@@ -10,7 +10,7 @@ import type {
   TipoAtividade,
 } from '../../application/ports/live-source';
 import type { Provider } from '../../application/ports/source-gateway';
-import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web.service';
+import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { contentDisposition } from '../rest/download.controller';
 import { ApiErrorFilter } from './api-error.filter';
 import { DataGuard, Principal } from './web-auth';

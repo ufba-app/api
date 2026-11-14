@@ -3,7 +3,8 @@ import type { Request, Response } from 'express';
 import { baseUrl } from './base-url';
 import { GOOGLE_LINK, GoogleLinkPort, OAUTH_STORE, OAuthStore } from '../../../application/oauth/oauth-ports';
 import { AuthorizeParams, OAuthError, OAuthService, TokenParams } from '../../../application/oauth/oauth.service';
-import { WEB_CLIENT_ID, WebService } from '../../../application/web/web.service';
+import { ConnectionsService } from '../../../application/web/connections.service';
+import { WEB_CLIENT_ID } from '../../../application/web/web-api';
 import { sessionToken, webEnv } from '../../web/web-auth';
 
 export { OAUTH_SERVICE } from './oauth-tokens';
@@ -22,7 +23,7 @@ export class OAuthController {
     @Inject(OAUTH_SERVICE) private readonly oauth: OAuthService,
     @Inject(OAUTH_STORE) private readonly store: OAuthStore,
     @Inject(GOOGLE_LINK) private readonly google: GoogleLinkPort,
-    @Optional() private readonly web?: WebService,
+    @Optional() private readonly connections?: ConnectionsService,
   ) {}
 
   /** Erro de /authorize: página de erro do web (nunca volta ao cliente, que não é confiável aqui). */
@@ -109,9 +110,12 @@ export class OAuthController {
   @Get('oauth/callback/google')
   async googleCallback(@Query('code') code: string, @Query('state') state: string, @Req() req: Request, @Res() res: Response) {
     // Classroom @ufba.br conectado pelo app web (state `web.…`, preso à sessão).
-    if (this.web?.isWebState(state)) {
+    if (this.connections?.isWebState(state)) {
       const session = await this.sessionUserId(req);
-      return res.redirect(303, await this.web.classroomCallback({ state, code, error: errorParam(req) }, session, baseUrl(req)));
+      return res.redirect(
+        303,
+        await this.connections.classroomCallback({ state, code, error: errorParam(req) }, session, baseUrl(req)),
+      );
     }
     let p;
     try {
@@ -140,11 +144,11 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    if (!this.web?.isWebState(state)) {
+    if (!this.connections?.isWebState(state)) {
       return this.webError(res, new OAuthError('invalid_request', 'Pedido de conexão inválido.', 400));
     }
     const session = await this.sessionUserId(req);
-    return res.redirect(303, await this.web.classroomCallback({ state, code, error }, session, baseUrl(req)));
+    return res.redirect(303, await this.connections.classroomCallback({ state, code, error }, session, baseUrl(req)));
   }
 
   // ---- /token ----
