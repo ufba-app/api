@@ -48,7 +48,16 @@ export interface OAuthClient {
  * Erro ao conectar uma fonte, com um código estável para a API do web. A mensagem é pt-BR, pronta para mostrar, e
  * nunca contém senha nem token.
  */
-export type LinkErrorCode = 'invalid_request' | 'invalid_credentials' | 'too_many_attempts' | 'source_unavailable';
+export type LinkErrorCode =
+  | 'invalid_request'
+  | 'invalid_credentials'
+  | 'too_many_attempts'
+  | 'source_unavailable'
+  // Vínculo fixo (domain/identity/source-binding): titular de outra conta, conta já ligada a outro titular, conta da
+  // fonte que não é desta pessoa.
+  | 'source_account_taken'
+  | 'source_account_mismatch'
+  | 'source_account_not_owned';
 export class LinkError extends Error {
   constructor(
     message: string,
@@ -131,6 +140,8 @@ export interface UserDirectory {
   findOrCreateByEmail(email: string): Promise<{ id: string }>;
   /** Para o /me. */
   findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null>;
+  /** Exclui a pessoa e tudo dela (cascata no banco), inclusive pedidos de autorização em andamento. */
+  deleteAccount(userId: string): Promise<void>;
 }
 
 export interface LinkStatus {
@@ -169,13 +180,28 @@ export interface ClassroomLinkPort {
  * Vínculo com o Moodle pelo launch.php do Moodle Mobile: a pessoa faz o login no PRÓPRIO navegador e o app web captura
  * o link de redirecionamento (`web+ufba://token=...`). Quem implementa é o módulo Moodle.
  */
+/** O que o Moodle confirmou sobre o token capturado. */
+export interface VerifiedMoodleAccount {
+  siteUrl: string;
+  host: string;
+  /** Id numérico do usuário no AVA (não editável). */
+  moodleUserId: number;
+  username: string;
+  /** Método de login da conta no AVA (`shibboleth` = login institucional). */
+  auth: string;
+  token: Secret;
+}
+
 export interface MoodleLinkPort {
   /** Esquema do redirect final do launch.php (ex.: `web+ufba`), que a tela registra como tratador. */
   scheme(): string;
   /** URL do launch.php (com passport/urlscheme) que a pessoa abre no próprio navegador. */
   launchUrl(userId: string, txn: string): Promise<string>;
-  /** Recebe o link colado (`moodlemobile://token=...`), confere a assinatura, valida o token e guarda cifrado. */
-  connect(userId: string, txn: string, pasted: string): Promise<void>;
+  /**
+   * Recebe o link capturado (`web+ufba://token=...`), confere a assinatura do passport e pergunta ao Moodle de quem é o
+   * token. Não guarda nada: quem chama decide (é da pessoa? vínculo?) e grava.
+   */
+  verify(userId: string, txn: string, pasted: string): Promise<VerifiedMoodleAccount>;
 }
 
 /** SIGAA pelo app web: valida login e senha (quem chama decide onde guardar). */

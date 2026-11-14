@@ -14,6 +14,9 @@ const LINK_STATUS: Record<LinkError['code'], number> = {
   invalid_credentials: 422,
   too_many_attempts: 429,
   source_unavailable: 502,
+  source_account_taken: 409,
+  source_account_mismatch: 409,
+  source_account_not_owned: 403,
 };
 
 /** Traduz qualquer erro para `{ error, message }`. Mensagens internas (500) nunca vão para fora. */

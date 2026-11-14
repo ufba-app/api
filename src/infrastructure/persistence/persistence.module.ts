@@ -3,12 +3,14 @@ import { OAUTH_STORE, USER_DIRECTORY } from '../../application/oauth/oauth-ports
 import {
   ApiKeyRepository,
   SigaaCredentialRepository,
+  SourceBindingRepository,
   SourceAccountRepository,
   UserRepository,
 } from '../../application/ports/repositories';
 import {
   PrismaApiKeyRepository,
   PrismaSigaaCredentialRepository,
+  PrismaSourceBindingRepository,
   PrismaSourceAccountRepository,
   PrismaUserRepository,
 } from './prisma-identity.repositories';
@@ -24,6 +26,7 @@ import { PrismaService } from './prisma.service';
     { provide: ApiKeyRepository, useClass: PrismaApiKeyRepository },
     { provide: SourceAccountRepository, useClass: PrismaSourceAccountRepository },
     { provide: SigaaCredentialRepository, useClass: PrismaSigaaCredentialRepository },
+    { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: OAUTH_STORE, useClass: PrismaOAuthStore },
     { provide: USER_DIRECTORY, useClass: PrismaUserDirectory },
   ],
@@ -32,6 +35,7 @@ import { PrismaService } from './prisma.service';
     ApiKeyRepository,
     SourceAccountRepository,
     SigaaCredentialRepository,
+    SourceBindingRepository,
     OAUTH_STORE,
     USER_DIRECTORY,
   ],

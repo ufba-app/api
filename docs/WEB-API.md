@@ -51,6 +51,12 @@ X-UFBA: 1
 `DELETE /session` → 204. Apaga a sessão no banco, limpa o cookie e apaga a senha do SIGAA guardada para o web
 (ela só abria com a K desta sessão).
 
+### Excluir a conta
+
+`DELETE /me` → 204 (sessão + CSRF). Apaga a pessoa e tudo dela: sessões, apps autorizados, contas conectadas,
+senhas guardadas e os **vínculos com o SIGAA e o AVA** (seção 5). Limpa o cookie. É o único jeito de trocar o SIGAA
+ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de chamar (ação sem volta).
+
 ### Quem está logado
 
 ```
@@ -107,6 +113,9 @@ Todas as rotas desta API (exceto `/authorize`, `/token`, `/register`, que seguem
 | 409 | `account_ambiguous` | mais de uma conta na fonte e nenhuma escolhida (`?account=`) |
 | 422 | `invalid_credentials` | senha do SIGAA errada / link do Moodle inválido |
 | 429 | `too_many_attempts` | muitas senhas erradas (SIGAA) |
+| 409 | `source_account_mismatch` | esta conta já está ligada a outro SIGAA/AVA (para trocar: excluir a conta) |
+| 409 | `source_account_taken` | este SIGAA/AVA já está ligado a outra conta do ufba.app |
+| 403 | `source_account_not_owned` | a conta do AVA não é da pessoa logada (não é o login institucional dela) |
 | 501 | `not_supported` | a fonte não oferece essa leitura |
 | 502 | `source_unavailable` | a fonte falhou ou respondeu algo inesperado |
 | 500 | `internal_error` | erro nosso |
@@ -115,6 +124,11 @@ Todas as rotas desta API (exceto `/authorize`, `/token`, `/register`, que seguem
 
 Todas com cookie de sessão.
 
+**Vínculo fixo.** Na primeira conexão bem-sucedida, a conta do ufba.app fica ligada ao titular na fonte, nos dois
+sentidos: o CPF no SIGAA e o usuário do AVA no Moodle. Esse titular não entra em outra conta do ufba.app
+(`409 source_account_taken`), e a conta não troca de titular (`409 source_account_mismatch`). Desconectar apaga a
+senha ou o token, mas **mantém o vínculo**: reconectar só com o mesmo titular. Para trocar, `DELETE /me`.
+
 ### SIGAA
 
 ```
@@ -122,8 +136,11 @@ POST /connections/sigaa   { "login": "string", "password": "string" }   → 204
 DELETE /connections/sigaa                                               → 204
 ```
 
+- `login` é o CPF: mande só os 11 dígitos (com máscara também é aceito; o vínculo normaliza).
 - Valida com 1 login real no SIGAA; guarda a senha cifrada com a K **desta sessão**. Erros:
-  `422 invalid_credentials`, `429 too_many_attempts`, `502 source_unavailable`.
+  `422 invalid_credentials`, `429 too_many_attempts`, `502 source_unavailable`,
+  `409 source_account_mismatch` (outro CPF já ligado a esta conta; recusado antes de falar com o SIGAA),
+  `409 source_account_taken` (CPF de outra conta; só depois da senha certa, para não revelar quem está cadastrado).
 - A senha nunca volta em resposta nem em erro. O web limpa o campo depois do envio.
 
 ### Moodle (login no navegador da pessoa)
@@ -138,7 +155,10 @@ DELETE /connections/moodle   → 204
 2. Abre `launchUrl` (nova aba). A pessoa faz o login institucional; o AVA termina em `web+ufba://token=…`, o
    navegador abre `{WEB}/connections/moodle/capture?u=<link>`.
 3. Essa página faz `POST /connections/moodle { link: u }` e limpa a URL. Plano B: a pessoa cola o link num campo.
-- Erros: `422 invalid_credentials` (link incompleto, de outro pedido, recusado pelo Moodle), `502 source_unavailable`.
+- Só aceita a conta do AVA da própria pessoa: login institucional (Shibboleth) e usuário igual ao do e-mail de login
+  (`luiz.a` ↔ `luiz.a@ufba.br`). Senão, `403 source_account_not_owned`.
+- Erros: `422 invalid_credentials` (link incompleto, de outro pedido, recusado pelo Moodle), `502 source_unavailable`,
+  `403 source_account_not_owned`, `409 source_account_mismatch`, `409 source_account_taken`.
 
 ### Classroom (pode haver várias contas)
 

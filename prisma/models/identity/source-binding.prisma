@@ -1,0 +1,17 @@
+// Vínculo fixo entre a conta do ufba.app e a conta da pessoa numa fonte (SIGAA: CPF; Moodle: host + id do usuário no
+// AVA), único nos dois sentidos. Criado na primeira conexão; desconectar não apaga. Some só com a exclusão da conta.
+// `subjectHash` = HMAC-SHA256 do identificador com chave derivada da SECRETS_KEY: o CPF não fica exposto na tabela.
+model SourceBinding {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider    SourceProvider
+  subjectHash String         @map("subject_hash")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@unique([userId, provider])
+  @@unique([provider, subjectHash])
+  @@map("source_bindings")
+}

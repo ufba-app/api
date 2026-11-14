@@ -24,7 +24,13 @@ import { webEnv } from './interface/web/web-auth';
 import { CLIENT_DIRECTORY } from './interface/web/web-tokens';
 import { OAuthAccessTokenAuthenticator, OAuthService } from './application/oauth/oauth.service';
 import { AUTHENTICATORS, type Authenticator } from './application/ports/authenticator';
-import { SigaaCredentialRepository, SourceAccountRepository } from './application/ports/repositories';
+import {
+  SigaaCredentialRepository,
+  SourceAccountRepository,
+  SourceBindingRepository,
+} from './application/ports/repositories';
+import { SourceBindings } from './application/identity/source-bindings';
+import { HmacSubjectHasher } from './infrastructure/crypto/hmac-subject-hasher';
 import { CofreSigaa } from './application/sigaa/cofre-sigaa';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
@@ -79,10 +85,13 @@ export const mcpProviders: Provider[] = [
       moodle: MoodleLinkPort,
       classroom: ClassroomLinkPort,
       accounts: SourceAccountRepository,
+      identity: IdentityService,
+      bindings: SourceBindings,
     ) =>
-      new WebService(oauth, store, users, clients, cofre, sigaa, moodle, classroom, accounts, {
-        webOrigin: webEnv().webOrigin || 'http://localhost:3001',
-        authOrigin: webEnv().authOrigin || undefined,
+      new WebService(oauth, store, users, clients, cofre, sigaa, moodle, classroom, accounts, identity, bindings, {
+        webOrigin: webEnv().webOrigin,
+        authOrigin: webEnv().authOrigin,
+        institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br',
       }),
     inject: [
       OAUTH_SERVICE,
@@ -94,7 +103,15 @@ export const mcpProviders: Provider[] = [
       MOODLE_LINK,
       CLASSROOM_LINK,
       SourceAccountRepository,
+      IdentityService,
+      SourceBindings,
     ],
+  },
+  // Vínculo fixo conta ↔ titular na fonte (CPF no SIGAA, usuário do AVA no Moodle).
+  {
+    provide: SourceBindings,
+    useFactory: (repo: SourceBindingRepository) => new SourceBindings(repo, new HmacSubjectHasher()),
+    inject: [SourceBindingRepository],
   },
   // Uma única instância do cofre (o mapa de pendentes é em memória): CHAVE_DO_CLIENTE e SIGAA_LINK a reutilizam.
   {
@@ -116,11 +133,7 @@ export const mcpProviders: Provider[] = [
     useFactory: (identity: IdentityService, accounts: SourceAccountRepository) => new ClassroomLink(identity, accounts),
     inject: [IdentityService, SourceAccountRepository],
   },
-  {
-    provide: MOODLE_LINK,
-    useFactory: (accounts: SourceAccountRepository, identity: IdentityService) => new MoodleLink(accounts, identity),
-    inject: [SourceAccountRepository, IdentityService],
-  },
+  { provide: MOODLE_LINK, useFactory: () => new MoodleLink() },
 
   // Bearer: chave de API (`plt_`) e token OAuth, nesta ordem. REST e MCP usam a mesma lista.
   {

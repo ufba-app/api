@@ -1,8 +1,6 @@
 import { Secret } from '../../../application/shared/secret';
 import { createHmac } from 'node:crypto';
-import type { IdentityService } from '../../../application/identity/identity.service';
-import { LinkError, type MoodleLinkPort } from '../../../application/oauth/oauth-ports';
-import type { SourceAccountRepository } from '../../../application/ports/repositories';
+import { LinkError, type MoodleLinkPort, type VerifiedMoodleAccount } from '../../../application/oauth/oauth-ports';
 import { deriveKey } from '../../crypto/keys';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
 import { buildLaunchUrl, extractReturnedToken, parseReturnedToken, verifyPassport } from './token-launch';
@@ -30,11 +28,7 @@ export class MoodleLink implements MoodleLinkPort {
   private readonly client: MoodleClient;
   private readonly urlScheme: string;
 
-  constructor(
-    private readonly accounts: SourceAccountRepository,
-    private readonly identity: IdentityService,
-    cfg: { siteUrl?: string; passportKey?: string; urlScheme?: string; fetchFn?: FetchFn } = {},
-  ) {
+  constructor(cfg: { siteUrl?: string; passportKey?: string; urlScheme?: string; fetchFn?: FetchFn } = {}) {
     this.siteUrl = (cfg.siteUrl ?? process.env.MOODLE_SITE_URL ?? DEFAULT_SITE).replace(/\/+$/, '');
     this.urlScheme = cfg.urlScheme ?? process.env.MOODLE_URL_SCHEME ?? DEFAULT_SCHEME;
     this.fixedKey = cfg.passportKey;
@@ -67,7 +61,7 @@ export class MoodleLink implements MoodleLinkPort {
     return buildLaunchUrl(this.siteUrl, this.passport(userId, txn), this.urlScheme);
   }
 
-  async connect(userId: string, txn: string, pasted: string): Promise<void> {
+  async verify(userId: string, txn: string, pasted: string): Promise<VerifiedMoodleAccount> {
     const text = (pasted ?? '').trim();
     // Aceita o link inteiro (moodlemobile://token=...) ou só o trecho base64.
     const b64 = extractReturnedToken(text) ?? (/^[A-Za-z0-9+/=_-]{16,}$/.test(text) ? text : undefined);
@@ -83,13 +77,21 @@ export class MoodleLink implements MoodleLinkPort {
       throw new MoodleLinkError('Esse link não é deste pedido. Refaça desde o passo 1 e cole o link novo.');
     }
 
-    // Prova de que o token funciona e de quem é (accountKey = host:usuário).
-    const access = { baseUrl: this.siteUrl, token: Secret.of(parsed.wstoken) };
-    let username: string;
+    // Prova de que o token funciona e de quem ele é: usuário, id e método de login (o domínio decide se é da pessoa).
+    const token = Secret.of(parsed.wstoken);
+    const access = { baseUrl: this.siteUrl, token };
     try {
-      const info = await this.client.call<{ username?: string }>(access, 'core_webservice_get_site_info');
-      if (!info.username) throw new MoodleLinkError('O Moodle não informou o usuário deste token');
-      username = info.username;
+      const info = await this.client.call<{ username?: string; userid?: number }>(access, 'core_webservice_get_site_info');
+      if (!info.username || typeof info.userid !== 'number') {
+        throw new MoodleLinkError('O Moodle não informou o usuário deste token');
+      }
+      const users = await this.client.call<{ id: number; auth?: string }[]>(access, 'core_user_get_users_by_field', {
+        field: 'id',
+        'values[0]': info.userid,
+      });
+      const auth = Array.isArray(users) ? users.find((u) => u.id === info.userid)?.auth : undefined;
+      if (!auth) throw new MoodleLinkError('O Moodle não informou como esta conta faz login', 'source_unavailable');
+      return { siteUrl: this.siteUrl, host: this.host(), moodleUserId: info.userid, username: info.username, auth, token };
     } catch (e) {
       if (e instanceof MoodleLinkError) throw e;
       if (e instanceof MoodleError) {
@@ -99,13 +101,5 @@ export class MoodleLink implements MoodleLinkPort {
       const cause = (e as { cause?: { code?: string } })?.cause?.code;
       throw new MoodleLinkError(`Não consegui falar com o Moodle agora${cause ? ` (${cause})` : ''}`, 'source_unavailable');
     }
-
-    await this.identity.conectarConta({
-      userId,
-      provider: 'MOODLE',
-      accountKey: `${this.host()}:${username}`,
-      siteUrl: this.siteUrl,
-      secretPlain: Secret.of(parsed.wstoken),
-    });
   }
 }

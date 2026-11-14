@@ -237,4 +237,12 @@ export class PrismaUserDirectory implements UserDirectory {
   async findProfile(userId: string): Promise<{ id: string; email: string | null; name: string | null } | null> {
     return this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } });
   }
+
+  async deleteAccount(userId: string): Promise<void> {
+    // `oauth_pending` não tem relação com users (o pedido nasce antes do login): apagado à parte, na mesma transação.
+    await this.prisma.$transaction([
+      this.prisma.oAuthPending.deleteMany({ where: { userId } }),
+      this.prisma.user.deleteMany({ where: { id: userId } }),
+    ]);
+  }
 }

@@ -5,22 +5,25 @@ import { MoodleLink, MoodleLinkError } from './moodle-link';
 const SITE = 'https://ava.ufba.br';
 const WSTOKEN = 'wstoken-secreto-123';
 
-function build(site: Record<string, unknown> = { username: 'luiz.a', userid: 7 }, status = 200) {
-  const fetchFn = (async () => new Response(JSON.stringify(site), { status })) as unknown as typeof fetch;
-  const conectarConta = jest.fn().mockResolvedValue(undefined);
-  const link = new MoodleLink({} as never, { conectarConta } as never, {
-    siteUrl: SITE,
-    passportKey: 'chave-de-teste',
-    fetchFn,
-  });
-  return { link, conectarConta };
+function build(
+  site: Record<string, unknown> = { username: 'luiz.a', userid: 7 },
+  users: unknown = [{ id: 7, auth: 'shibboleth' }],
+) {
+  const calls: string[] = [];
+  const fetchFn = (async (_url: string, init: RequestInit) => {
+    const fn = new URLSearchParams(String(init.body)).get('wsfunction')!;
+    calls.push(fn);
+    return new Response(JSON.stringify(fn === 'core_webservice_get_site_info' ? site : users), { status: 200 });
+  }) as unknown as typeof fetch;
+  const link = new MoodleLink({ siteUrl: SITE, passportKey: 'chave-de-teste', fetchFn });
+  return { link, calls };
 }
 
 /** Simula o que o Moodle devolve: base64(<md5(site+passport)>:::<wstoken>:::<privatetoken>). */
 async function moodleReturn(link: MoodleLink, userId: string, txn: string, sigPassport?: string) {
   const passport = new URL(await link.launchUrl(userId, txn)).searchParams.get('passport')!;
   const sig = createHash('md5').update(SITE + (sigPassport ?? passport)).digest('hex');
-  return `moodlemobile://token=${Buffer.from(`${sig}:::${WSTOKEN}:::PRIVADO`).toString('base64')}`;
+  return `web+ufba://token=${Buffer.from(`${sig}:::${WSTOKEN}:::PRIVADO`).toString('base64')}`;
 }
 
 describe('MoodleLink', () => {
@@ -38,56 +41,49 @@ describe('MoodleLink', () => {
     expect(new URL(await link.launchUrl('u2', 'txn1')).searchParams.get('passport')).not.toBe(p1);
   });
 
-  it('conecta com o link colado: guarda só o wstoken (sem o privatetoken) e usa host:usuário', async () => {
-    const { link, conectarConta } = build();
-    await link.connect('u1', 'txn1', await moodleReturn(link, 'u1', 'txn1'));
-    expect(conectarConta).toHaveBeenCalledWith({
-      userId: 'u1',
-      provider: 'MOODLE',
-      accountKey: 'ava.ufba.br:luiz.a',
-      siteUrl: SITE,
-      secretPlain: expect.any(Secret),
-    });
-    expect(conectarConta.mock.calls[0][0].secretPlain.reveal()).toBe(WSTOKEN);
+  it('verifica o link: devolve usuário, id e método de login, só o wstoken (sem o privatetoken), e não grava nada', async () => {
+    const { link, calls } = build();
+    const acc = await link.verify('u1', 'txn1', await moodleReturn(link, 'u1', 'txn1'));
+    expect(acc).toMatchObject({ siteUrl: SITE, host: 'ava.ufba.br', moodleUserId: 7, username: 'luiz.a', auth: 'shibboleth' });
+    expect(acc.token).toBeInstanceOf(Secret);
+    expect(acc.token.reveal()).toBe(WSTOKEN);
+    expect(calls).toEqual(['core_webservice_get_site_info', 'core_user_get_users_by_field']);
   });
 
-  it('aceita o endereço entregue pelo tratador web+ufba (como chega em /oauth/moodle/capture)', async () => {
-    const { link, conectarConta } = build();
-    const mm = await moodleReturn(link, 'u1', 'txn1');
-    await link.connect('u1', 'txn1', mm.replace('moodlemobile://', 'web+ufba://'));
-    expect(conectarConta).toHaveBeenCalledTimes(1);
+  it('sem o método de login no perfil: erro, nenhuma conta devolvida', async () => {
+    const { link } = build(undefined, []);
+    await expect(link.verify('u1', 'txn1', await moodleReturn(link, 'u1', 'txn1'))).rejects.toThrow(MoodleLinkError);
   });
 
-  it('aceita o link com espaços/quebra de linha ao redor e também só o base64', async () => {
-    const { link, conectarConta } = build();
+  it('aceita o link com espaços/quebra de linha ao redor, o esquema moodlemobile e só o base64', async () => {
+    const { link } = build();
     const full = await moodleReturn(link, 'u1', 'txn1');
-    await link.connect('u1', 'txn1', `  ${full}\n`);
-    await link.connect('u1', 'txn1', full.replace('moodlemobile://token=', ''));
-    expect(conectarConta).toHaveBeenCalledTimes(2);
+    for (const text of [`  ${full}\n`, full.replace('web+ufba://', 'moodlemobile://'), full.replace('web+ufba://token=', '')]) {
+      await expect(link.verify('u1', 'txn1', text)).resolves.toMatchObject({ username: 'luiz.a' });
+    }
   });
 
-  it('recusa link de outro pedido (passport não confere)', async () => {
-    const { link, conectarConta } = build();
+  it('recusa link de outro pedido (passport não confere) sem falar com o Moodle', async () => {
+    const { link, calls } = build();
     const doOutro = await moodleReturn(link, 'u1', 'txn-outro');
-    await expect(link.connect('u1', 'txn1', doOutro)).rejects.toThrow('não é deste pedido');
-    await expect(link.connect('u2', 'txn1', await moodleReturn(link, 'u1', 'txn1'))).rejects.toThrow(MoodleLinkError);
-    expect(conectarConta).not.toHaveBeenCalled();
+    await expect(link.verify('u1', 'txn1', doOutro)).rejects.toThrow('não é deste pedido');
+    await expect(link.verify('u2', 'txn1', await moodleReturn(link, 'u1', 'txn1'))).rejects.toThrow(MoodleLinkError);
+    expect(calls).toEqual([]);
   });
 
-  it.each([['lixo qualquer'], [''], ['moodlemobile://token=%%%'], ['moodlemobile://token=YWJj']])(
+  it.each([['lixo qualquer'], [''], ['web+ufba://token=%%%'], ['web+ufba://token=YWJj']])(
     'recusa texto inválido (%j)',
     async (txt) => {
-      const { link, conectarConta } = build();
-      await expect(link.connect('u1', 'txn1', txt)).rejects.toThrow(MoodleLinkError);
-      expect(conectarConta).not.toHaveBeenCalled();
+      const { link, calls } = build();
+      await expect(link.verify('u1', 'txn1', txt)).rejects.toThrow(MoodleLinkError);
+      expect(calls).toEqual([]);
     },
   );
 
   it('recusa token que o Moodle rejeita, sem vazar o token na mensagem', async () => {
-    const { link, conectarConta } = build({ exception: 'x', errorcode: 'invalidtoken', message: `ruim ${WSTOKEN}` });
-    const err = await link.connect('u1', 'txn1', await moodleReturn(link, 'u1', 'txn1')).catch((e) => e);
+    const { link } = build({ exception: 'x', errorcode: 'invalidtoken', message: `ruim ${WSTOKEN}` });
+    const err = await link.verify('u1', 'txn1', await moodleReturn(link, 'u1', 'txn1')).catch((e: Error) => e);
     expect(err).toBeInstanceOf(MoodleLinkError);
-    expect(String(err.message)).not.toContain(WSTOKEN);
-    expect(conectarConta).not.toHaveBeenCalled();
+    expect(String((err as Error).message)).not.toContain(WSTOKEN);
   });
 });

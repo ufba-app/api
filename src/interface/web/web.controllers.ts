@@ -68,6 +68,15 @@ export class SessionController {
   me(@Principal() p: WebPrincipal | null) {
     return this.web.me(must(p));
   }
+
+  /** Excluir a conta (e tudo dela, inclusive os vínculos com SIGAA e AVA). A tela confirma antes de chamar. */
+  @Delete('me')
+  @UseGuards(SessionGuard)
+  async removeAccount(@Principal() p: WebPrincipal | null, @Res() res: Response): Promise<void> {
+    await this.web.deleteAccount(must(p));
+    clearSessionCookie(res);
+    res.status(204).end();
+  }
 }
 
 @Controller('connections')

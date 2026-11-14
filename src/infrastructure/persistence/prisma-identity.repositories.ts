@@ -5,6 +5,7 @@ import {
   EncryptedSecret,
   SigaaCredentialRecord,
   SigaaCredentialRepository,
+  SourceBindingRepository,
   SourceAccountRecord,
   SourceAccountRepository,
   UpsertSourceAccountInput,
@@ -12,6 +13,7 @@ import {
   UserRepository,
 } from '../../application/ports/repositories';
 import type { Provider } from '../../application/ports/source-gateway';
+import type { BoundSource } from '../../domain/identity/source-binding';
 import { PrismaService } from './prisma.service';
 
 @Injectable()
@@ -210,5 +212,39 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
 
   async delete(userId: string, clientId: string): Promise<void> {
     await this.prisma.sigaaCredential.deleteMany({ where: { userId, clientId } });
+  }
+}
+
+@Injectable()
+export class PrismaSourceBindingRepository extends SourceBindingRepository {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async findMine(userId: string, source: BoundSource): Promise<string | null> {
+    const r = await this.prisma.sourceBinding.findUnique({
+      where: { userId_provider: { userId, provider: source } },
+      select: { subjectHash: true },
+    });
+    return r?.subjectHash ?? null;
+  }
+
+  async findOwner(source: BoundSource, subjectHash: string): Promise<string | null> {
+    const r = await this.prisma.sourceBinding.findUnique({
+      where: { provider_subjectHash: { provider: source, subjectHash } },
+      select: { userId: true },
+    });
+    return r?.userId ?? null;
+  }
+
+  async create(userId: string, source: BoundSource, subjectHash: string): Promise<boolean> {
+    try {
+      await this.prisma.sourceBinding.create({ data: { userId, provider: source, subjectHash } });
+      return true;
+    } catch (e) {
+      // P2002: unicidade (outro vínculo chegou antes). Quem chama relê e decide.
+      if ((e as { code?: string })?.code === 'P2002') return false;
+      throw e;
+    }
   }
 }

@@ -1,3 +1,4 @@
+import { sanitizeName } from '../../domain/oauth/client-name';
 import { createHash } from 'node:crypto';
 import type { ClientLogo, OAuthClient, OAuthStore } from './oauth-ports';
 import { isValidRedirectUri, type ClientResolver } from './oauth.service';
@@ -41,7 +42,6 @@ export interface ClientView {
   metadata: 'present' | 'absent';
 }
 
-const NAME_MAX = 60;
 const CACHE_MS = 60 * 60 * 1000;
 
 /**
@@ -54,19 +54,6 @@ export function isMetadataClientId(id: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** Nome para mostrar: sem controle nem caracteres de direção (bidi), espaços colapsados, até 60 caracteres. */
-export function sanitizeName(raw: unknown): string | undefined {
-  if (typeof raw !== 'string') return undefined;
-  const clean = raw
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!clean) return undefined;
-  const chars = [...clean];
-  return chars.length > NAME_MAX ? chars.slice(0, NAME_MAX - 1).join('') + '…' : clean;
 }
 
 export function logoHash(bytes: Buffer): string {
@@ -148,3 +135,5 @@ export class ClientDirectory implements ClientResolver {
     return this.verified.logo(hash) ?? (await this.store.getClientLogo(hash));
   }
 }
+
+export { sanitizeName };

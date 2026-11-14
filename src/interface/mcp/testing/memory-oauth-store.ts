@@ -109,6 +109,9 @@ export class MemoryUserDirectory implements UserDirectory {
     for (const [email, id] of this.byEmail) if (id === userId) return { id, email, name: null };
     return null;
   }
+  async deleteAccount(userId: string): Promise<void> {
+    for (const [email, id] of this.byEmail) if (id === userId) this.byEmail.delete(email);
+  }
 }
 
 /** Placeholder: o módulo Google ainda não entregou o vínculo. */
@@ -148,7 +151,7 @@ export class StubMoodleLink implements MoodleLinkPort {
   async launchUrl(): Promise<string> {
     return 'https://moodle.example/admin/tool/mobile/launch.php';
   }
-  async connect(): Promise<void> {
+  async verify(): Promise<never> {
     throw new Error('Vínculo com o Moodle ainda não disponível');
   }
 }

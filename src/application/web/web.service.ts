@@ -1,3 +1,6 @@
+import { moodleBelongsTo, moodleSubject, sigaaSubject } from '../../domain/identity/source-binding';
+import type { IdentityService } from '../identity/identity.service';
+import type { SourceBindings } from '../identity/source-bindings';
 import { Secret } from '../shared/secret';
 import type { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
@@ -90,7 +93,9 @@ export class WebService {
     private readonly moodle: MoodleLinkPort,
     private readonly classroom: ClassroomLinkPort,
     private readonly accounts: SourceAccountRepository,
-    private readonly cfg: { webOrigin: string; authOrigin?: string },
+    private readonly identity: IdentityService,
+    private readonly bindings: SourceBindings,
+    private readonly cfg: { webOrigin: string; authOrigin?: string; institutionalDomain?: string },
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -142,6 +147,14 @@ export class WebService {
     await this.oauth.revokeToken(token);
   }
 
+  /**
+   * Excluir a conta: apaga a pessoa e, em cascata, sessões, tokens, contas conectadas, senhas guardadas e vínculos com
+   * as fontes. É o único jeito de trocar o SIGAA ou o AVA ligados à conta.
+   */
+  async deleteAccount(p: WebPrincipal): Promise<void> {
+    await this.users.deleteAccount(p.userId);
+  }
+
   async me(p: WebPrincipal): Promise<Me> {
     const [profile, sigaa, moodle, classroom] = await Promise.all([
       this.users.findProfile(p.userId),
@@ -173,12 +186,11 @@ export class WebService {
     if (!p.chave) throw sessionExpired();
     const login = typeof body.login === 'string' ? body.login : '';
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
-    let usuario: string;
-    try {
-      usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
-    } catch (e) {
-      throw linkToApi(e);
-    }
+    // Conta já ligada a outro CPF: recusa antes de falar com o SIGAA (não gasta tentativa nem revela nada de ninguém).
+    await this.bindings.assertCompatible(p.userId, sigaaSubject(login));
+    const usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
+    // Senha certa provou que o CPF é desta pessoa: só agora o vínculo (e a recusa se o CPF for de outra conta).
+    await this.bindings.bind(p.userId, sigaaSubject(usuario));
     await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
   }
 
@@ -193,11 +205,23 @@ export class WebService {
   }
 
   async connectMoodle(p: WebPrincipal, body: { link?: unknown }): Promise<void> {
-    try {
-      await this.moodle.connect(p.userId, 'web', typeof body.link === 'string' ? body.link : '');
-    } catch (e) {
-      throw linkToApi(e);
+    const acc = await this.moodle.verify(p.userId, 'web', typeof body.link === 'string' ? body.link : '');
+    const profile = await this.users.findProfile(p.userId);
+    const domain = this.cfg.institutionalDomain ?? 'ufba.br';
+    if (!profile?.email || !moodleBelongsTo({ auth: acc.auth, username: acc.username }, profile.email, domain)) {
+      throw new LinkError(
+        `Essa conta do AVA não é a sua. Entre no AVA com o login institucional de ${profile?.email ?? 'sua conta'} e tente de novo.`,
+        'source_account_not_owned',
+      );
     }
+    await this.bindings.bind(p.userId, moodleSubject(acc.host, acc.moodleUserId));
+    await this.identity.conectarConta({
+      userId: p.userId,
+      provider: 'MOODLE',
+      accountKey: `${acc.host}:${acc.username}`,
+      siteUrl: acc.siteUrl,
+      secretPlain: acc.token,
+    });
   }
 
   async disconnectMoodle(p: WebPrincipal): Promise<void> {
@@ -411,16 +435,4 @@ const notFound = () => new ApiError(404, 'request_not_found', 'Pedido de autoriz
 
 function classroomCallback(base: string, app: AppClassroom): string {
   return `${base.replace(/\/+$/, '')}/oauth/callback/${app === 'ufba' ? 'google' : 'classroom'}`;
-}
-
-const LINK_STATUS: Record<LinkError['code'], number> = {
-  invalid_request: 400,
-  invalid_credentials: 422,
-  too_many_attempts: 429,
-  source_unavailable: 502,
-};
-
-function linkToApi(e: unknown): unknown {
-  if (e instanceof LinkError) return new ApiError(LINK_STATUS[e.code], e.code, e.message);
-  return e;
 }
