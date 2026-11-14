@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Secret } from '../shared/secret';
 import { connectComputerGuide, MEMORY_CONNECT_TOOL } from './connect-guide';
 import { MemoryComputerDirectory } from './device-ports';
@@ -83,6 +83,8 @@ export class MemoryProxy {
   private readonly now: () => number;
   private readonly grants?: MemoryGrantSync;
   private readonly syncedAt = new Map<string, number>();
+  private readonly warnedAt = new Map<string, number>();
+  private readonly log = new Logger('MemoryProxy');
 
   constructor(
     private readonly admin: MemoryAdmin,
@@ -138,6 +140,15 @@ export class MemoryProxy {
     }
   }
 
+  /** Alerta de limite: só ids e nome da ferramenta (nunca argumentos), no máximo um por pessoa a cada 10 min. */
+  private warnLimit(userId: string, tool: string): void {
+    const t = this.now();
+    const last = this.warnedAt.get(userId);
+    if (last !== undefined && t - last < 10 * 60_000) return;
+    this.warnedAt.set(userId, t);
+    this.log.warn(`limite de chamadas de memória atingido: user=${userId} tool=${tool}`);
+  }
+
   /** Põe os acessos em dia (convites aceitos, papéis novos) sem travar a chamada se o reconciliador falhar. */
   private async syncGrants(userId: string): Promise<void> {
     if (!this.grants) return;
@@ -150,7 +161,10 @@ export class MemoryProxy {
 
   private async forward(userId: string, name: string, args: Record<string, unknown>): Promise<RemoteToolResult> {
     if (Buffer.byteLength(JSON.stringify(args)) > MAX_BODY_BYTES) return failure(MSG.tooBig);
-    if (!this.rate.take(userId)) return failure(MSG.rate);
+    if (!this.rate.take(userId)) {
+      this.warnLimit(userId, name);
+      return failure(MSG.rate);
+    }
     const key = await this.users.proxyKey(userId);
     const tool = (await this.remoteTools(userId, key)).find((t) => t.name === name);
     if (!tool) return failure(`A ferramenta ${name} não existe neste servidor de memória.`);

@@ -1,5 +1,6 @@
 import { GrantReconciler } from './grant-reconciler';
 import { MemoryComputers } from './memory-computers';
+import { ProxyKeyRotation } from './proxy-key-rotation';
 
 export interface MaintenanceReport {
   sweptComputers: number;
@@ -7,6 +8,7 @@ export interface MaintenanceReport {
   reconciled: number;
   failed: number;
   unknownProjects: number;
+  rotatedKeys: number;
 }
 
 const MAX_USERS_PER_RUN = 500;
@@ -22,10 +24,13 @@ export class MemoryMaintenance {
   constructor(
     private readonly reconciler: GrantReconciler,
     private readonly computers: MemoryComputers,
+    private readonly rotation?: ProxyKeyRotation,
+    /** Idade máxima da chave de repasse, em dias (0 = gira todas, para incidente). */
+    private readonly keyMaxAgeDays?: number,
   ) {}
 
   async run(): Promise<MaintenanceReport> {
-    const report: MaintenanceReport = { sweptComputers: 0, retried: 0, reconciled: 0, failed: 0, unknownProjects: 0 };
+    const report: MaintenanceReport = { sweptComputers: 0, retried: 0, reconciled: 0, failed: 0, unknownProjects: 0, rotatedKeys: 0 };
     if (this.running) return report;
     this.running = true;
     try {
@@ -36,6 +41,7 @@ export class MemoryMaintenance {
         if (await this.reconciler.syncUser(id)) report.reconciled++;
         else report.failed++;
       }
+      report.rotatedKeys = (await this.rotation?.rotateStale(this.keyMaxAgeDays).catch(() => 0)) ?? 0;
       report.unknownProjects = (await this.reconciler.unknownProjects().catch(() => [])).length;
       return report;
     } finally {

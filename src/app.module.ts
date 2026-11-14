@@ -11,6 +11,7 @@ import { MemoryProjects } from './application/memory/memory-projects';
 import { MemoryGrantSync, MemoryProjectRepository, MemorySyncJobRepository, TeamGrantSource } from './application/memory/project-ports';
 import { DbTeamGrantSource, MemoryAdmins, TeamRoles } from './application/memory/team-roles';
 import { TeamRoleRepository, UserLister } from './application/memory/team-ports';
+import { ProxyKeyRotation, ProxyKeyStore, DEFAULT_MAX_AGE_DAYS } from './application/memory/proxy-key-rotation';
 import { MemoryScheduler } from './infrastructure/memory/memory-scheduler';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { DeviceAuthorizations } from './application/memory/device-authorizations';
@@ -206,8 +207,17 @@ export function buildLiveSources(
     { provide: AccountDeparture, useExisting: MemoryDeparture },
     {
       provide: MemoryMaintenance,
-      useFactory: (reconciler: GrantReconciler, computers: MemoryComputers) => new MemoryMaintenance(reconciler, computers),
-      inject: [GrantReconciler, MemoryComputers],
+      useFactory: (reconciler: GrantReconciler, computers: MemoryComputers, rotation: ProxyKeyRotation) => {
+        const days = Number(process.env.MEMORY_PROXY_KEY_MAX_AGE_DAYS);
+        return new MemoryMaintenance(reconciler, computers, rotation, Number.isFinite(days) && days >= 0 ? days : DEFAULT_MAX_AGE_DAYS);
+      },
+      inject: [GrantReconciler, MemoryComputers, ProxyKeyRotation],
+    },
+    {
+      provide: ProxyKeyRotation,
+      useFactory: (admin: MemoryAdmin, repo: MemoryUserRepository, store: ProxyKeyStore, cipher: SecretCipher) =>
+        new ProxyKeyRotation(admin, repo, store, cipher),
+      inject: [MemoryAdmin, MemoryUserRepository, ProxyKeyStore, SecretCipher],
     },
     MemoryScheduler,
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },

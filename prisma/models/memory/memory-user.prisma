@@ -11,6 +11,8 @@ model MemoryUser {
   proxyKeyCiphertext    String? @map("proxy_key_ciphertext")
   proxyKeyIv            String? @map("proxy_key_iv")
   proxyKeyAuthTag       String? @map("proxy_key_auth_tag")
+  // Última rotação da chave de repasse (nulo = nunca; conta a partir de createdAt). A varredura gira as velhas.
+  proxyKeyRotatedAt     DateTime? @map("proxy_key_rotated_at")
 
   // Nome do Google enviado ao memory (colegas veem quem escreveu).
   displayName String?  @map("display_name")

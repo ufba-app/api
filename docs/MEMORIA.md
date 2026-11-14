@@ -14,7 +14,7 @@ Desenho: `docs/specs/2026-11-14-memoria-ufba.md`; resultado do spike e correçõ
 | 6 | `memory_connect_computer` e prompt `conectar-computador` | feito |
 | 7 | Meus projetos, reconciliador, `DELETE /me` | feito |
 | 8 | papéis do time e Administração | feito |
-| 9 | endurecimento | a fazer |
+| 9 | endurecimento: rotação da chave de repasse, alertas, runbook (`docs/MEMORIA-RUNBOOK.md`) | feito (minisign pendente de chave do André) |
 
 ## Configuração (só nomes)
 

@@ -38,8 +38,12 @@ export class MemoryScheduler implements OnModuleInit, OnModuleDestroy {
       const r = await this.maintenance.run();
       this.log.log(
         `varredura: ${r.reconciled} reconciliadas, ${r.failed} falhas, ${r.retried} jobs retentados, ` +
-          `${r.sweptComputers} chaves não confirmadas revogadas, ${r.unknownProjects} projetos desconhecidos`,
+          `${r.sweptComputers} chaves não confirmadas revogadas, ${r.rotatedKeys} chaves de repasse giradas, ` +
+          `${r.unknownProjects} projetos desconhecidos`,
       );
+      // Alertas: falha de sincronização ou projeto criado por fora (S12) pedem olhar na Administração.
+      if (r.failed > 0) this.log.warn(`alerta: ${r.failed} pessoas com sincronização falhando`);
+      if (r.unknownProjects > 0) this.log.warn(`alerta: ${r.unknownProjects} projetos desconhecidos nos workspaces ufba-*`);
     } catch {
       this.log.warn('varredura falhou');
     }
