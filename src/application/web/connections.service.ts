@@ -12,7 +12,8 @@ import {
 import { randomToken } from '../oauth/pkce';
 import type { SigaaMasterSlotRepository, SourceAccountRepository } from '../ports/repositories';
 import { Secret } from '../shared/secret';
-import type { CofreSigaa } from '../sigaa/cofre-sigaa';
+import { CredencialSigaaInvalidaError, type CofreSigaa } from '../sigaa/cofre-sigaa';
+import { RateWindow } from '../memory/rate-window';
 import { ApiError, sessionExpired, WEB_CLIENT_ID, type GuestApp, type WebPrincipal } from './web-api';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -24,6 +25,8 @@ const toApp = (a: GuestApp): AppClassroom => (a === 'guest' ? 'convidado' : 'ufb
  */
 export class ConnectionsService {
   /** `state` do Google para conectar o Classroom pelo web: aleatório, de uso único, preso à pessoa. */
+  private readonly keyRate: RateWindow;
+  private readonly unlockRate: RateWindow;
   private readonly classroomStates = new Map<string, { userId: string; app: AppClassroom; expiresAt: number }>();
 
   constructor(
@@ -38,7 +41,11 @@ export class ConnectionsService {
     private readonly slots: SigaaMasterSlotRepository,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa).
+    this.keyRate = new RateWindow(10, 60 * 60_000, this.now);
+    this.unlockRate = new RateWindow(10, 60_000, this.now);
+  }
 
   // ---- SIGAA ----
 
@@ -48,23 +55,46 @@ export class ConnectionsService {
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     // Conta já ligada a outro CPF: recusa antes de falar com o SIGAA (não gasta tentativa nem revela nada de ninguém).
     await this.bindings.assertCompatible(p.userId, sigaaSubject(login));
-    let usuario: string;
-    try {
-      usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
-    } catch (e) {
-      // O SIGAA recusou a senha: a cópia mestra (passkey) guarda uma senha que não vale mais (ex.: trocada no SIGAA).
-      // Descarta, para o desbloqueio não tentar de novo a senha velha a cada login (e bloquear a conta no SIGAA).
-      if (e instanceof LinkError && e.code === 'invalid_credentials') await this.slots.deleteAll(p.userId);
-      throw e;
-    }
+    const usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
     // Senha certa provou que o CPF é desta pessoa: só agora o vínculo (e a recusa se o CPF for de outra conta).
     await this.bindings.bind(p.userId, sigaaSubject(usuario));
-    await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
+    const { novaDk } = await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
+    // DK nova (a pessoa digitou a senha sem ter a DK nesta sessão): as cópias das passkeys guardam a DK velha e morrem.
+    if (novaDk) await this.slots.deleteAll(p.userId);
+  }
+
+  /**
+   * Para o navegador cifrar a DK com a passkey (ativar). Só com o SIGAA aberto nesta sessão. A DK passa pelo JavaScript
+   * do painel por um instante (como a senha digitada), e o chamador a descarta logo depois.
+   */
+  async sigaaKey(p: WebPrincipal): Promise<{ dk: string }> {
+    if (!p.chave) throw sessionExpired();
+    if (!this.keyRate.take(p.userId)) throw tooMany();
+    const dk = await this.cofre.chaveDeDados({ userId: p.userId, clientId: WEB_CLIENT_ID }, p.chave);
+    if (!dk) throw new ApiError(409, 'source_not_connected', 'Conecte o SIGAA nesta sessão antes de guardar a chave com a passkey.');
+    return { dk: dk.reveal() };
+  }
+
+  /** Desbloqueio: a DK veio da passkey (ou do pacote do QR). Se abre o cofre, o SIGAA fica conectado nesta sessão. */
+  async unlockSigaa(p: WebPrincipal, dkB64: string): Promise<void> {
+    if (!p.chave) throw sessionExpired();
+    if (!this.unlockRate.take(p.userId)) throw tooMany();
+    if (!(await this.cofre.cofre(p.userId))) {
+      throw new ApiError(409, 'source_not_connected', 'Não há senha do SIGAA guardada. Digite a senha do SIGAA.');
+    }
+    try {
+      await this.cofre.desbloquear({ userId: p.userId, clientId: WEB_CLIENT_ID }, p.chave, Secret.of(dkB64));
+    } catch (e) {
+      if (e instanceof CredencialSigaaInvalidaError) {
+        throw new ApiError(422, 'invalid_credentials', 'A chave não abriu a senha guardada. Digite a senha do SIGAA.');
+      }
+      throw e;
+    }
   }
 
   async disconnectSigaa(p: WebPrincipal): Promise<void> {
-    await this.cofre.apagar({ userId: p.userId, clientId: WEB_CLIENT_ID });
-    // A pessoa quis tirar a senha: a cópia mestra (passkey) também vai.
+    // A pessoa quis tirar a senha: o cofre, as cópias da DK (painel e apps) e as das passkeys vão juntos.
+    await this.cofre.apagarCofre(p.userId);
     await this.slots.deleteAll(p.userId);
   }
 
@@ -163,3 +193,5 @@ export class ConnectionsService {
 function classroomCallback(base: string, app: AppClassroom): string {
   return `${base.replace(/\/+$/, '')}/oauth/callback/${app === 'ufba' ? 'google' : 'classroom'}`;
 }
+
+const tooMany = () => new ApiError(429, 'too_many_attempts', 'Muitas tentativas. Aguarde um pouco e tente de novo.');

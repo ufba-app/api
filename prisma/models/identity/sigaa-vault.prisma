@@ -1,0 +1,26 @@
+// Cofre da senha do SIGAA, UM por pessoa (docs/specs/2026-11-15-dk-chave-de-dados.md). A senha fica cifrada (AES-256-GCM)
+// com a DK, uma chave de dados aleatória que NUNCA é guardada em claro. Cada cliente OAuth / sessão do painel guarda só
+// uma cópia da DK cifrada com a K do próprio token (`sigaa_credentials`), e cada passkey guarda outra, cifrada no
+// navegador com o PRF (`sigaa_master_slots`). Trocar a senha recifra só esta linha; as cópias da DK seguem valendo.
+// Reaproveita o enum SourceAccountStatus (aqui só OK e REAUTH_NEEDED são usados).
+model SigaaVault {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  login String
+
+  secretCiphertext String @map("secret_ciphertext")
+  secretIv         String @map("secret_iv")
+  secretAuthTag    String @map("secret_auth_tag")
+
+  // REAUTH_NEEDED: o SIGAA recusou esta senha; vale para todos os clientes até a pessoa digitar a nova.
+  status  SourceAccountStatus @default(OK)
+  version Int                 @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("sigaa_vaults")
+}

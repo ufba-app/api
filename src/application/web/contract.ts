@@ -101,6 +101,12 @@ export const SigaaPasskeyView = z.object({
 
 export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyView) });
 
+// ---- DK: chave do cofre da senha do SIGAA ----
+
+/** A DK (32 bytes, base64url): o navegador a cifra com a passkey ao ativar e a devolve ao desbloquear. */
+export const SigaaKeyResponse = z.object({ dk: b64url(43, 43, 32) });
+export const UnlockSigaaBody = z.object({ dk: b64url(43, 43, 32) });
+
 // ---- liberação do SIGAA por QR (correio entre o computador e o celular) ----
 
 export const CreatePairingBody = z.object({

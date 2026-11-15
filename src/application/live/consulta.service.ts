@@ -207,7 +207,7 @@ export class ConsultaService {
       return await fn(source, ctx);
     } catch (e) {
       if (e instanceof SourceError && e.code === 'REAUTH_NEEDED') {
-        await this.cofre.marcarInvalida(cred.credencialId);
+        await this.cofre.marcarInvalida(quem.userId);
         throw new FonteNaoConectadaError(`SIGAA (${cred.login}) recusou o login e a senha guardados: ${SIGAA_RECONECTAR}`);
       }
       if (e instanceof SourceError && e.code === 'CREDENTIAL_REJECTED') {

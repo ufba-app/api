@@ -30,8 +30,8 @@ export class AuthorizationRequests {
   }
 
   /**
-   * Aprovar: a senha do SIGAA da sessão é aberta em memória e entregue ao cofre para este pedido; no /token o cliente
-   * recebe uma K nova e a senha é cifrada de novo com ela. A pessoa não digita nada.
+   * Aprovar: a DK do cofre é aberta em memória com a K da sessão e entregue ao cofre para este pedido; no /token o
+   * cliente recebe uma K nova e a DK é cifrada com ela (a cópia dele). A pessoa não digita nada.
    */
   async approve(id: string, p: WebPrincipal): Promise<{ redirectTo: string }> {
     const pending = await this.livePending(id);
@@ -39,7 +39,7 @@ export class AuthorizationRequests {
     // Dono primeiro (atômico): só depois disso a senha de alguém é aberta.
     if (!(await this.oauth.claim(pending.id, p.userId))) throw requestNotFound();
     const cred = p.chave ? await this.status.openSigaa(p) : null;
-    if (cred) this.cofre.aguardar(pending.id, { login: cred.login, senha: cred.senha });
+    if (cred) this.cofre.aguardar(pending.id, { login: cred.login, dk: cred.dk });
     try {
       return { redirectTo: await this.oauth.complete(pending.id) };
     } catch (e) {

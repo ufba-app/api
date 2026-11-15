@@ -1,131 +1,180 @@
+import { randomBytes } from 'node:crypto';
 import { Secret } from '../shared/secret';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import type { EncryptedSecret, SigaaCredentialRecord } from '../ports/repositories';
-import { SigaaCredentialRepository } from '../ports/repositories';
 import { CofreSigaa, CredencialSigaaInvalidaError } from './cofre-sigaa';
+import { InMemoryCredentials, InMemoryVaults, cifraDeTeste as cifra } from '../../../test/support/sigaa-store-fake';
 
 const SENHA = 'senha-falsa-de-teste-123';
+const NOVA_SENHA = 'outra-senha-falsa-456';
 const quem = { userId: 'u1', clientId: 'c1' };
-
-class FakeRepo extends SigaaCredentialRepository {
-  upserts: unknown[] = [];
-  rec: SigaaCredentialRecord | null = null;
-  async upsert(input: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) {
-    this.upserts.push(input);
-    this.rec = { id: 'cred1', ...input, status: 'OK', createdAt: new Date() };
-    return this.rec;
-  }
-  async find() {
-    return this.rec;
-  }
-  async delete() {
-    this.rec = null;
-  }
-  async setStatus(_id: string, status: 'OK' | 'REAUTH_NEEDED') {
-    if (this.rec) this.rec.status = status;
-  }
-}
-
-// AES-256-GCM equivalente ao AesSecretCipher (a camada application não importa infrastructure, nem em spec).
-const cifra = (k: Buffer) => ({
-  encrypt(plain: string): EncryptedSecret {
-    const iv = randomBytes(12);
-    const c = createCipheriv('aes-256-gcm', k, iv);
-    const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
-    return { ciphertext: ct.toString('base64'), iv: iv.toString('base64'), authTag: c.getAuthTag().toString('base64') };
-  },
-  decrypt(e: EncryptedSecret): string {
-    const d = createDecipheriv('aes-256-gcm', k, Buffer.from(e.iv, 'base64'));
-    d.setAuthTag(Buffer.from(e.authTag, 'base64'));
-    return Buffer.concat([d.update(Buffer.from(e.ciphertext, 'base64')), d.final()]).toString('utf8');
-  },
-});
+const web = { userId: 'u1', clientId: 'ufba-web' };
 
 function montar() {
   let t = 1_000_000;
-  const repo = new FakeRepo();
-  const cofre = new CofreSigaa(repo, cifra, () => t);
-  return { repo, cofre, avancar: (ms: number) => (t += ms) };
+  const repo = new InMemoryCredentials();
+  const cofres = new InMemoryVaults();
+  const cofre = new CofreSigaa(repo, cofres, cifra, () => t);
+  return { repo, cofres, cofre, avancar: (ms: number) => (t += ms) };
 }
 
-async function guardar(cofre: CofreSigaa) {
-  cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
-  cofre.vincularCodigo('txn1', 'hash1');
-  return cofre.gravarNoToken('hash1', quem);
+/** O painel conecta: cria o cofre e a cópia da DK da sessão (K do painel). */
+async function conectar(cofre: CofreSigaa, senha = SENHA) {
+  const kWeb = randomBytes(32);
+  await cofre.gravar(web, { login: 'aluno', senha: Secret.of(senha) }, kWeb);
+  return kWeb;
 }
 
-describe('CofreSigaa', () => {
-  it('aguardar → vincularCodigo → gravarNoToken devolve K de 32 bytes e grava só cifrado', async () => {
-    const { cofre, repo } = montar();
-    expect(cofre.temPendente('txn1')).toBe(false);
-    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
-    expect(cofre.temPendente('txn1')).toBe(true);
-    cofre.vincularCodigo('txn1', 'hash1');
-    const k = await cofre.gravarNoToken('hash1', quem);
+/** O painel autoriza um app: a DK aberta pela sessão vai para o cliente novo, que ganha a sua K no /token. */
+async function autorizar(cofre: CofreSigaa, kWeb: Buffer, txn = 'txn1', hash = 'hash1') {
+  const aberta = await cofre.abrir(web, kWeb);
+  cofre.aguardar(txn, { login: aberta!.login, dk: aberta!.dk });
+  cofre.vincularCodigo(txn, hash);
+  return cofre.gravarNoToken(hash, quem);
+}
+
+describe('CofreSigaa (cofre com DK)', () => {
+  it('conectar grava a senha cifrada no cofre e só a DK cifrada na cópia da sessão; nada em claro', async () => {
+    const { cofre, repo, cofres } = montar();
+    const k = await conectar(cofre);
+    const v = cofres.rows.get('u1')!;
+    expect(JSON.stringify(v)).not.toContain(SENHA);
+    expect(Buffer.from(v.secret.ciphertext, 'base64').toString('utf8')).not.toContain(SENHA);
+    const cop = repo.rows.get('u1|ufba-web')!;
+    expect(JSON.stringify(cop)).not.toContain(SENHA);
+    // A cópia é a DK (32 bytes) cifrada com a K: aberta com a K, dá 43 caracteres base64url.
+    expect(Buffer.from(cifra(k).decrypt(cop.secret), 'base64url')).toHaveLength(32);
+  });
+
+  it('abrir com a K da sessão recupera login, senha e a DK', async () => {
+    const { cofre } = montar();
+    const k = await conectar(cofre);
+    const a = await cofre.abrir(web, k);
+    expect(a).toMatchObject({ login: 'aluno' });
+    expect(a!.senha.reveal()).toBe(SENHA);
+    expect(Buffer.from(a!.dk.reveal(), 'base64url')).toHaveLength(32);
+  });
+
+  it('autorizar um app: o cliente recebe uma K de 32 bytes e abre a mesma senha', async () => {
+    const { cofre } = montar();
+    const kWeb = await conectar(cofre);
+    const k = await autorizar(cofre, kWeb);
     expect(k).toHaveLength(32);
-    expect(repo.upserts).toHaveLength(1);
-    expect(JSON.stringify(repo.upserts[0])).not.toContain(SENHA);
-    expect(Buffer.from(repo.rec!.secret.ciphertext, 'base64').toString('utf8')).not.toContain(SENHA);
+    expect((await cofre.abrir(quem, k!))!.senha.reveal()).toBe(SENHA);
   });
 
-  it('abrir com a K devolvida recupera login e senha', async () => {
-    const { cofre } = montar();
-    const k = await guardar(cofre);
-    const aberto = await cofre.abrir(quem, k!);
-    expect(aberto).toMatchObject({ login: 'aluno', credencialId: 'cred1' });
-    expect(aberto!.senha.reveal()).toBe(SENHA);
+  it('K errada não abre; a SECRETS_KEY do servidor não abre a cópia da DK nem o cofre', async () => {
+    const { cofre, repo, cofres } = montar();
+    await conectar(cofre);
+    await expect(cofre.abrir(web, randomBytes(32))).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    const servidor = cifra(randomBytes(32));
+    expect(() => servidor.decrypt(repo.rows.get('u1|ufba-web')!.secret)).toThrow();
+    expect(() => servidor.decrypt(cofres.rows.get('u1')!.secret)).toThrow();
   });
 
-  it('abrir com outra K falha', async () => {
-    const { cofre } = montar();
-    await guardar(cofre);
-    await expect(cofre.abrir(quem, randomBytes(32))).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+  it('trocar a senha com a DK da sessão recifra só o cofre: o app já autorizado segue abrindo, com a senha nova', async () => {
+    const { cofre, cofres } = montar();
+    const kWeb = await conectar(cofre);
+    const kApp = (await autorizar(cofre, kWeb))!;
+    const r = await cofre.gravar(web, { login: 'aluno', senha: Secret.of(NOVA_SENHA) }, kWeb);
+    expect(r.novaDk).toBe(false);
+    expect(cofres.rows.get('u1')!.version).toBe(2);
+    expect((await cofre.abrir(quem, kApp))!.senha.reveal()).toBe(NOVA_SENHA);
+    expect((await cofre.abrir(web, kWeb))!.senha.reveal()).toBe(NOVA_SENHA);
   });
 
-  it('a SECRETS_KEY do servidor não abre o cifrado', async () => {
+  it('senha digitada numa sessão sem a DK cria DK nova e derruba as cópias dos outros clientes', async () => {
     const { cofre, repo } = montar();
-    await guardar(cofre);
-    const servidor = cifra(randomBytes(32)); // a chave do servidor (SECRETS_KEY) não é K
-    expect(() => servidor.decrypt(repo.rec!.secret)).toThrow();
+    const kWeb = await conectar(cofre);
+    const kApp = (await autorizar(cofre, kWeb))!;
+    const kWebNova = randomBytes(32); // outra sessão do painel, sem cópia da DK
+    const r = await cofre.gravar(web, { login: 'aluno', senha: Secret.of(NOVA_SENHA) }, kWebNova);
+    expect(r.novaDk).toBe(true);
+    expect(repo.rows.has('u1|c1')).toBe(false); // o app perdeu a cópia
+    await expect(cofre.abrir(quem, kApp)).resolves.toBeNull();
+    expect((await cofre.abrir(web, kWebNova))!.senha.reveal()).toBe(NOVA_SENHA);
   });
 
-  it('pendente expira', async () => {
+  it('desbloquear com a DK certa dá à sessão nova uma cópia; DK errada ou sem cofre falha', async () => {
+    const { cofre } = montar();
+    const kWeb = await conectar(cofre);
+    const dk = (await cofre.chaveDeDados(web, kWeb))!;
+    expect(Buffer.from(dk.reveal(), 'base64url')).toHaveLength(32);
+    await cofre.apagar(web); // sair
+    const kNova = randomBytes(32);
+    const s = (b: Buffer) => Secret.of(b.toString('base64url'));
+    await expect(cofre.desbloquear(web, kNova, s(randomBytes(32)))).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    await expect(cofre.desbloquear(web, kNova, s(Buffer.alloc(5)))).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    await cofre.desbloquear(web, kNova, dk);
+    expect((await cofre.abrir(web, kNova))!.senha.reveal()).toBe(SENHA);
+    await expect(cofre.desbloquear({ userId: 'outro', clientId: 'ufba-web' }, kNova, dk)).rejects.toBeInstanceOf(
+      CredencialSigaaInvalidaError,
+    );
+  });
+
+  it('sair (apagar) tira só a cópia da sessão: o cofre e a cópia do app ficam', async () => {
+    const { cofre } = montar();
+    const kWeb = await conectar(cofre);
+    const kApp = (await autorizar(cofre, kWeb))!;
+    await cofre.apagar(web);
+    await expect(cofre.cofre('u1')).resolves.toEqual({ login: 'aluno', status: 'OK' });
+    await expect(cofre.abrir(web, kWeb)).resolves.toBeNull();
+    expect((await cofre.abrir(quem, kApp))!.senha.reveal()).toBe(SENHA);
+  });
+
+  it('apagarCofre tira o cofre e todas as cópias', async () => {
+    const { cofre } = montar();
+    const kWeb = await conectar(cofre);
+    const kApp = (await autorizar(cofre, kWeb))!;
+    await cofre.apagarCofre('u1');
+    await expect(cofre.cofre('u1')).resolves.toBeNull();
+    await expect(cofre.abrir(web, kWeb)).resolves.toBeNull();
+    await expect(cofre.abrir(quem, kApp)).resolves.toBeNull();
+  });
+
+  it('marcarInvalida vale para todos os clientes; digitar a senha nova limpa a marca', async () => {
+    const { cofre } = montar();
+    const kWeb = await conectar(cofre);
+    const kApp = (await autorizar(cofre, kWeb))!;
+    await cofre.marcarInvalida('u1');
+    await expect(cofre.abrir(quem, kApp)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    await expect(cofre.abrir(web, kWeb)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    await expect(cofre.situacao(quem)).resolves.toMatchObject({ status: 'REAUTH_NEEDED' });
+    await cofre.gravar(web, { login: 'aluno', senha: Secret.of(NOVA_SENHA) }, kWeb); // a sessão ainda tem a DK
+    expect((await cofre.abrir(quem, kApp))!.senha.reveal()).toBe(NOVA_SENHA);
+  });
+
+  it('situacao: login e status sem K e sem decifrar nada', async () => {
+    const { cofre } = montar();
+    await expect(cofre.situacao(web)).resolves.toBeNull();
+    await conectar(cofre);
+    await expect(cofre.situacao(web)).resolves.toMatchObject({ login: 'aluno', status: 'OK' });
+  });
+
+  it('aguardar → vincularCodigo → gravarNoToken; pendente e código vinculado expiram; o pendente é de uso único', async () => {
     const { cofre, avancar } = montar();
-    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
+    const kWeb = await conectar(cofre);
+    const dk = (await cofre.chaveDeDados(web, kWeb))!;
+    expect(cofre.temPendente('txn1')).toBe(false);
+    cofre.aguardar('txn1', { login: 'aluno', dk });
+    expect(cofre.temPendente('txn1')).toBe(true);
     avancar(16 * 60_000);
     expect(cofre.temPendente('txn1')).toBe(false);
-    cofre.vincularCodigo('txn1', 'hash1');
-    await expect(cofre.gravarNoToken('hash1', quem)).resolves.toBeNull();
-  });
 
-  it('código vinculado expira em 5 min', async () => {
-    const { cofre, avancar } = montar();
-    cofre.aguardar('txn1', { login: 'aluno', senha: Secret.of(SENHA) });
-    cofre.vincularCodigo('txn1', 'hash1');
+    cofre.aguardar('txn2', { login: 'aluno', dk });
+    cofre.vincularCodigo('txn2', 'h2');
     avancar(6 * 60_000);
-    await expect(cofre.gravarNoToken('hash1', quem)).resolves.toBeNull();
+    await expect(cofre.gravarNoToken('h2', quem)).resolves.toBeNull();
+
+    cofre.aguardar('txn3', { login: 'aluno', dk });
+    cofre.vincularCodigo('txn3', 'h3');
+    await expect(cofre.gravarNoToken('h3', quem)).resolves.toHaveLength(32);
+    await expect(cofre.gravarNoToken('h3', quem)).resolves.toBeNull();
   });
 
-  it('gravarNoToken consome o pendente', async () => {
-    const { cofre } = montar();
-    await guardar(cofre);
-    await expect(cofre.gravarNoToken('hash1', quem)).resolves.toBeNull();
-  });
-
-  it('abrir devolve null sem credencial e lança se REAUTH_NEEDED', async () => {
-    const { cofre } = montar();
-    await expect(cofre.abrir(quem, randomBytes(32))).resolves.toBeNull();
-    const k = await guardar(cofre);
-    await cofre.marcarInvalida('cred1');
-    await expect(cofre.abrir(quem, k!)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
-  });
-
-  it('situacao: login e status sem K e sem decifrar', async () => {
-    const { cofre } = montar();
-    await expect(cofre.situacao(quem)).resolves.toBeNull();
-    await guardar(cofre);
-    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'OK', credencialId: 'cred1' });
-    await cofre.marcarInvalida('cred1');
-    await expect(cofre.situacao(quem)).resolves.toEqual({ login: 'aluno', status: 'REAUTH_NEEDED', credencialId: 'cred1' });
+  it('cópia no formato antigo (a senha, não a DK) não abre: pede senha de novo', async () => {
+    const { cofre, repo } = montar();
+    const kWeb = await conectar(cofre);
+    // Linha antiga: o cifrado é a senha direto, com a K do cliente.
+    await repo.upsert({ ...web, login: 'aluno', secret: cifra(kWeb).encrypt(SENHA) });
+    await expect(cofre.abrir(web, kWeb)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
   });
 });

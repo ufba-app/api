@@ -77,7 +77,7 @@ export abstract class SourceAccountRepository {
   abstract delete(id: string): Promise<void>;
 }
 
-// ── Credencial do SIGAA cifrada por cliente OAuth ─────────────────────────────
+// ── Cópia da DK por cliente OAuth / sessão do painel (a senha fica no cofre `SigaaVaultRepository`) ─────────────
 
 export interface SigaaCredentialRecord {
   id: string;
@@ -99,6 +99,28 @@ export abstract class SigaaCredentialRepository {
   abstract find(userId: string, clientId: string): Promise<SigaaCredentialRecord | null>;
   abstract setStatus(id: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void>;
   abstract delete(userId: string, clientId: string): Promise<void>;
+  /** Apaga as cópias da DK de todos os clientes da pessoa, menos `clientId` (a DK velha não vale mais). */
+  abstract deleteAllExcept(userId: string, clientId: string): Promise<void>;
+  /** Apaga todas as cópias da DK da pessoa. */
+  abstract deleteAllOf(userId: string): Promise<void>;
+}
+
+/** Cofre da senha do SIGAA, um por pessoa: a senha cifrada com a DK (que nunca é guardada em claro). */
+export interface SigaaVaultRecord {
+  userId: string;
+  login: string;
+  secret: EncryptedSecret;
+  status: 'OK' | 'REAUTH_NEEDED';
+  version: number;
+  updatedAt: Date;
+}
+
+export abstract class SigaaVaultRepository {
+  abstract find(userId: string): Promise<SigaaVaultRecord | null>;
+  /** Cria ou troca o cofre; a troca sobe `version` e volta o status para OK. */
+  abstract upsert(input: { userId: string; login: string; secret: EncryptedSecret }): Promise<void>;
+  abstract setStatus(userId: string, status: 'OK' | 'REAUTH_NEEDED'): Promise<void>;
+  abstract delete(userId: string): Promise<void>;
 }
 
 // ── Vínculo fixo conta ↔ titular na fonte (domain/identity/source-binding) ───

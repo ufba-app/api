@@ -213,6 +213,14 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
   async delete(userId: string, clientId: string): Promise<void> {
     await this.prisma.sigaaCredential.deleteMany({ where: { userId, clientId } });
   }
+
+  async deleteAllExcept(userId: string, clientId: string): Promise<void> {
+    await this.prisma.sigaaCredential.deleteMany({ where: { userId, clientId: { not: clientId } } });
+  }
+
+  async deleteAllOf(userId: string): Promise<void> {
+    await this.prisma.sigaaCredential.deleteMany({ where: { userId } });
+  }
 }
 
 @Injectable()

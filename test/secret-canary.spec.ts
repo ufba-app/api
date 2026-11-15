@@ -2,7 +2,8 @@ import { Logger } from '@nestjs/common';
 import { inspect } from 'node:util';
 import { Secret } from '../src/application/shared/secret';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
-import type { EncryptedSecret, SigaaCredentialRecord } from '../src/application/ports/repositories';
+import { randomBytes } from 'node:crypto';
+import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
 import { AesSecretCipher } from '../src/infrastructure/crypto/aes-secret-cipher';
 import { createSigaaHttpClient } from '../src/infrastructure/sources/sigaa/http-client';
 import { SigaaLink } from '../src/infrastructure/sources/sigaa/sigaa-link';
@@ -88,18 +89,10 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
 
   function montar() {
     let modo: Modo = 'ok';
-    const rows = new Map<string, SigaaCredentialRecord>();
-    const repo = {
-      upsert: async (i: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) => {
-        const rec: SigaaCredentialRecord = { id: 'c1', ...i, status: 'OK', createdAt: new Date() };
-        rows.set(`${i.userId}:${i.clientId}`, rec);
-        return rec;
-      },
-      find: async (u: string, c: string) => rows.get(`${u}:${c}`) ?? null,
-      setStatus: async () => undefined,
-      delete: async () => undefined,
-    };
-    const cofre = new CofreSigaa(repo as never, (k) => new AesSecretCipher(k.toString('base64')));
+    const copias = new InMemoryCredentials();
+    const cofres = new InMemoryVaults();
+    const rows = { values: () => [...copias.rows.values(), ...cofres.rows.values()] };
+    const cofre = new CofreSigaa(copias, cofres, (k) => new AesSecretCipher(k.toString('base64')));
     const http = createSigaaHttpClient('https://sigaa.test', fakeFetch(() => modo));
     const link = new SigaaLink(http);
     return { cofre, link, rows, setModo: (m: Modo) => (modo = m) };
@@ -120,6 +113,7 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
     };
     const respostas: unknown[] = [];
     const erros: unknown[] = [];
+    const dks: string[] = [];
 
     const saida = await captureOutput(async () => {
       const log = new Logger('Canario');
@@ -137,8 +131,14 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
 
       setModo('ok');
       await link.validar('txn-ok', 'fulano', senha, 'u1');
-      cofre.aguardar('txn-ok', { login: 'fulano', senha });
-      // Descuido: logar o cofre inteiro, com a senha esperando em memória.
+      // O painel conecta (cria o cofre com a DK) e depois autoriza um app (a DK vai para o cliente novo).
+      const kWeb = randomBytes(32);
+      await cofre.gravar({ userId: 'u1', clientId: 'ufba-web' }, { login: 'fulano', senha }, kWeb);
+      const dkWeb = (await cofre.chaveDeDados({ userId: 'u1', clientId: 'ufba-web' }, kWeb))!;
+      const bytes = Buffer.from(dkWeb.reveal(), 'base64url');
+      dks.push(dkWeb.reveal(), bytes.toString('hex'), bytes.toString('hex').match(/../g)!.join(' '), JSON.stringify([...bytes]));
+      cofre.aguardar('txn-ok', { login: 'fulano', dk: dkWeb });
+      // Descuido: logar o cofre inteiro, com a DK esperando em memória.
       console.log(cofre);
       cofre.vincularCodigo('txn-ok', 'hash-1');
       const k = await cofre.gravarNoToken('hash-1', { userId: 'u1', clientId: 'cli' });
@@ -160,6 +160,8 @@ describe('canário: a senha do SIGAA nunca aparece em log nem em erro', () => {
       JSON.stringify([...rows.values()]),
     ].join('\n');
     expect(tudo).not.toContain(CANARIO);
+    // A DK (em base64url, hex ou como lista de bytes) também não pode aparecer na saída nem no que vai ao banco em claro.
+    for (const d of dks) expect(tudo).not.toContain(d);
     // Sanidade: a captura funcionou (senão o teste passaria em branco).
     expect(saida).toContain('Secret([redacted])');
   });
