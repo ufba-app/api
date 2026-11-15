@@ -1,8 +1,8 @@
-import type { SecretCipher } from "../ports/secret-cipher";
-import type { SiasbCopyRepository, SyncResult } from "../ports/siasb-copy";
-import { ReconectarError, type SiasbReader } from "./siasb-reader";
+import type { SecretCipher } from '../ports/secret-cipher';
+import type { SiasbCopyRepository, SyncResult } from '../ports/siasb-copy';
+import { ReconectarError, type SiasbReader } from './siasb-reader';
 
-export type SyncOutcome = SyncResult | "BUSY" | "DISCONNECTED";
+export type SyncOutcome = SyncResult | 'BUSY' | 'DISCONNECTED';
 
 export const SYNC_INTERVAL_MS = 45 * 60_000;
 export const SYNC_RETRY_MS = 15 * 60_000;
@@ -28,9 +28,9 @@ export class SiasbSyncer {
     } catch {
       // O único erro esperado aqui é o usuário ter sido apagado (chave estrangeira): conta como desconectado.
       // A mensagem não é lida nem logada.
-      return "DISCONNECTED";
+      return 'DISCONNECTED';
     }
-    if (!claimed) return "BUSY";
+    if (!claimed) return 'BUSY';
     try {
       let outcome: SyncOutcome;
       try {
@@ -41,10 +41,7 @@ export class SiasbSyncer {
           disciplineName: a.disciplineName,
           treatmentType: a.treatmentType,
           concluded: a.concluded,
-          firstName: this.cipher.encrypt(
-            a.firstName,
-            `siasb-attendance:${userId}:${a.id}`,
-          ),
+          firstName: this.cipher.encrypt(a.firstName, `siasb-attendance:${userId}:${a.id}`),
         }));
         const sessions = snap.sessions.map((s) => ({
           id: s.id,
@@ -62,17 +59,16 @@ export class SiasbSyncer {
           attendances,
           sessions,
         });
-        if (!stored) return "DISCONNECTED";
-        outcome = "OK";
+        if (!stored) return 'DISCONNECTED';
+        outcome = 'OK';
       } catch (e) {
-        outcome =
-          e instanceof ReconectarError ? "RECONNECT_REQUIRED" : "UNAVAILABLE";
+        outcome = e instanceof ReconectarError ? 'RECONNECT_REQUIRED' : 'UNAVAILABLE';
       }
       const at = this.now();
       const nextRunAt =
-        outcome === "OK"
+        outcome === 'OK'
           ? new Date(at.getTime() + SYNC_INTERVAL_MS)
-          : outcome === "RECONNECT_REQUIRED"
+          : outcome === 'RECONNECT_REQUIRED'
             ? null
             : new Date(at.getTime() + SYNC_RETRY_MS);
       try {
