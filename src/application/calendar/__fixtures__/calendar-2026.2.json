@@ -1,0 +1,1580 @@
+{
+  "contractVersion": "1",
+  "document": {
+    "term": "2026.2",
+    "publishedOn": "2026-10-27"
+  },
+  "keyDates": {
+    "termStart": "2026-08-19",
+    "progress25": "2026-09-17",
+    "progress50": "2026-10-17",
+    "progress75": "2026-11-18",
+    "termEnd": "2026-12-19",
+    "internship": {
+      "start": "2026-07-06",
+      "end": "2027-01-31"
+    }
+  },
+  "events": [
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Pedido de vagas pelos Colegiados via SIGAA",
+      "when": {
+        "type": "between",
+        "start": "2026-05-18",
+        "end": "2026-05-24"
+      },
+      "additionalWindows": [
+        {
+          "start": "2026-06-09",
+          "end": "2026-06-11"
+        }
+      ],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Colegiados e Departamentos"
+      ],
+      "description": "Negociação do Planejamento Acadêmico entre Colegiados e Departamentos via SIGAA",
+      "when": {
+        "type": "between",
+        "start": "2026-05-25",
+        "end": "2026-05-30"
+      },
+      "additionalWindows": [
+        {
+          "start": "2026-06-09",
+          "end": "2026-06-11"
+        }
+      ],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Departamentos"
+      ],
+      "description": "Criação de turmas para Graduação / Alocação docente",
+      "when": {
+        "type": "between",
+        "start": "2026-05-25",
+        "end": "2026-06-08"
+      },
+      "additionalWindows": [
+        {
+          "start": "2026-06-09",
+          "end": "2026-06-13"
+        }
+      ],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Plenário Graduação"
+      ],
+      "description": "Aprovação em plenário do planejamento acadêmico (Graduação) e registro no SIGAA",
+      "when": {
+        "type": "until",
+        "date": "2026-06-09"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Preparação do Plano de matrícula de ingressantes pelo Colegiado - PMI (antigo PF)",
+      "when": {
+        "type": "between",
+        "start": "2026-07-06",
+        "end": "2026-07-15"
+      },
+      "additionalWindows": [
+        {
+          "start": "2026-07-20",
+          "end": "2026-07-22"
+        }
+      ],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Departamentos"
+      ],
+      "description": "Último dia para solicitar alocação de sala de aula",
+      "when": {
+        "type": "on",
+        "date": "2026-08-04"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "CIEPE/SUPAC (PAFs)"
+      ],
+      "description": "Analise dos pedidos de alocação de salas de aula",
+      "when": {
+        "type": "between",
+        "start": "2026-08-06",
+        "end": "2026-08-12"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Colegiados e Departamentos"
+      ],
+      "description": "1º Ajuste: Turmas – Ajuste de turmas com foco nas inscrições em componentes após a matrícula web",
+      "when": {
+        "type": "between",
+        "start": "2026-08-06",
+        "end": "2026-08-08"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Departamentos e CIEPE/SUPAC (PAFs)"
+      ],
+      "description": "Ajuste de alocação de sala de aula",
+      "when": {
+        "type": "between",
+        "start": "2026-08-13",
+        "end": "2026-08-14"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Departamentos"
+      ],
+      "description": "Consulta da numeração das salas alocadas (no SIGAA)",
+      "when": {
+        "type": "from",
+        "date": "2026-08-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Colegiados e Departamentos"
+      ],
+      "description": "2º Ajuste: Turmas – Ajuste de turmas com foco nas inscrições em componentes após Rematrícula web",
+      "when": {
+        "type": "between",
+        "start": "2026-08-17",
+        "end": "2026-08-19"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO PÓS GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Período de criação de turmas para os Colegiados de Pós-Graduação Stricto Sensu (SIGAA) / Alocação docente",
+      "when": {
+        "type": "between",
+        "start": "2026-05-18",
+        "end": "2026-06-08"
+      },
+      "additionalWindows": [
+        {
+          "start": "2026-06-15",
+          "end": "2026-06-19"
+        },
+        {
+          "start": "2026-07-15",
+          "end": "2026-07-18"
+        }
+      ],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO PÓS GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Pós-Graduação Lato Sensu"
+      ],
+      "description": "Período de criação de turmas para Pós-Graduação Lato Sensu (SIAC) / Alocação docente",
+      "when": {
+        "type": "between",
+        "start": "2026-05-18",
+        "end": "2026-08-14"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO PÓS GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Plenário Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Aprovação em plenário do planejamento acadêmico (Pós-graduação Stricto Sensu) e registro no SIGAA",
+      "when": {
+        "type": "until",
+        "date": "2026-06-09"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PLANEJAMENTO PÓS GRADUAÇÃO",
+      "procedure": "Planejamento",
+      "responsibles": [
+        "Plenário Pós-Graduação Lato Sensu"
+      ],
+      "description": "Aprovação em plenário do planejamento acadêmico (Pós-Graduação Lato Sensu) e registro no SIAC",
+      "when": {
+        "type": "until",
+        "date": "2026-08-14"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Envio de solicitação de mudança de vinculação a estrutura curricular para matrícula",
+      "when": {
+        "type": "until",
+        "date": "2026-07-24"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "NAREG/CARE/SUPAC"
+      ],
+      "description": "Registro das mudança de vinculação a estrutura curricular para matrícula",
+      "when": {
+        "type": "until",
+        "date": "2026-07-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Recalculo dos alunos de graduação para a realização da matrícula 2026.2",
+      "when": {
+        "type": "on",
+        "date": "2026-08-01"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Matrícula em atividades individuais",
+      "when": {
+        "type": "between",
+        "start": "2026-08-03",
+        "end": "2027-01-06"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Matrícula WEB SIGAA- Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-08-03",
+        "end": "2026-08-05"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Processamento de matrícula",
+      "when": {
+        "type": "between",
+        "start": "2026-08-10",
+        "end": "2026-08-12"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Divulgação dos resultados da Matrícula WEB",
+      "when": {
+        "type": "until",
+        "date": "2026-08-12"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Re-Matrícula WEB SIGAA",
+      "when": {
+        "type": "between",
+        "start": "2026-08-13",
+        "end": "2026-08-15"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Processamento da Re-matrícula Web",
+      "when": {
+        "type": "between",
+        "start": "2026-08-20",
+        "end": "2026-08-22"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Divulgação dos resultados da Re-Matrícula WEB",
+      "when": {
+        "type": "until",
+        "date": "2026-08-22"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MATRÍCULA GRADUAÇÃO",
+      "procedure": "Matrícula",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Matrícula Extraordinária WEB SIGAA",
+      "when": {
+        "type": "between",
+        "start": "2026-08-24",
+        "end": "2026-08-26"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO INTERNÍVEL",
+      "procedure": "Internível",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período para solicitação de inscrição Internível, no Colegiado de Graduação, em componentes de Pós Graduação e para o Colegiado encaminhar aos Programas de Pós-Graduação verificarem a disponibilidade de vaga",
+      "when": {
+        "type": "between",
+        "start": "2026-08-03",
+        "end": "2026-08-08"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO INTERNÍVEL",
+      "procedure": "Internível",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Período para encaminhar o processo ao NAREP com as solicitações de matrícula internivel na Pós-Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-08-17",
+        "end": "2026-08-22"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO INTERNÍVEL",
+      "procedure": "Internível",
+      "responsibles": [
+        "NAREP/CARE/SUPAC"
+      ],
+      "description": "Período para cadastro do aluno e registro da matrícula internível na Pós-Graduação",
+      "when": {
+        "type": "until",
+        "date": "2026-09-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO INTERNÍVEL",
+      "procedure": "Internível",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Período para solicitação de inscrição Internível, no Colegiado de Pós Graduação, em componentes de Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-07-27",
+        "end": "2026-08-08"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO INTERNÍVEL",
+      "procedure": "Internível",
+      "responsibles": [
+        "NAGA/CARE/SUPAC"
+      ],
+      "description": "Registro matricula internível para estudantes de Pós-Graduação em componente de Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-08-17",
+        "end": "2026-08-22"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "INGRESSANTES GRADUAÇÃO",
+      "procedure": "Ingressantes",
+      "responsibles": [
+        "SUPAC e Colegiados"
+      ],
+      "description": "Matrícula dos ingressantes nos PMI (todos os processos seletivos)",
+      "when": {
+        "type": "between",
+        "start": "2026-07-27",
+        "end": "2026-08-01"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "REINGRESSO",
+      "procedure": "Reingresso",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período para estudante da Graduação solicitar o prosseguimento em nova modalidade/habilitação no respectivo Colegiado de curso - para reingresso imediato",
+      "when": {
+        "type": "between",
+        "start": "2026-07-11",
+        "end": "2026-07-15"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "REINGRESSO",
+      "procedure": "Reingresso",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Informação ao NAREG/CARE dos estudantes autorizados a cursar outra modalidade/habilitação de curso - para reingresso imediato",
+      "when": {
+        "type": "until",
+        "date": "2026-07-24"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "REINGRESSO",
+      "procedure": "Reingresso",
+      "responsibles": [
+        "NAREG/CARE/SUPAC"
+      ],
+      "description": "Cadastro do estudante de graduação no novo curso",
+      "when": {
+        "type": "until",
+        "date": "2026-08-21"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "REINGRESSO",
+      "procedure": "Reingresso",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Inscrição em componentes curriculares - Graduação (Rematrícula web)",
+      "when": {
+        "type": "between",
+        "start": "2026-08-13",
+        "end": "2026-08-15"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANCAMENTO",
+      "procedure": "Trancamento",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período para solicitação de trancamento de matrícula SIGAA",
+      "when": {
+        "type": "between",
+        "start": "2026-09-18",
+        "end": "2026-10-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANCAMENTO",
+      "procedure": "Trancamento",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Período para solicitação de trancamento de matrícula SIGAA - Pós-Graduação Stricto Sensu",
+      "when": {
+        "type": "between",
+        "start": "2026-09-18",
+        "end": "2026-10-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANCAMENTO",
+      "procedure": "Trancamento",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Processamento do Trancamento de Graduação",
+      "when": {
+        "type": "undetermined",
+        "reason": "relative",
+        "text": "7 dias corridos após a solicitação de trancamento"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "JUBILAMENTO",
+      "procedure": "Jubilamento",
+      "responsibles": [
+        "SUPAC e STI"
+      ],
+      "description": "Rotina de Jubilamento (REGPG art 75)",
+      "when": {
+        "type": "undetermined",
+        "reason": "tbd",
+        "text": "Data a definir"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "APROVEITAMENTO DE ESTUDOS",
+      "procedure": "Aproveitamento de Estudos",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período para solicitação de aproveitamento de estudos direto no SIGAA",
+      "when": {
+        "type": "undetermined",
+        "reason": "anytime",
+        "text": "A qualquer tempo"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "NOTAS",
+      "procedure": "Notas",
+      "responsibles": [
+        "Docentes"
+      ],
+      "description": "Período de lançamento de notas parciais no SIGAA - Graduação (incluindo Internatos). Período para registrar notas e salvar.",
+      "when": {
+        "type": "undetermined",
+        "reason": "other",
+        "text": "A partir do 1º dia letivo"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "NOTAS",
+      "procedure": "Notas",
+      "responsibles": [
+        "Docentes"
+      ],
+      "description": "Consolidação de Turmas (Fechamento da caderneta)",
+      "when": {
+        "type": "between",
+        "start": "2026-11-19",
+        "end": "2027-01-06"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "NOTAS",
+      "procedure": "Notas",
+      "responsibles": [
+        "Docentes"
+      ],
+      "description": "Período de lançamento de notas no SIGAA - Pós-Graduação Stricto Sensu",
+      "when": {
+        "type": "between",
+        "start": "2026-11-19",
+        "end": "2027-01-06"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "NOTAS",
+      "procedure": "Notas",
+      "responsibles": [
+        "Docentes"
+      ],
+      "description": "Período de lançamento de notas no SIGAA - Pós-Graduação Lato Sensu",
+      "when": {
+        "type": "between",
+        "start": "2026-11-19",
+        "end": "2027-01-06"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "FORMATURA",
+      "procedure": "Formatura",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Recalculo dos alunos para formatura 2026.2",
+      "when": {
+        "type": "on",
+        "date": "2027-01-13"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "FORMATURA",
+      "procedure": "Formatura",
+      "responsibles": [
+        "Estudantes e Colegiados"
+      ],
+      "description": "Colação de grau dos Formados",
+      "when": {
+        "type": "between",
+        "start": "2027-01-25",
+        "end": "2027-04-19"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Entrega, no Colegiado, da documentação dos alunos da Pós-Graduação aprovados em processo seletivo para 2026.1, para cadastramento.",
+      "when": {
+        "type": "undetermined",
+        "reason": "per-notice",
+        "text": "De acordo com edital de cada Programa"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Envio da documentação (via processo eletrônico) dos novos alunos selecionados da Pós-Graduação 2026.1 para ao NAREP/CARE/SUPAC, para homologação e arquivamento",
+      "when": {
+        "type": "until",
+        "date": "2026-07-06"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Matrícula WEB SIGAA - Pós-Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-07-27",
+        "end": "2026-07-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "Aprovação da matrícula Web Pós-Graduação e divulgação dos resultados na WEB",
+      "when": {
+        "type": "between",
+        "start": "2026-07-27",
+        "end": "2026-08-05"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Inscrição em componentes curriculares dos alunos ingressos na Pós-Graduação, de acordo com cronograma/procedimento estabelecido por cada Programa",
+      "when": {
+        "type": "between",
+        "start": "2026-08-03",
+        "end": "2026-08-08"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "PÓS -GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Pós-Graduação Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Ajuste de inscrição em componentes curriculares nos Colegiados dos cursos de Pós-Graduação, de acordo com cronograma/procedimento estabelecido por cada Programa (até 25% semestre)",
+      "when": {
+        "type": "until",
+        "date": "2026-09-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL GRADUAÇÃO",
+      "procedure": "Aluno Especial Graduação",
+      "responsibles": [
+        "Estudantes candidatos Grad"
+      ],
+      "description": "Candidato solicita nos Departamentos",
+      "when": {
+        "type": "undetermined",
+        "reason": "suspended",
+        "text": "Suspenso para o período"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL GRADUAÇÃO",
+      "procedure": "Aluno Especial Graduação",
+      "responsibles": [
+        "Departamentos"
+      ],
+      "description": "Análise das solicitações e seleção dos candidatos nos Departamento",
+      "when": {
+        "type": "undetermined",
+        "reason": "suspended",
+        "text": "Suspenso para o período"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL GRADUAÇÃO",
+      "procedure": "Aluno Especial Graduação",
+      "responsibles": [
+        "Departamentos"
+      ],
+      "description": "Divulgação dos resultados nos respectivos Departamentos",
+      "when": {
+        "type": "undetermined",
+        "reason": "suspended",
+        "text": "Suspenso para o período"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL DE PÓS-GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Aluno Especial Pós Stricto Sensu",
+      "responsibles": [
+        "Estudantes candidatos Pós"
+      ],
+      "description": "Candidatos a aluno especial de Pós-Graduação solicitam inscrição nos respectivos Colegiados dos cursos",
+      "when": {
+        "type": "between",
+        "start": "2026-06-05",
+        "end": "2026-06-12"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL DE PÓS-GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Aluno Especial Pós Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Colegiados de Pós-Graduação analisam solicitações e selecionam candidatos - de acordo com o edital de cada programa",
+      "when": {
+        "type": "between",
+        "start": "2026-06-18",
+        "end": "2026-06-24"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL DE PÓS-GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Aluno Especial Pós Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Resultados da seleção para aluno especial Pós-Graduação Stricto Sensu - de acordo com o edital de cada programa",
+      "when": {
+        "type": "on",
+        "date": "2026-06-30"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL DE PÓS-GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Aluno Especial Pós Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Envio dos formulários e documentos ao NAREP/CARE - SUPAC",
+      "when": {
+        "type": "on",
+        "date": "2026-07-10"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "ALUNO ESPECIAL DE PÓS-GRADUAÇÃO STRICTO SENSU",
+      "procedure": "Aluno Especial Pós Stricto Sensu",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Inscrição dos selecionados para aluno especial Pós-Graduação em componentes curriculares nos Colegiados de curso",
+      "when": {
+        "type": "between",
+        "start": "2026-08-19",
+        "end": "2026-08-21"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSIÇÃO BI - CPL",
+      "procedure": "Transição BI - CPL",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período de inscrição para alunos regulares egressos dos BIs para os cursos CPL",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Seleção já realizada. Consultar https://www.ingresso.ufba.br/"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://www.ingresso.ufba.br/"
+      ]
+    },
+    {
+      "section": "TRANSIÇÃO BI - CPL",
+      "procedure": "Transição BI - CPL",
+      "responsibles": [
+        "PROGRAD"
+      ],
+      "description": "Divulgação do resultado final dos aprovados no Processo Seletivo em https://www.ingresso.ufba.br/",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Seleção já realizada. Consultar https://www.ingresso.ufba.br/"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://www.ingresso.ufba.br/"
+      ]
+    },
+    {
+      "section": "TRANSIÇÃO BI - CPL",
+      "procedure": "Transição BI - CPL",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Pré-matrícula Online estudantes transição BI-CPL",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Seleção já realizada. Consultar https://www.ingresso.ufba.br/"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://www.ingresso.ufba.br/"
+      ]
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Período para candidato/aluno solicitar ao NAE/CARE transferência interna, externa e matrícula para portador de diploma de caráter especial para os cursos de Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-07-11",
+        "end": "2026-07-15"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Período para candidato/aluno solicitar ao NAE/CARE transferência interna e externa para os alunos de Pós-Graduação",
+      "when": {
+        "type": "between",
+        "start": "2026-07-11",
+        "end": "2026-07-15"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "NAE/CARE/SUPAC"
+      ],
+      "description": "Envio aos Colegiados de Graduação dos pedidos de transferência interna, externa e matrícula para portador de diploma de caráter especial",
+      "when": {
+        "type": "between",
+        "start": "2026-07-13",
+        "end": "2026-07-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "NAE/CARE/SUPAC"
+      ],
+      "description": "Envio aos Colegiados dos cursos de Pós-Graduação os pedidos de transferência interna e externa",
+      "when": {
+        "type": "between",
+        "start": "2026-07-13",
+        "end": "2026-07-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Devolução ao NAREG/CARE dos processos julgados (deferidos e indeferidos) para cadastro",
+      "when": {
+        "type": "until",
+        "date": "2026-07-23"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Devolução pelos Colegiados de Pós-Graduação ao NAREP/CARE dos processos julgados (deferidos e indeferidos) para cadastro",
+      "when": {
+        "type": "until",
+        "date": "2026-07-23"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Divulgação dos resultados pelos Colegiados de curso dos Cursos de Graduação",
+      "when": {
+        "type": "until",
+        "date": "2026-07-23"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Pós-Graduação Stricto Sensu"
+      ],
+      "description": "Divulgação dos resultados pelos Colegiados de curso de Pós-Graduação",
+      "when": {
+        "type": "until",
+        "date": "2026-07-23"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Estudantes Grad"
+      ],
+      "description": "Inscrição em componentes curriculares - Graduação (Matrícula web)",
+      "when": {
+        "type": "between",
+        "start": "2026-08-03",
+        "end": "2026-08-05"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "Estudantes Pós"
+      ],
+      "description": "Inscrição em componentes curriculares nos respectivos Colegiados de Curso - Pós-Graduação (conforme escalonamento de cada Colegiado)",
+      "when": {
+        "type": "between",
+        "start": "2026-07-27",
+        "end": "2026-07-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "NAREG/CARE/SUPAC"
+      ],
+      "description": "Cadastro do estudante de graduação no novo curso",
+      "when": {
+        "type": "until",
+        "date": "2026-07-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "TRANSFERÊNCIAS CARÁTER ESPECIAL",
+      "procedure": "Transferências caráter especial",
+      "responsibles": [
+        "NAREP/CARE/SUPAC"
+      ],
+      "description": "Cadastro do estudante de pós-graduação no novo curso",
+      "when": {
+        "type": "until",
+        "date": "2026-07-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Acadêmica",
+      "responsibles": [
+        "IES externa"
+      ],
+      "description": "IFES encaminham à PROGRAD os pedidos de matrícula de alunos do Programa de Mobilidade Acadêmica",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar https://prograd.ufba.br/mobilidadeacademica"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://prograd.ufba.br/mobilidadeacademica"
+      ]
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Acadêmica",
+      "responsibles": [
+        "Colegiados Grad"
+      ],
+      "description": "Envio à PROGRAD das respostas sobre às solicitações de participação do Programa de Mobilidade Acadêmica",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar https://prograd.ufba.br/mobilidadeacademica"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://prograd.ufba.br/mobilidadeacademica"
+      ]
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Acadêmica",
+      "responsibles": [
+        "Estudantes de Programa de Mobilidade Acadêmica"
+      ],
+      "description": "Estudante de Programa de Mobilidade Acadêmica entra em contato com o NAGA/CARE/SUPAC para confirmar candidatura e envio de documentos pessoais",
+      "when": {
+        "type": "between",
+        "start": "2026-08-13",
+        "end": "2026-08-14"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade acadêmica",
+      "responsibles": [
+        "NAGA/CARE/SUPAC"
+      ],
+      "description": "Inscrição em componentes curriculares de estudantes do Programa de Mobilidade Acadêmica",
+      "when": {
+        "type": "on",
+        "date": "2026-08-18"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Internacional",
+      "responsibles": [
+        "SRI / Unidades"
+      ],
+      "description": "Envio dos Processos de estudantes de Mobilidade Internacional ao NAREG/CARE/SUPAC",
+      "when": {
+        "type": "until",
+        "date": "2026-08-31"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Internacional",
+      "responsibles": [
+        "NAREG/CARE/SUPAC"
+      ],
+      "description": "Cadastro e inscrição em componente curricular dos estudantes de Mobilidade Internacional",
+      "when": {
+        "type": "until",
+        "date": "2026-09-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Internacional",
+      "responsibles": [
+        "SRI"
+      ],
+      "description": "Envia e-mail ao helpdesk solicitando os usuários ao SIGAA",
+      "when": {
+        "type": "until",
+        "date": "2026-09-26"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Internacional",
+      "responsibles": [
+        "STI"
+      ],
+      "description": "STI libera acesso ao SIGAA e comunica os estudantes de mobilidade Internacional",
+      "when": {
+        "type": "until",
+        "date": "2026-09-30"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "MOBILIDADE ACADÊMICA",
+      "procedure": "Mobilidade Internacional",
+      "responsibles": [
+        "SRI"
+      ],
+      "description": "Informa ao NAREG/CARE/SUPAC lista dos estudantes de mobilidade Internacional a serem inativados",
+      "when": {
+        "type": "until",
+        "date": "2026-10-17"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "VAGAS RESIDUAIS",
+      "procedure": "Vagas Residuais",
+      "responsibles": [],
+      "description": "Divulgação do Edital de Vagas Residuais",
+      "when": {
+        "type": "undetermined",
+        "reason": "tbd",
+        "text": "A definir"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": []
+    },
+    {
+      "section": "REVALIDAÇÃO DE DIPLOMA E RECONHECIMENTO DE TÍTULO",
+      "procedure": "Revalidação",
+      "responsibles": [],
+      "description": "Consultar a qualquer tempo a Plataforma Carolina Bori: www.carolinabori.mec.gov.br",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar a qualquer tempo a Plataforma Carolina Bori: www.carolinabori.mec.gov.br"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "www.carolinabori.mec.gov.br"
+      ]
+    },
+    {
+      "section": "REVALIDA",
+      "procedure": "Revalida",
+      "responsibles": [],
+      "description": "Consultar site do REVALIDA",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar site do REVALIDA: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/revalida"
+      },
+      "additionalWindows": [],
+      "dateChanged": false,
+      "links": [
+        "https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/revalida"
+      ]
+    }
+  ],
+  "teachingDays": {
+    "byMonth": [
+      {
+        "month": "2026-08",
+        "days": 11
+      },
+      {
+        "month": "2026-09",
+        "days": 25
+      },
+      {
+        "month": "2026-10",
+        "days": 25
+      },
+      {
+        "month": "2026-11",
+        "days": 23
+      },
+      {
+        "month": "2026-12",
+        "days": 16
+      }
+    ],
+    "total": 100
+  },
+  "nonTeachingDays": [
+    {
+      "name": "Independência do Brasil",
+      "when": {
+        "type": "on",
+        "date": "2026-09-07"
+      },
+      "weekday": "mon",
+      "dateChanged": false
+    },
+    {
+      "name": "Nossa Senhora Aparecida",
+      "when": {
+        "type": "on",
+        "date": "2026-10-12"
+      },
+      "weekday": "mon",
+      "dateChanged": false
+    },
+    {
+      "name": "Dia do Servidor Público Federal",
+      "when": {
+        "type": "on",
+        "date": "2026-10-30"
+      },
+      "weekday": "fri",
+      "dateChanged": true
+    },
+    {
+      "name": "Finados",
+      "when": {
+        "type": "on",
+        "date": "2026-11-02"
+      },
+      "weekday": "mon",
+      "dateChanged": false
+    },
+    {
+      "name": "Dia Nacional de Zumbi e da Consciência Negra",
+      "when": {
+        "type": "on",
+        "date": "2026-11-20"
+      },
+      "weekday": "fri",
+      "dateChanged": false
+    },
+    {
+      "name": "Nossa Senhora da Conceição",
+      "when": {
+        "type": "on",
+        "date": "2026-12-08"
+      },
+      "weekday": "tue",
+      "dateChanged": false
+    }
+  ],
+  "otherEvents": [
+    {
+      "name": "Aniversário de Fundação da UFBA - UFBA 80 anos",
+      "when": {
+        "type": "on",
+        "date": "2026-07-02"
+      },
+      "links": []
+    },
+    {
+      "name": "Semana de Acolhimento Estudantil",
+      "when": {
+        "type": "between",
+        "start": "2026-08-19",
+        "end": "2026-08-26"
+      },
+      "links": []
+    },
+    {
+      "name": "XLV Seminário Estudantil de Pesquisa",
+      "when": {
+        "type": "between",
+        "start": "2026-11-22",
+        "end": "2026-11-25"
+      },
+      "links": []
+    },
+    {
+      "name": "XXVII Seminário de Pequisa e Pós-Graduação da UFBA",
+      "when": {
+        "type": "between",
+        "start": "2026-11-22",
+        "end": "2026-11-25"
+      },
+      "links": []
+    },
+    {
+      "name": "PROAE EXPLICA (evento a ser realizado em espaços localizados no Campus da UFBA do Canela e em Ondina, em turno distinto)",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar https://proae.ufba.br/pt-br"
+      },
+      "links": [
+        "https://proae.ufba.br/pt-br"
+      ]
+    },
+    {
+      "name": "Período de abertura de inscrição para os benefícios da PROAE (publicação de Edital)",
+      "when": {
+        "type": "undetermined",
+        "reason": "see-link",
+        "text": "Consultar https://proae.ufba.br/pt-br"
+      },
+      "links": [
+        "https://proae.ufba.br/pt-br"
+      ]
+    }
+  ],
+  "verification": {
+    "verified": true,
+    "warnings": [],
+    "reader": "ai"
+  }
+}

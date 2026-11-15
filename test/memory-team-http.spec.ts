@@ -92,7 +92,7 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
     process.env.WEB_ORIGIN = WEB;
     process.env.AUTH_ORIGIN = 'http://localhost:3002';
     process.env.PUBLIC_URL = 'http://localhost:3000';
-    process.env.MEMORY_ADMIN_EMAILS = 'Fulana@ufba.br';
+    process.env.ADMIN_EMAILS = 'Fulana@ufba.br';
     delete process.env.GOOGLE_CLIENT_ID;
     fake = new FakeAiMemory(ROOT);
     const url = await fake.start();
@@ -153,7 +153,7 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
   afterAll(async () => {
     await app.close();
     await fake.stop();
-    for (const k of ['WEB_ORIGIN', 'AUTH_ORIGIN', 'PUBLIC_URL', 'MEMORY_URL', 'MEMORY_ADMIN_EMAILS']) delete process.env[k];
+    for (const k of ['WEB_ORIGIN', 'AUTH_ORIGIN', 'PUBLIC_URL', 'MEMORY_URL', 'ADMIN_EMAILS']) delete process.env[k];
   });
 
   const web = (method: string, path: string, who: string | null) =>
@@ -169,7 +169,7 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
       .map((g) => `${g.workspace}/${g.project}:${g.level}`)
       .sort();
 
-  it('só admin (e-mail de MEMORY_ADMIN_EMAILS, sem diferença de maiúsculas) acessa a Administração', async () => {
+  it('só admin (e-mail de ADMIN_EMAILS, sem diferença de maiúsculas) acessa a Administração', async () => {
     for (const [m, p] of [
       ['GET', '/admin/team'],
       ['GET', '/admin/memory/sync'],

@@ -1,0 +1,35 @@
+// Log da leitura semanal do calendário acadêmico (supac.ufba.br/calendario-academico), uma linha por arquivo lido.
+// O calendário é público: o contrato inteiro fica guardado (permite comparar reedições e corrigir). PUBLISHED é o
+// calendário vigente do semestre (o mais recente por semestre). Sem dado pessoal. `seenBy` é o id de quem marcou
+// "Visto", sem chave estrangeira: é só registro de quem viu.
+model CalendarParseLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  sourceUrl String @map("source_url")
+  // Nulo só quando o download falhou (não há arquivo para o hash). O mesmo arquivo não é lido duas vezes.
+  sourceSha256 String? @unique @map("source_sha256")
+
+  // "2026.2": do documento (PUBLISHED, NOT_VERIFIED) ou do texto do link (ERROR de PDF). Nulo no ERROR da página.
+  term String?
+
+  // PUBLISHED | NOT_VERIFIED | ERROR
+  status   String
+  verified Boolean?
+  warnings Json     @default("[]")
+  contract Json?
+
+  model        String?
+  inputTokens  Int?    @map("input_tokens")
+  outputTokens Int?    @map("output_tokens")
+
+  seen   Boolean   @default(false)
+  seenBy String?   @map("seen_by") @db.Uuid
+  seenAt DateTime? @map("seen_at")
+
+  @@index([status, seen])
+  @@index([term])
+  @@map("calendar_parse_logs")
+}

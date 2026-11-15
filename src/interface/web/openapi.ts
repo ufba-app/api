@@ -517,6 +517,27 @@ export const ROUTES: Route[] = [
     params: { userId: z.string(), roleKey: z.string() },
     ok: [204, null],
   },
+  // calendário acadêmico: alertas para admin (403 not_admin para quem não é admin)
+  {
+    id: "getAdminCalendarAlerts",
+    method: "get",
+    path: "/admin/calendar/alerts",
+    tag: "calendar",
+    auth: "session",
+    summary: "Leituras do calendário que pedem conferência (não verificadas ou com erro) e calendário vencido",
+    ok: [200, C.CalendarAlertsResponse],
+  },
+  {
+    id: "markAdminCalendarLogSeen",
+    method: "post",
+    path: "/admin/calendar/logs/{id}/seen",
+    tag: "calendar",
+    auth: "session",
+    summary: "Marca o alerta como visto (quem e quando ficam no registro)",
+    params: { id: z.string() },
+    body: z.object({}),
+    ok: [204, null],
+  },
   {
     id: "getAdminMemorySync",
     method: "get",

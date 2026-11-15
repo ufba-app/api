@@ -276,6 +276,21 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
   sem histórico gravado; 409 `curriculum_unavailable` enquanto a grade do curso não está pronta.
 
 A fonte do PDF está ligada (fase 5): a importação baixa o "Histórico Escolar" pela sessão do SIGAA da pessoa (reaproveita o cookie guardado; a senha só é aberta se for preciso logar) em 2 requisições (portal e menu "Emitir Histórico"). A importação só existe com `ANTHROPIC_API_KEY` configurada (`available: false` sem ela). Falha da fonte vira `SIGAA_UNAVAILABLE` (SIGAA fora do ar, página inesperada) ou `SESSION_EXPIRED` (senha recusada).
+## 5.2 Calendário acadêmico (alertas para admin)
+
+Spec: `dev/ufba/handoffs/calendario-cron-e-alerta-admin.md`. Toda semana (e uma vez 2 min depois do boot) a API lê
+`supac.ufba.br/calendario-academico`, acha os PDFs de calendário (o texto do link é o semestre) e, para arquivo novo ou
+alterado (SHA-256), lê o PDF com a IA (Haiku 5.5, ~US$ 0,01) e confere por aritmética (dias letivos, marcos, datas). Cada arquivo
+vira uma linha em `calendar_parse_logs`: `PUBLISHED` (verificado; é o calendário vigente do semestre), `NOT_VERIFIED` (não
+publica) ou `ERROR`. Antes de registrar NOT_VERIFIED ou ERROR a API relê uma vez. Na primeira execução lê só o calendário mais
+recente. Só existe com `ANTHROPIC_API_KEY`. `CALENDAR_SCHEDULER=off` desliga o agendador.
+
+Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 403 `not_admin`.
+
+- `GET /admin/calendar/alerts` → `{ items, expired }`. `items`: leituras `NOT_VERIFIED`/`ERROR` não vistas do semestre vigente ou
+  futuro (`ERROR` da página inteira, sem `term`, sempre aparece), com `warnings` (avisos da conferência ou o motivo do erro).
+  `expired`: o último calendário publicado já terminou e nada novo apareceu (`{ term, termEnd }`).
+- `POST /admin/calendar/logs/{id}/seen` `{}` → 204. Marca "Visto" (guarda quem e quando); qualquer admin pode. 404 `not_found`.
 
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 

@@ -54,7 +54,7 @@ WEB_ORIGIN=http://localhost:3001 AUTH_ORIGIN=http://localhost:3002 PUBLIC_URL=ht
   node --env-file=.env dist/src/main.js
 ```
 
-Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`, `ANTHROPIC_API_KEY` (leitura do histórico pela IA, Haiku 5.5 fixo; sem ela a leitura não existe). Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`. `WEB_ORIGIN` aceita lista separada por vírgula (a primeira é a principal, usada nos redirects para o painel; todas valem para CORS e CSRF); `AUTH_ORIGIN` é único; ambos são validados no boot (https em produção, sem barra final, sem curinga).
+Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`, `ADMIN_EMAILS` (administradores: memória e alertas do calendário; sem alternativa), `ANTHROPIC_API_KEY` (leitura do histórico pela IA, Haiku 5.5 fixo; sem ela a leitura não existe). Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`. `WEB_ORIGIN` aceita lista separada por vírgula (a primeira é a principal, usada nos redirects para o painel; todas valem para CORS e CSRF); `AUTH_ORIGIN` é único; ambos são validados no boot (https em produção, sem barra final, sem curinga).
 
 ## Camadas
 
