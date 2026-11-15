@@ -656,6 +656,38 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
     });
 
+    it('senha recusada ao desbloquear descarta as cópias mestras (senha velha não é tentada a cada login)', async () => {
+      const cookie = await conectado('mestra8');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      await send('DELETE', '/session', { cookie });
+      const nova = await signIn('mestra8');
+      expect(((await (await get('/me', nova)).json()) as any).connections.sigaa.status).toBe('locked');
+
+      const recusada = await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra8', password: `${SENHA}-velha` } });
+      expect(recusada.status).toBe(422);
+      const me = (await (await get('/me', nova)).json()) as any;
+      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+    });
+
+    it('as respostas com a cópia cifrada vão com Cache-Control: no-store', async () => {
+      const cookie = await conectado('mestra9');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      expect((await get('/sigaa/passkey', cookie)).headers.get('cache-control')).toBe('no-store');
+      const s = await send('POST', '/sigaa/passkey/slot', { cookie, body: { credentialId: slot(1).credentialId } });
+      expect(s.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('duas gravações juntas não furam o limite de 5 cópias', async () => {
+      const cookie = await conectado('mestra10');
+      for (let i = 1; i <= 4; i++) await send('POST', '/sigaa/passkey', { cookie, body: slot(i) });
+      const [a, b] = await Promise.all([
+        send('POST', '/sigaa/passkey', { cookie, body: slot(5) }),
+        send('POST', '/sigaa/passkey', { cookie, body: slot(6) }),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([204, 409]);
+      expect(((await (await get('/sigaa/passkey', cookie)).json()) as any).passkeys).toHaveLength(5);
+    });
+
     it('entrada inválida: sal, iv, id e rótulo fora do formato dão 400 sem ecoar o valor; exige sessão e CSRF', async () => {
       const cookie = await conectado('mestra7');
       for (const ruim of [

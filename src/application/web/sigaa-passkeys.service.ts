@@ -27,6 +27,9 @@ export interface SaveSlotInput {
  * autentica é a sessão): é só a chave da cópia. Por isso não há verificação de assertion no servidor.
  */
 export class SigaaPasskeys {
+  // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa). Com mais de uma, os limites por minuto/hora
+  // e a fila de gravação por pessoa passam a valer por instância e precisam ir para o banco.
+  private readonly saving = new Map<string, Promise<void>>();
   private readonly saves: RateWindow;
   private readonly unlocks: RateWindow;
 
@@ -51,6 +54,18 @@ export class SigaaPasskeys {
 
   /** Só com o SIGAA conectado NESTA sessão: a cópia mestra é a senha que a pessoa acabou de provar que é dela. */
   async save(p: WebPrincipal, input: SaveSlotInput): Promise<void> {
+    // Uma gravação por vez por pessoa: sem isso, duas chamadas juntas passam pelo count e furam o limite de cópias.
+    const previous = this.saving.get(p.userId) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => this.saveNow(p, input));
+    const tail = run.catch(() => undefined);
+    this.saving.set(p.userId, tail);
+    void tail.then(() => {
+      if (this.saving.get(p.userId) === tail) this.saving.delete(p.userId);
+    });
+    return run;
+  }
+
+  private async saveNow(p: WebPrincipal, input: SaveSlotInput): Promise<void> {
     if (!(await this.status.sigaaOpens(p))) {
       throw new ApiError(409, 'source_not_connected', 'Conecte o SIGAA nesta sessão antes de guardar a senha com a passkey.');
     }

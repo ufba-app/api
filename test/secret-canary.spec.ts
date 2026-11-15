@@ -221,3 +221,43 @@ describe('canário: tokens do Moodle e do Google nunca aparecem em log nem em er
     expect(saida).toContain('Secret([redacted])');
   });
 });
+
+describe('canário: cópia mestra do SIGAA (passkey)', () => {
+  // Sentinelas nos campos que o navegador cifra/gera: nenhum pode sair em log, erro ou resposta de erro.
+  const CT = 'CANARIOcifradoPeloNavegador0123456789abc';
+  const IV = 'CANARIOiv0123456'; // 16 caracteres = 12 bytes
+  const SAL = 'CANARIOsalt' + 'x'.repeat(32); // 43 caracteres = 32 bytes
+  const CRED = 'CANARIOcredencial-abc123';
+  const slot = (id: string) => ({ credentialId: id, prfSalt: SAL, iv: IV, ciphertext: CT, label: 'iPhone' });
+
+  it('as 4 rotas (listar, gravar, abrir, remover) e todos os seus erros não vazam nada além do que devolvem', async () => {
+    const { SigaaPasskeys } = await import('../src/application/web/sigaa-passkeys.service');
+    const { InMemorySlots } = await import('./support/slot-fake');
+    const { toApiError } = await import('../src/interface/web/api-error.filter');
+    let aberto = true;
+    const svc = new SigaaPasskeys(new InMemorySlots(), { sigaaOpens: async () => aberto } as never);
+    const p = { userId: 'u1', clientId: 'ufba-web' };
+    const erros: unknown[] = [];
+    const tenta = async (f: () => Promise<unknown>) => void (await f().catch((e) => erros.push(e)));
+
+    const out = await captureOutput(async () => {
+      await svc.save(p, slot(CRED));
+      await svc.list(p);
+      await svc.slot(p, CRED);
+      await tenta(() => svc.slot(p, CRED + '-nao-existe'));
+      await tenta(() => svc.remove(p, CRED + '-nao-existe'));
+      aberto = false;
+      await tenta(() => svc.save(p, slot(CRED))); // SIGAA não conectado nesta sessão
+      aberto = true;
+      for (let i = 0; i < 5; i++) await tenta(() => svc.save(p, slot(`${CRED}-${i}`))); // chega ao limite
+      for (let i = 0; i < 12; i++) await tenta(() => svc.slot(p, CRED)); // estoura as 10 por minuto
+      await svc.remove(p, CRED);
+    });
+
+    expect(erros.length).toBeGreaterThan(3);
+    const respostas = erros.map((e) => JSON.stringify(toApiError(e)) + String(e) + inspect(e, { depth: 10 }));
+    for (const visto of [out, ...respostas]) {
+      for (const s of [CT, IV, SAL, CRED, 'CANARIO']) expect(visto).not.toContain(s);
+    }
+  });
+});

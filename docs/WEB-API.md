@@ -104,6 +104,8 @@ navegador** com o PRF da passkey; ele nunca abre a cópia. Rotas (cookie + CSRF)
 - `DELETE /sigaa/passkey/{credentialId}` → 204 (a conexão do SIGAA não muda).
 - `DELETE /connections/sigaa` apaga também as cópias; `DELETE /me` apaga em cascata. Sair (`DELETE /session`) **não** apaga.
 
+Se o SIGAA **recusar** a senha em `POST /connections/sigaa`, o servidor apaga as cópias mestras da pessoa (a senha guardada não vale mais).
+
 Desbloquear: `GET /sigaa/passkey` → `get` da passkey com `evalByCredential` → `POST …/slot` → abrir no navegador →
 `POST /connections/sigaa` com login e senha (caminho de sempre). Qualquer falha cai no formulário da senha.
 

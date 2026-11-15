@@ -1,6 +1,6 @@
 # Chave mestra do SIGAA com passkey (desenho)
 
-Status: **proposta para aprovação do André**. Sem código. Autor: agente da API (Alicerce), 14/11/2026.
+Status: **etapa 1 (API) implementada** em `feat/chave-mestra-etapa1`; o spike da etapa 0 deu **SEGUIR COM RESSALVA** (ver §9). Autor: agente da API (Alicerce), 14/11/2026.
 Relacionado: [`2026-11-14-memoria-ufba.md`](2026-11-14-memoria-ufba.md) (outro assunto) e a mudança "sessão do SIGAA por pessoa" (branch `fix/sigaa-expirada-302`, independente deste desenho).
 
 ## 1. Problema e objetivo
@@ -64,7 +64,7 @@ A cópia mestra **nunca é aberta no servidor**: o PRF não sai do navegador. É
 2. No login seguinte, `GET /me` traz `sigaa.status: "locked"` (§6), no lugar de `disconnected`.
 3. A tela mostra "Desbloquear o SIGAA" (um toque). O navegador busca a cópia mestra, faz o `get` da passkey, deriva a KEK e **decifra** `{login, password}` em memória.
 4. O navegador chama o `POST /connections/sigaa` **já existente** com esse login e senha. O servidor valida no SIGAA e cifra a senha com a K da sessão nova, exatamente como numa conexão normal. O resultado é `connected`.
-5. Falha em qualquer ponto (toque cancelado, passkey sem suporte, PRF diferente, senha mudou no SIGAA): a tela cai no formulário normal "digite a senha do SIGAA". Se a senha do SIGAA foi alterada, a cópia mestra velha é descartada e a pessoa pode ativar a passkey de novo.
+5. Falha em qualquer ponto (toque cancelado, passkey sem suporte, PRF diferente, senha mudou no SIGAA): a tela cai no formulário normal "digite a senha do SIGAA". **Se o SIGAA recusa a senha** em `POST /connections/sigaa` (código `invalid_credentials`), **o servidor apaga todas as cópias mestras da pessoa**: assim a senha velha não é tentada a cada login (o que poderia bloquear a conta no SIGAA). A pessoa pode ativar a passkey de novo depois de conectar com a senha nova. (Uma senha digitada errada também apaga; é o custo de não insistir.)
 
 ### 5.3 Desconectar e excluir
 - **Desconectar o SIGAA** (`DELETE /connections/sigaa`): apaga também as cópias mestras (a pessoa quis tirar a senha).
@@ -95,17 +95,17 @@ model SigaaMasterSlot {
   @@map("sigaa_master_slots")
 }
 ```
-Limite de 5 cópias por pessoa (a API barra). O servidor nunca loga nem devolve esses campos fora das rotas abaixo.
+Limite de 5 cópias por pessoa (a API barra; as gravações da mesma pessoa são serializadas para a corrida não furar o limite). Os limites por minuto/hora vivem em memória e supõem **uma só instância da API**. O servidor nunca loga nem devolve esses campos fora das rotas abaixo.
 
 ### 6.2 Endpoints (no `contract.ts`/`openapi.json`; avisar o Mosaico)
 
 | Rota | Descrição |
 |---|---|
 | `GET /me` (já existe) | `connections.sigaa.status` ganha o valor **`locked`**: existe cópia mestra e a sessão não tem a senha. Regra: `connected` se a K da sessão abre; senão `locked` se há cópia mestra; senão `password_required` (cópia do cliente existe) ou `disconnected`. Campo novo `sigaa.passkey: { slots: number }`. |
-| `GET /web/sigaa/passkey` | Lista as cópias: `[{ credentialId, label, createdAt, lastUnlockedAt }]`. |
-| `POST /web/sigaa/passkey` | `{ credentialId, prfSalt, iv, ciphertext, label? }`. Exige SIGAA `connected` nesta sessão. 409 `passkey_limit_reached`; 400 `invalid_request`. |
-| `POST /web/sigaa/passkey/slot` | `{ credentialId }` → `{ prfSalt, iv, ciphertext }` para o navegador decifrar. `POST` (e não `GET`) para o id não ir na URL nem em log de acesso. Limite de 10 por minuto por pessoa. Registra `lastUnlockedAt` só quando o navegador confirmar (`PUT /web/sigaa/passkey/{credentialId}/used`, opcional). |
-| `DELETE /web/sigaa/passkey/{credentialId}` | Remove uma cópia. Sem corpo. |
+| `GET /sigaa/passkey` | Lista as cópias: `{ passkeys: [{ credentialId, prfSalt, label, createdAt, lastUnlockedAt }] }`. O `prfSalt` (não é segredo) vem aqui porque o navegador precisa dele **antes** do toque (`evalByCredential`). `Cache-Control: no-store`. |
+| `POST /sigaa/passkey` | `{ credentialId, prfSalt, iv, ciphertext, label? }`. Exige SIGAA `connected` nesta sessão. 409 `passkey_limit_reached`; 400 `invalid_request`. |
+| `POST /sigaa/passkey/slot` | `{ credentialId }` → `{ prfSalt, iv, ciphertext }` para o navegador decifrar. `POST` (e não `GET`) para o id não ir na URL nem em log de acesso. 10 por minuto por pessoa. `Cache-Control: no-store`. **Marca `lastUnlockedAt` ao entregar a cópia** (não há confirmação do navegador: simplificação da etapa 1; significa "última vez que o desbloqueio foi pedido"). |
+| `DELETE /sigaa/passkey/{credentialId}` | Remove uma cópia. Sem corpo. O id vai na URL (diferente do `slot`): aceita no log de acesso por ser só um identificador de passkey, sem segredo. |
 
 Códigos novos em `API_ERROR_CODES`: `passkey_limit_reached`, `passkey_not_found`. Textos (`message`) em pt-BR. Segue valendo CSRF (`X-UFBA`, `Origin`, JSON).
 
@@ -170,3 +170,12 @@ O resultado entra num arquivo `handoffs/passkey-prf-resultado.md` (sem valores d
 3. **Vários aparelhos não sincronizados** (por exemplo, um iPhone e um Android sem sincronia): permitir até 5 cópias (como no desenho) ou só 1?
 4. **Nome na tela:** "passkey" ou algo como "biometria do celular"? (Texto pt-BR, decisão do Mosaico com o André.)
 5. **Onde hospedar a página de teste** da etapa 0 (rota escondida do painel do Mosaico, ou outro subdomínio de teste)?
+
+## 12. Resultado do spike (etapa 0, 14 e 15/11/2026)
+
+Detalhes em `dev/ufba/handoffs/spike-passkey-prf-resultado.md`. **SEGUIR COM RESSALVA.**
+
+- Passos 1 a 4 passaram no iPhone (Safari, Apple Senhas) e no Android (Chrome com Google Senhas e com Samsung Pass). RP ID `ufba.app` funcionou a partir de um subdomínio.
+- **PRF pelo QR do sistema** (passkey do celular usada no PC) **falhou** com o Samsung Pass: o Chrome devolve `prf: {}`, o Firefox devolve as extensões vazias. iPhone↔Mac e Google Senhas↔outro aparelho não foram testados.
+- Um pareamento por QR (o celular abre a cópia com o PRF local e lacra a chave ao PC por ECDH) funcionou onde o PRF pelo QR falhou. Fica como alternativa para o PC (precisa de um relay no servidor); **não faz parte da etapa 1**.
+- Detecção de suporte: não use `getClientCapabilities()['extension:prf']`; tente criar com `prf.eval` e exija 32 bytes de PRF no `create` ou no `get` seguinte (Samsung Pass só devolve no `get`).

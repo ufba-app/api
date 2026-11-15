@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Post,
@@ -169,6 +170,7 @@ export class SigaaPasskeyController {
   constructor(private readonly passkeys: SigaaPasskeys) {}
 
   @Get()
+  @Header('Cache-Control', 'no-store')
   async list(@Principal() p: WebPrincipal | null) {
     const passkeys = await this.passkeys.list(must(p));
     return {
@@ -190,6 +192,7 @@ export class SigaaPasskeyController {
 
   @Post('slot')
   @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
   slot(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
     return this.passkeys.slot(must(p), parseInput(SigaaPasskeySlotBody, b, invalidRequest).credentialId);
   }

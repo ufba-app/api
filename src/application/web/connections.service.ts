@@ -48,7 +48,15 @@ export class ConnectionsService {
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     // Conta já ligada a outro CPF: recusa antes de falar com o SIGAA (não gasta tentativa nem revela nada de ninguém).
     await this.bindings.assertCompatible(p.userId, sigaaSubject(login));
-    const usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
+    let usuario: string;
+    try {
+      usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
+    } catch (e) {
+      // O SIGAA recusou a senha: a cópia mestra (passkey) guarda uma senha que não vale mais (ex.: trocada no SIGAA).
+      // Descarta, para o desbloqueio não tentar de novo a senha velha a cada login (e bloquear a conta no SIGAA).
+      if (e instanceof LinkError && e.code === 'invalid_credentials') await this.slots.deleteAll(p.userId);
+      throw e;
+    }
     // Senha certa provou que o CPF é desta pessoa: só agora o vínculo (e a recusa se o CPF for de outra conta).
     await this.bindings.bind(p.userId, sigaaSubject(usuario));
     await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
