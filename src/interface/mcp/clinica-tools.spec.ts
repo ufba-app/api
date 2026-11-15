@@ -642,12 +642,13 @@ describe('clinica_progresso', () => {
       sessoesAtendidas: 2, // só 'Atendido' dentro do período (o de 20/10 e o cancelado não contam)
       sessoesMarcadasAdiante: 2, // p5 e q2, depois de agora (23/11)
     });
-    // (2 atendidas + 1 marcada) / 4 semanas = 0,75; a semana 16-22 ficou sem sessão alguma.
-    expect(out.ritmo.sessoesPorSemana).toBe(0.75);
+    // Decorrido: 02/11 00:00 a 23/11 09:00 (Bahia) = 21,375 dias; 14 / 21,375 = 0,6549 -> 0,65. O bloco 16-23 ficou sem sessão.
+    expect(out.ritmo.sessoesPorSemana).toBe(0.65);
+    expect(out.observacao).toBeUndefined();
     expect(out.ritmo.semanasSemSessao).toBe(1);
     expect(Array.isArray(out.ritmo.horariosHabituais)).toBe(true);
     expect(out.avisos).toEqual([]);
-    expect(out.observacao).toBeUndefined();
+    expect(out.ritmo.nota).toContain('semanas contadas de 7 em 7 dias a partir do início do período');
     const all = JSON.stringify(res);
     for (const t of SEM_PACIENTE) expect(all).not.toContain(t);
     expect(all).not.toContain('"IA"');

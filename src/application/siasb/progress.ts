@@ -9,6 +9,9 @@ export const PROGRESS_MAX_DAYS = 190;
 /** O site do SIASB carrega ~59 dias de agenda; acima disso não sabemos se a API devolve o período inteiro. */
 export const SIASB_AGENDA_DAYS = 59;
 
+export const PROGRESS_NOT_STARTED_WARNING =
+  'O período informado ainda não começou; o ritmo não foi calculado.';
+
 export const PROGRESS_PARTIAL_WARNING = 'O SIASB pode devolver só parte do período pedido; confira os números.';
 
 const MS_DAY = 86_400_000;
@@ -25,7 +28,7 @@ export interface Progress {
     sessionsAttended: number;
     sessionsScheduledAhead: number;
   }[];
-  rhythm: { sessionsPerWeek: number; weeksWithoutSession: number; usualSlots: { weekday: number; time: string }[] };
+  rhythm: { sessionsPerWeek: number | null; weeksWithoutSession: number; usualSlots: { weekday: number; time: string }[] };
   warnings: string[];
 }
 
@@ -44,6 +47,7 @@ export function computeProgress(i: {
 }): Progress {
   const { from, to } = i.range;
   const now = i.now;
+  const spanMs = Math.round((to.getTime() - from.getTime()) / 60_000) * 60_000;
   const inPeriod = i.sessions.filter((s) => s.startAt >= from && s.startAt <= to);
   const attendancesWithSession = new Set(inPeriod.map((s) => s.attendanceId));
 
@@ -63,17 +67,23 @@ export function computeProgress(i: {
     };
   });
 
-  // Duração em minutos cheios: "fim do dia" (23:59:59) conta como o dia inteiro.
-  const spanMs = Math.round((to.getTime() - from.getTime()) / 60_000) * 60_000;
-  const weeks = spanMs / MS_WEEK;
-  const counted = inPeriod.filter((s) => isAttended(s) || isMarked(s.statusLabel)).length;
+  // Ritmo só sobre a parte decorrida do período, [from, min(to, now)]. Semanas são blocos de 7 dias contados a
+  // partir de `from`; só blocos completos podem ser "semana sem sessão" (o último, parcial, e o que começa depois de
+  // agora nunca contam). Em minutos cheios: o fim do dia (23:59:59) conta como o dia inteiro.
+  const started = from.getTime() <= now.getTime();
+  const end = Math.min(to.getTime(), now.getTime());
+  const elapsedMs = started ? Math.round((end - from.getTime()) / 60_000) * 60_000 : 0;
+  const elapsed = inPeriod.filter((s) => s.startAt.getTime() <= end);
+  const counted = elapsed.filter((s) => isAttended(s) || isMarked(s.statusLabel)).length;
   let weeksWithoutSession = 0;
-  for (let w = 0; w < Math.floor(weeks); w++) {
+  for (let w = 0; w < Math.floor(elapsedMs / MS_WEEK); w++) {
     const start = from.getTime() + w * MS_WEEK;
-    if (!inPeriod.some((s) => s.startAt.getTime() >= start && s.startAt.getTime() < start + MS_WEEK)) {
+    if (!elapsed.some((s) => s.startAt.getTime() >= start && s.startAt.getTime() < start + MS_WEEK)) {
       weeksWithoutSession++;
     }
   }
+  const sessionsPerWeek =
+    elapsedMs < MS_DAY ? null : Math.round((counted / (elapsedMs / MS_WEEK)) * 100) / 100;
   const slots = deduceSlots(i.sessions.filter((s) => isAttended(s) || isMarked(s.statusLabel)));
   const seen = new Set<string>();
   const usualSlots = slots
@@ -84,10 +94,13 @@ export function computeProgress(i: {
     period: { from: from.toISOString(), to: to.toISOString(), isDefault: i.isDefault },
     disciplines,
     rhythm: {
-      sessionsPerWeek: Math.round((counted / Math.max(weeks, 1)) * 100) / 100,
+      sessionsPerWeek,
       weeksWithoutSession,
       usualSlots,
     },
-    warnings: spanMs > SIASB_AGENDA_DAYS * MS_DAY ? [PROGRESS_PARTIAL_WARNING] : [],
+    warnings: [
+      ...(spanMs > SIASB_AGENDA_DAYS * MS_DAY ? [PROGRESS_PARTIAL_WARNING] : []),
+      ...(started ? [] : [PROGRESS_NOT_STARTED_WARNING]),
+    ],
   };
 }

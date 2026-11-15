@@ -296,6 +296,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
             sessoesMarcadasAdiante: d.sessionsScheduledAhead,
           })),
           ritmo: {
+            nota:
+              'Calculado só sobre a parte do período que já passou, com semanas contadas de 7 em 7 dias a partir do início do período; sessoesPorSemana é null com menos de 1 dia decorrido.',
             sessoesPorSemana: r.rhythm.sessionsPerWeek,
             semanasSemSessao: r.rhythm.weeksWithoutSession,
             horariosHabituais: r.rhythm.usualSlots.map((s) => ({ diaSemana: s.weekday, horario: s.time })),
