@@ -268,6 +268,13 @@ describe('SiasbLink.connect', () => {
     expect(cipher.seen.join()).not.toContain(SENHA);
   });
 
+  it('reconectar sem expiração nova limpa a antiga (envia null, não undefined)', async () => {
+    const { link, siasb, accounts } = setup();
+    siasb.expiresAt = null;
+    await link.connect('u1', pwd());
+    expect(accounts.upserts[0].expiresAt).toBeNull();
+  });
+
   it('sem curso padrão usa o primeiro', async () => {
     const { link, siasb } = setup();
     siasb.courses = siasb.courses.map((c) => ({ ...c, isDefault: false }));

@@ -103,7 +103,8 @@ export class SiasbLink {
       provider: 'SIASB',
       accountKey: ACCOUNT_KEY,
       secret: this.cipher.encrypt(encodeSession(session)),
-      expiresAt: session.expiresAt ?? undefined,
+      // null limpa o fim antigo: reconectar sem expiração nova não pode herdar a anterior.
+      expiresAt: session.expiresAt,
     });
   }
 

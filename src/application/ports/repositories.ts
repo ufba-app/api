@@ -61,7 +61,8 @@ export interface UpsertSourceAccountInput {
   siteUrl?: string;
   /** Proibido para SIGAA: o caso de uso rejeita antes de chegar aqui. */
   secret?: EncryptedSecret;
-  expiresAt?: Date;
+  /** `undefined` mantém o valor atual; `null` limpa (uma reconexão não pode herdar o fim da sessão anterior). */
+  expiresAt?: Date | null;
 }
 
 export abstract class SourceAccountRepository {

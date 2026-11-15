@@ -126,7 +126,7 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
         siteUrl: input.siteUrl ?? undefined,
         status: 'OK',
         statusReason: null,
-        expiresAt: input.expiresAt ?? undefined,
+        expiresAt: input.expiresAt,
         ...secret,
       },
     });
