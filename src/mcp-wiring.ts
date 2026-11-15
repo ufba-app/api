@@ -22,6 +22,13 @@ import { AuthorizationRequests } from './application/web/authorization-requests.
 import { AuthorizedApps } from './application/web/authorized-apps.service';
 import { ConnectionStatus } from './application/web/connection-status';
 import { PermissionsService } from './application/permissions/permissions.service';
+import { ALERT_PROVIDERS, type AlertProvider } from './application/notifications/alert-provider';
+import { NotificationSettings } from './application/notifications/notification-settings.service';
+import { Notifier } from './application/notifications/notifier';
+import { PushDevices } from './application/notifications/push-devices.service';
+import { AlertLogRepository, NotificationSettingRepository, PushDeviceRepository, PushSender } from './application/ports/notifications';
+import { SecretCipher } from './application/ports/secret-cipher';
+import { WebPushSender } from './infrastructure/push/web-push-sender';
 import { SigaaLaunch } from './application/web/sigaa-launch.service';
 import { SigaaLoginFormSource } from './application/ports/sigaa-launch';
 import { HttpSigaaLoginFormSource } from './infrastructure/sources/sigaa/login-form-source';
@@ -186,6 +193,26 @@ export const mcpProviders: Provider[] = [
     useFactory: (repo: UserPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
     inject: [UserPermissionRepository, ConnectionStatus],
   },
+  // Canal de notificações (Web Push). VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT por ambiente; sem elas o canal fica desligado.
+  { provide: PushSender, useFactory: () => new WebPushSender() },
+  {
+    provide: PushDevices,
+    useFactory: (repo: PushDeviceRepository, sender: PushSender, cipher: SecretCipher) => new PushDevices(repo, sender, cipher),
+    inject: [PushDeviceRepository, PushSender, SecretCipher],
+  },
+  {
+    provide: NotificationSettings,
+    useFactory: (repo: NotificationSettingRepository) => new NotificationSettings(repo),
+    inject: [NotificationSettingRepository],
+  },
+  {
+    provide: Notifier,
+    useFactory: (sender: PushSender, settings: NotificationSettings, devices: PushDevices, log: AlertLogRepository) =>
+      new Notifier(sender, settings, devices, log),
+    inject: [PushSender, NotificationSettings, PushDevices, AlertLogRepository],
+  },
+  // Fontes de avisos do `notify-cron`: cada fonte entra aqui (injete o que ela precisa e devolva o `AlertProvider`).
+  { provide: ALERT_PROVIDERS, useFactory: (): AlertProvider[] => [], inject: [] },
   {
     provide: AuthorizationRequests,
     useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
@@ -254,6 +281,10 @@ export const mcpProviders: Provider[] = [
 /** O que o módulo global exporta para o `McpModule` e o `BearerGuard`. */
 export const mcpExports = [
   PermissionsService,
+  PushDevices,
+  NotificationSettings,
+  Notifier,
+  ALERT_PROVIDERS,
   SigaaLaunch,
   WebSessionService,
   ConnectionsService,

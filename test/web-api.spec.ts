@@ -43,6 +43,8 @@ import { InMemorySlots } from './support/slot-fake';
 import { SigaaLoginFormSource } from '../src/application/ports/sigaa-launch';
 import { UserPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
+import { FakePushSender, InMemoryAlertLog, InMemoryNotificationSettings, InMemoryPushDevices } from './support/notifications-fake';
+import { AlertLogRepository, NotificationSettingRepository, PushDeviceRepository, PushSender } from '../src/application/ports/notifications';
 import { AcademicRepository, TranscriptSource } from '../src/application/ports/academic';
 import { CatalogRepository, CatalogSource } from '../src/application/ports/catalog';
 import { PdfTextExtractor, TRANSCRIPT_READER } from '../src/application/ports/transcript';
@@ -90,6 +92,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
     fetch: async () => ({ action: '/sigaa/logar.do?dispatch=logOn', fields: { token: 't0k', width: '1920' } }),
   };
   const permissionsRepo = new InMemoryPermissions();
+  const pushSender = new FakePushSender();
+  const pushDevicesRepo = new InMemoryPushDevices();
   // Vida acadêmica: tudo falso (sem rede, sem SIGAA, sem IA).
   const academicRepo = new InMemoryAcademic();
   const academicSource = new FakeTranscriptSource();
@@ -256,6 +260,14 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(loginFormSource)
       .overrideProvider(UserPermissionRepository)
       .useValue(permissionsRepo)
+      .overrideProvider(PushSender)
+      .useValue(pushSender)
+      .overrideProvider(PushDeviceRepository)
+      .useValue(pushDevicesRepo)
+      .overrideProvider(NotificationSettingRepository)
+      .useValue(new InMemoryNotificationSettings())
+      .overrideProvider(AlertLogRepository)
+      .useValue(new InMemoryAlertLog())
       .overrideProvider(AcademicRepository)
       .useValue(academicRepo)
       .overrideProvider(TranscriptSource)
@@ -1054,6 +1066,139 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await get('/me/permissions')).status).toBe(401);
       expect((await send('PUT', '/me/permissions/siasb.schedule_write', { body: { enabled: false } })).status).toBe(401);
       expect((await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: false }, csrf: false })).status).toBe(403);
+    });
+  });
+
+  describe('notificações (Web Push)', () => {
+    const FCM = (n: string) => `https://fcm.googleapis.com/fcm/send/aparelho-${n}`;
+    const subscription = (n: string) => ({ endpoint: FCM(n), keys: { p256dh: `p256dh_${n}`, auth: `auth_${n}` } });
+    const registrar = async (cookie: string, n: string, label?: string) => {
+      const r = await send('POST', '/me/push-devices', { cookie, body: { subscription: subscription(n), ...(label ? { label } : {}) } });
+      return { status: r.status, body: (await r.json().catch(() => ({}))) as any };
+    };
+    const code = async (r: Response) => ((await r.json()) as any).error;
+
+    it('GET /push/config devolve a chave pública (sem cache); sem sessão 401; canal desligado 503 push_unavailable', async () => {
+      const cookie = await signIn('push1');
+      const r = await get('/push/config', cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      expect(await r.json()).toEqual({ publicKey: pushSender.publicKey });
+      expect((await get('/push/config')).status).toBe(401);
+      pushSender.enabled = false;
+      try {
+        const off = await get('/push/config', cookie);
+        expect(off.status).toBe(503);
+        expect(await code(off)).toBe('push_unavailable');
+        expect((await registrar(cookie, 'off')).status).toBe(503);
+      } finally {
+        pushSender.enabled = true;
+      }
+    });
+
+    it('registra (201 {id}), é idempotente por endpoint e a lista NUNCA traz endpoint nem chaves', async () => {
+      const cookie = await signIn('push2');
+      const a = await registrar(cookie, 'a', 'Meu celular');
+      expect(a.status).toBe(201);
+      expect(a.body.id).toMatch(/^[0-9a-f-]{36}$/);
+      const again = await registrar(cookie, 'a');
+      expect(again.status).toBe(201);
+      expect(again.body.id).toBe(a.body.id);
+      const r = await get('/me/push-devices', cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      const text = await r.text();
+      const { items } = JSON.parse(text) as { items: any[] };
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({ id: a.body.id, label: 'Meu celular', createdAt: expect.any(String), lastSuccessAt: null });
+      for (const s of ['aparelho-a', 'p256dh_a', 'auth_a', 'endpoint', 'keys']) expect(text).not.toContain(s);
+    });
+
+    it('exige sessão, X-UFBA, Origin da casa e JSON; corpo inválido e endpoint de fora dos serviços de push dão 400', async () => {
+      const cookie = await signIn('push3');
+      const body = { subscription: subscription('csrf') };
+      expect((await send('POST', '/me/push-devices', { body })).status).toBe(401);
+      expect((await send('POST', '/me/push-devices', { cookie, body, csrf: false })).status).toBe(403);
+      expect((await get('/me/push-devices')).status).toBe(401);
+      expect((await send('POST', '/me/push-devices', { cookie, body: { subscription: { endpoint: 'https://evil.test/x', keys: { p256dh: 'a', auth: 'b' } } } })).status).toBe(400);
+      expect((await send('POST', '/me/push-devices', { cookie, body: { subscription: { endpoint: FCM('x'), keys: { p256dh: 'com espaço', auth: 'b' } } } })).status).toBe(400);
+      expect((await send('POST', '/me/push-devices', { cookie, body: {} })).status).toBe(400);
+      expect(pushDevicesRepo.rows.size).toBeGreaterThanOrEqual(0);
+    });
+
+    it('aparelho de outra pessoa: remover e testar dão 404 e não mexem nele; id que não é uuid dá 400', async () => {
+      const dona = await signIn('push4a');
+      const outra = await signIn('push4b');
+      const { body } = await registrar(dona, 'dona');
+      expect((await send('DELETE', `/me/push-devices/${body.id}`, { cookie: outra })).status).toBe(404);
+      expect((await send('POST', `/me/push-devices/${body.id}/test`, { cookie: outra, body: {} })).status).toBe(404);
+      expect(((await (await get('/me/push-devices', dona)).json()) as any).items).toHaveLength(1);
+      expect((await send('DELETE', '/me/push-devices/nao-e-uuid', { cookie: dona })).status).toBe(400);
+      expect((await send('DELETE', `/me/push-devices/${body.id}`, { cookie: dona, csrf: false })).status).toBe(403);
+      expect((await send('DELETE', `/me/push-devices/${body.id}`, { cookie: dona })).status).toBe(204);
+      expect(((await (await get('/me/push-devices', dona)).json()) as any).items).toHaveLength(0);
+    });
+
+    it('teste: 204; provedor diz que o aparelho morreu → 409 push_device_gone e ele é removido; 5 por 10 min (429 too_many_attempts)', async () => {
+      const cookie = await signIn('push5');
+      const a = await registrar(cookie, 'teste');
+      pushSender.sent.length = 0;
+      expect((await send('POST', `/me/push-devices/${a.body.id}/test`, { cookie, body: {}, csrf: false })).status).toBe(403);
+      expect((await send('POST', `/me/push-devices/${a.body.id}/test`, { cookie, body: {} })).status).toBe(204);
+      expect(pushSender.sent).toHaveLength(1);
+      for (let i = 0; i < 3; i++) expect((await send('POST', `/me/push-devices/${a.body.id}/test`, { cookie, body: {} })).status).toBe(204);
+      expect((await send('POST', `/me/push-devices/${a.body.id}/test`, { cookie, body: {} })).status).toBe(204); // o 5º
+      const sexto = await send('POST', `/me/push-devices/${a.body.id}/test`, { cookie, body: {} });
+      expect(sexto.status).toBe(429);
+      expect(await code(sexto)).toBe('too_many_attempts');
+
+      const morta = await signIn('push5b');
+      const b = await registrar(morta, 'morta');
+      pushSender.outcomes.set(FCM('morta'), 'gone');
+      const r = await send('POST', `/me/push-devices/${b.body.id}/test`, { cookie: morta, body: {} });
+      expect(r.status).toBe(409);
+      expect(await code(r)).toBe('push_device_gone');
+      expect(((await (await get('/me/push-devices', morta)).json()) as any).items).toHaveLength(0);
+    });
+
+    it('no máximo 10 aparelhos por pessoa: o 11º dá 409 too_many_devices', async () => {
+      const cookie = await signIn('push6');
+      for (let i = 1; i <= 10; i++) expect((await registrar(cookie, `lim${i}`)).status).toBe(201);
+      const r = await registrar(cookie, 'lim11');
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe('too_many_devices');
+      expect((await registrar(cookie, 'lim3')).status).toBe(201); // o mesmo endpoint segue valendo
+    });
+
+    it('ajustes por tipo de aviso: texto pt-BR da API, padrão ligado, liga e desliga; chave desconhecida 400; CSRF', async () => {
+      const cookie = await signIn('push7');
+      const r = await get('/me/notification-settings', cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      const { items } = (await r.json()) as { items: any[] };
+      expect(items).toEqual([
+        {
+          key: 'siasb.alerts',
+          source: 'siasb',
+          title: 'Avisos do SIASB',
+          description: 'Avisar quando faltar paciente ou sessão marcada na clínica e quando o acesso ao SIASB estiver para vencer.',
+          enabled: true,
+        },
+      ]);
+      expect((await send('PUT', '/me/notification-settings/siasb.alerts', { cookie, body: { enabled: false } })).status).toBe(204);
+      expect(((await (await get('/me/notification-settings', cookie)).json()) as any).items[0].enabled).toBe(false);
+      expect((await send('PUT', '/me/notification-settings/siasb.alerts', { cookie, body: { enabled: true } })).status).toBe(204);
+      expect(((await (await get('/me/notification-settings', cookie)).json()) as any).items[0].enabled).toBe(true);
+      expect((await send('PUT', '/me/notification-settings/siasb.nao_existe', { cookie, body: { enabled: true } })).status).toBe(400);
+      expect((await send('PUT', '/me/notification-settings/siasb.alerts', { cookie, body: { enabled: 'sim' } })).status).toBe(400);
+      expect((await get('/me/notification-settings')).status).toBe(401);
+      expect((await send('PUT', '/me/notification-settings/siasb.alerts', { body: { enabled: true } })).status).toBe(401);
+      expect((await send('PUT', '/me/notification-settings/siasb.alerts', { cookie, body: { enabled: true }, csrf: false })).status).toBe(403);
+    });
+
+    it('canário: endpoint, chaves e texto do aviso não aparecem em nenhuma saída', async () => {
+      const log = saida.join('\n');
+      for (const s of ['aparelho-', 'p256dh_', 'auth_', 'Teste de aviso']) expect(log).not.toContain(s);
     });
   });
 

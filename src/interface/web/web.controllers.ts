@@ -35,6 +35,9 @@ import {
   AcademicConsentBody,
   PERMISSION_KEYS,
   PermissionBody,
+  NOTIFICATION_KEYS,
+  NotificationSettingBody,
+  RegisterPushDeviceBody,
   CreatePairingBody,
   CreateSessionBody,
   DeliverPairingBody,
@@ -47,6 +50,8 @@ import {
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { WebSessionService } from '../../application/web/web-session.service';
 import { PermissionsService } from '../../application/permissions/permissions.service';
+import { NotificationSettings } from '../../application/notifications/notification-settings.service';
+import { PushDevices } from '../../application/notifications/push-devices.service';
 import { z } from 'zod';
 import { SigaaLaunch } from '../../application/web/sigaa-launch.service';
 import { baseUrl } from '../mcp/oauth/base-url';
@@ -300,6 +305,82 @@ export class PermissionsController {
     const who = must(p);
     const k = parseInput(z.enum(PERMISSION_KEYS), key, invalidRequest);
     await this.permissions.set(who.userId, k, parseInput(PermissionBody, b, invalidRequest).enabled);
+  }
+}
+
+/** Chave pública VAPID para o navegador assinar. 503 `push_unavailable` com o canal desligado. */
+@Controller('push/config')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class PushConfigController {
+  constructor(private readonly devices: PushDevices) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  config(@Principal() p: WebPrincipal | null) {
+    must(p);
+    return { publicKey: this.devices.publicKey() };
+  }
+}
+
+const uuid = z.string().uuid();
+
+/** Aparelhos que recebem avisos. A resposta nunca traz endpoint nem chaves. */
+@Controller('me/push-devices')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class PushDevicesController {
+  constructor(private readonly devices: PushDevices) {}
+
+  @Post()
+  @HttpCode(201)
+  async register(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    const who = must(p);
+    return this.devices.register(who.userId, parseInput(RegisterPushDeviceBody, b, invalidRequest));
+  }
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async list(@Principal() p: WebPrincipal | null) {
+    const items = await this.devices.list(must(p).userId);
+    return { items: items.map((d) => ({ id: d.id, label: d.label, createdAt: d.createdAt.toISOString(), lastSuccessAt: d.lastSuccessAt ? d.lastSuccessAt.toISOString() : null })) };
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Principal() p: WebPrincipal | null, @Param('id') id: string): Promise<void> {
+    const who = must(p);
+    await this.devices.remove(who.userId, parseInput(uuid, id, invalidRequest));
+  }
+
+  @Post(':id/test')
+  @HttpCode(204)
+  async test(@Principal() p: WebPrincipal | null, @Param('id') id: string, @Body() b: unknown): Promise<void> {
+    const who = must(p);
+    parseInput(z.object({}).strict(), b ?? {}, invalidRequest);
+    await this.devices.test(who.userId, parseInput(uuid, id, invalidRequest));
+  }
+}
+
+/** Ajustes por tipo de aviso (textos pt-BR do catálogo da API). */
+@Controller('me/notification-settings')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class NotificationSettingsController {
+  constructor(private readonly settings: NotificationSettings) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async list(@Principal() p: WebPrincipal | null) {
+    return { items: await this.settings.list(must(p).userId) };
+  }
+
+  @Put(':key')
+  @HttpCode(204)
+  async set(@Principal() p: WebPrincipal | null, @Param('key') key: string, @Body() b: unknown): Promise<void> {
+    const who = must(p);
+    const k = parseInput(z.enum(NOTIFICATION_KEYS), key, invalidRequest);
+    await this.settings.set(who.userId, k, parseInput(NotificationSettingBody, b, invalidRequest).enabled);
   }
 }
 

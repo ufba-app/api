@@ -45,6 +45,8 @@ import { SiasbCopyRepository } from '../../application/ports/siasb-copy';
 import { PrismaSiasbCopyRepository } from './prisma-siasb-copy.repository';
 import { CalendarLogRepository } from '../../application/ports/calendar';
 import { CatalogRepository } from '../../application/ports/catalog';
+import { AlertLogRepository, NotificationSettingRepository, PushDeviceRepository } from '../../application/ports/notifications';
+import { PrismaAlertLogRepository, PrismaNotificationSettingRepository, PrismaPushDeviceRepository } from './prisma-notifications.repositories';
 import { PrismaService } from './prisma.service';
 
 /** Só identidade, contas conectadas (token cifrado) e OAuth. Conteúdo das fontes não é gravado (leitura ao vivo). */
@@ -65,6 +67,9 @@ import { PrismaService } from './prisma.service';
     { provide: CalendarLogRepository, useClass: PrismaCalendarLogRepository },
     { provide: UserPermissionRepository, useClass: PrismaUserPermissionRepository },
     { provide: SiasbCopyRepository, useClass: PrismaSiasbCopyRepository },
+    { provide: PushDeviceRepository, useClass: PrismaPushDeviceRepository },
+    { provide: NotificationSettingRepository, useClass: PrismaNotificationSettingRepository },
+    { provide: AlertLogRepository, useClass: PrismaAlertLogRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: StudentRegistrations, useClass: PrismaStudentRegistrations },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
@@ -92,6 +97,9 @@ import { PrismaService } from './prisma.service';
     CalendarLogRepository,
     UserPermissionRepository,
     SiasbCopyRepository,
+    PushDeviceRepository,
+    NotificationSettingRepository,
+    AlertLogRepository,
     SourceBindingRepository,
     StudentRegistrations,
     MemoryUserRepository,

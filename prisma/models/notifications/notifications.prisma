@@ -1,0 +1,55 @@
+// Canal de notificações genérico (Web Push). Qualquer fonte avisa pelo `Notifier`; o SIASB é o primeiro cliente.
+
+// Aparelho da pessoa que recebe avisos. A assinatura inteira (endpoint, p256dh, auth) fica CIFRADA (AES-256-GCM,
+// SECRETS_KEY, AAD `push:<userId>:<id>`); em claro só o sha256 do endpoint, para a idempotência. Um endpoint pertence a
+// uma pessoa só (único no mundo): registrar o mesmo navegador em outra conta move o aparelho. `DELETE /me` apaga tudo (cascade).
+model PushDevice {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpointHash String @unique @map("endpoint_hash")
+
+  subscriptionCiphertext String @map("subscription_ciphertext")
+  subscriptionIv         String @map("subscription_iv")
+  subscriptionAuthTag    String @map("subscription_auth_tag")
+
+  label         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+
+  @@index([userId])
+  @@map("push_devices")
+}
+
+// Interruptor por tipo de aviso (`NOTIFICATION_KEYS` do contrato). Sem linha = o `defaultEnabled` do catálogo.
+model NotificationSetting {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key       String
+  enabled   Boolean
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([userId, key])
+  @@map("notification_settings")
+}
+
+// Registro anti-duplicata: a chave única (usuário, tipo, assunto, instante planejado) é reivindicada ANTES de enviar
+// (insert com skipDuplicates; quem não gravou não envia). `suppressed` marca o que foi dado como enviado sem enviar.
+// O `subject` é escolhido por quem avisa e NÃO pode conter dado pessoal de terceiros (ex.: paciente).
+model AlertLog {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key        String
+  subject    String
+  slotAt     DateTime @map("slot_at")
+  sentAt     DateTime @map("sent_at")
+  suppressed Boolean  @default(false)
+
+  @@id([userId, key, subject, slotAt])
+  @@index([userId, key, subject, sentAt])
+  @@map("alert_log")
+}

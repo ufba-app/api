@@ -354,6 +354,22 @@ Armazenamento: `user_permissions (user_id, key, enabled, updated_at)`, chave pri
 
 **MCP:** o `/mcp` resolve as permissões LIGADAS da pessoa a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave dela está ligada (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Ligar e desligar vale na próxima requisição. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
 
+## 5.5 Notificações (Web Push, canal genérico)
+
+Qualquer fonte avisa pelo mesmo canal (`Notifier`); o SIASB é o primeiro uso. Detalhes de operação em `docs/NOTIFICACOES.md`. Todas as rotas são da sessão do painel; as que mudam estado exigem `X-UFBA: 1`, `Origin` da casa e JSON (`{}` quando não há dados).
+
+- `GET /push/config` → `{ publicKey }` (`no-store`), a chave pública VAPID para `pushManager.subscribe`. Canal desligado (sem as variáveis VAPID): 503 `push_unavailable`.
+- `POST /me/push-devices` `{ subscription: { endpoint, keys: { p256dh, auth } }, label? }` → 201 `{ id }`. **Idempotente por endpoint** (o mesmo aparelho de novo devolve o mesmo `id`). No máximo 10 por pessoa: 409 `too_many_devices`. O endpoint precisa ser de um serviço de push de navegador (FCM, Mozilla, Apple, Windows); outro host: 400 `invalid_request`. O mesmo navegador entrando em outra conta muda o aparelho de dono.
+- `GET /me/push-devices` → `{ items: [{ id, label, createdAt, lastSuccessAt }] }` (`no-store`). **Nunca** devolve endpoint nem chaves.
+- `DELETE /me/push-devices/{id}` → 204. Aparelho de outra pessoa ou inexistente: 404 `not_found` (igual nos dois casos).
+- `POST /me/push-devices/{id}/test` `{}` → 204 (envia o aviso "Teste de aviso"). Se o provedor diz que a assinatura acabou (404/410), o aparelho é removido e a resposta é 409 `push_device_gone`. 5 por 10 minutos por pessoa: 429 `too_many_attempts`. Falha de envio sem ser "acabou": 503 `push_unavailable`.
+- `GET /me/notification-settings` → `{ items: [{ key, source, title, description, enabled }] }` (`no-store`), textos pt-BR **da API** (o web não escreve texto de aviso). Sem linha no banco vale o `defaultEnabled` do catálogo.
+- `PUT /me/notification-settings/{key}` `{ enabled }` → 204. `key` é o enum fechado `NOTIFICATION_KEYS`; chave desconhecida ou corpo inválido: 400.
+
+Chave inicial: `siasb.alerts` ("Avisos do SIASB", padrão **ligada**). Chave nova entra em `NOTIFICATION_KEYS` (contrato) e em `NOTIFICATION_CATALOG` (`src/application/notifications/catalog.ts`). Códigos novos de erro: `push_unavailable` (503), `too_many_devices` (409), `push_device_gone` (409).
+
+Armazenamento: `push_devices` (assinatura **cifrada** com a `SECRETS_KEY`, AAD `push:<userId>:<id>`; em claro só o sha256 do endpoint), `notification_settings (user_id, key, enabled)` e `alert_log` (anti-duplicata, chave única `(user_id, key, subject, slot_at)`). `DELETE /me` apaga tudo (cascade).
+
 ## 5.4 Abrir o SIGAA já logado (botão)
 
 Origem: spike de 14/11/2026 (`dev/ufba/handoffs/spike-sigaa-resultado.md`). O id na URL (`;jsessionid=`) não sustenta a navegação, e o servidor não consegue gravar cookie do SIGAA no navegador. O que funciona é o **navegador enviar o login ao SIGAA** (POST de formulário em navegação de página inteira). **Decisão do André:** o aluno não digita a senha, e por isso ela passa pelo navegador, mas **nunca pelo JavaScript do painel**: ela existe só na resposta de uma navegação a uma página mínima da API.
