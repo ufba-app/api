@@ -26,6 +26,7 @@ function attendance(id: string): SyncedAttendance {
     disciplineName: 'Disciplina sintética',
     treatmentType: 'TRIAGE',
     concluded: false,
+    active: true,
     firstName: { ciphertext: 'ct', iv: 'iv', authTag: 'tag' },
   };
 }
@@ -89,6 +90,30 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
   });
 
   describe('replaceWindow', () => {
+    it('persiste e devolve o flag active (independente de concluded) e a disciplina sem atendimento', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+      const base = attendance('a1');
+      expect(
+        await repo.replaceWindow(userId, WINDOW, {
+          disciplines: [{ id: 'D1', name: 'Disciplina sintética' }, { id: 'D2', name: 'Outra' }],
+          attendances: [
+            { ...base, id: 'a1', active: true, concluded: false },
+            { ...base, id: 'a2', active: false, concluded: false },
+            { ...base, id: 'a3', active: false, concluded: true },
+          ],
+          sessions: [],
+        }),
+      ).toBe(true);
+      const rows = (await repo.attendances(userId)).sort((x, y) => x.id.localeCompare(y.id));
+      expect(rows.map((a) => [a.id, a.active, a.concluded])).toEqual([
+        ['a1', true, false],
+        ['a2', false, false],
+        ['a3', false, true],
+      ]);
+      expect((await repo.disciplines(userId)).map((d) => d.id)).toEqual(['D1', 'D2']);
+    });
+
     it('grava, depois substitui as sessões da janela, mantém a de fora e troca todos os atendimentos', async () => {
       const userId = await makeUser();
       await makeAccount(userId);

@@ -97,7 +97,7 @@ export class SiasbCopyReader {
     const items = computeSituation({
       disciplines,
       activeAttendances: attendances
-        .filter((a) => !a.concluded)
+        .filter((a) => a.active)
         .map((a) => ({
           id: a.id,
           disciplineId: a.disciplineId,

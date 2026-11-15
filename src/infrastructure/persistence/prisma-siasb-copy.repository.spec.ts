@@ -62,6 +62,7 @@ describe('PrismaSiasbCopyRepository', () => {
           disciplineName: 'D',
           treatmentType: 'TRIAGE',
           concluded: false,
+          active: true,
           firstName: secret,
         },
       ],
@@ -93,6 +94,8 @@ describe('PrismaSiasbCopyRepository', () => {
         expect.objectContaining({
           userId: U,
           id: 'a1',
+          concluded: false,
+          active: true,
           firstNameCiphertext: 'Y2lwaGVy',
           firstNameIv: 'aXY=',
           firstNameAuthTag: 'dGFn',
@@ -152,6 +155,7 @@ describe('PrismaSiasbCopyRepository', () => {
         disciplineName: 'D',
         treatmentType: 'URGENCY',
         concluded: true,
+        active: false,
         firstNameCiphertext: 'Y2lwaGVy',
         firstNameIv: 'aXY=',
         firstNameAuthTag: 'dGFn',
@@ -164,6 +168,7 @@ describe('PrismaSiasbCopyRepository', () => {
         disciplineName: 'D',
         treatmentType: 'URGENCY',
         concluded: true,
+        active: false,
         firstName: secret,
       },
     ]);

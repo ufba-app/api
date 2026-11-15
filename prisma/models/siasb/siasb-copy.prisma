@@ -11,6 +11,8 @@ model SiasbSyncedAttendance {
   // TRIAGE | PLANNING | URGENCY | UNKNOWN
   treatmentType  String  @map("treatment_type")
   concluded      Boolean
+  // veio da consulta de atendimentos ativos do SIASB (a situação das disciplinas usa isto, não `concluded`)
+  active         Boolean @default(false)
 
   firstNameCiphertext String @map("first_name_ciphertext")
   firstNameIv         String @map("first_name_iv")

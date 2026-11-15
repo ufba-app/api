@@ -9,6 +9,7 @@ const att = (id: string): SyncedAttendance => ({
   disciplineName: 'Disciplina Teste',
   treatmentType: 'TRIAGE',
   concluded: false,
+  active: true,
   firstName: { ciphertext: 'Y2lwaGVy', iv: 'aXY=', authTag: 'dGFn' },
 });
 const ses = (id: string, startAt: string): SyncedSession => ({

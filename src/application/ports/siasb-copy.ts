@@ -13,6 +13,8 @@ export interface SyncedAttendance {
   disciplineName: string;
   treatmentType: 'TRIAGE' | 'PLANNING' | 'URGENCY' | 'UNKNOWN';
   concluded: boolean;
+  /** Veio da consulta de atendimentos ATIVOS do SIASB (não se deduz de `concluded`). */
+  active: boolean;
   firstName: EncryptedSecret;
 }
 

@@ -37,6 +37,7 @@ const attendance = (userId: string, id: string, firstName = NOME): SyncedAttenda
   disciplineName: 'Clinica 1',
   treatmentType: 'PLANNING',
   concluded: false,
+  active: true,
   firstName: cipher.encrypt(firstName, `siasb-attendance:${userId}:${id}`),
 });
 
@@ -161,6 +162,7 @@ describe('SiasbCopyReader.situation', () => {
     ...attendance('u1', id),
     disciplineId,
     concluded,
+    active: !concluded,
   });
   const sess = (id: string, attendanceId: string, disciplineId: string, startAt: string, statusLabel: string) => ({
     ...session(id, attendanceId, startAt),
@@ -227,6 +229,36 @@ describe('SiasbCopyReader.situation', () => {
     const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x]));
     expect(by.d2).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
     expect(by.d3).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
+  });
+
+  it('borda da janela: sessão a -59 d entra e a -61 d sai', async () => {
+    const { reader } = await build({
+      disciplines: [DISCS[1], DISCS[2]],
+      attendances: [att('a2', 'd2'), att('a3', 'd3')],
+      sessions: [
+        sess('s2a', 'a2', 'd2', iso(-59), 'Atendido'),
+        sess('s2b', 'a2', 'd2', iso(-52), 'Atendido'),
+        sess('s3a', 'a3', 'd3', iso(-61), 'Atendido'),
+        sess('s3b', 'a3', 'd3', iso(-54), 'Atendido'),
+      ],
+    });
+    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x]));
+    expect(by.d2.nextSlot).toBeInstanceOf(Date);
+    expect(by.d3.nextSlot).toBeNull();
+  });
+
+  it('atendimento inativo com concluded=false não conta como ativo (usa a origem, não concluded)', async () => {
+    const { reader } = await build({
+      disciplines: [DISCS[0], DISCS[1], DISCS[2]],
+      attendances: [
+        { ...att('a1', 'd1'), active: false, concluded: false },
+        { ...att('a2', 'd2'), active: true, concluded: false },
+        { ...att('a3', 'd3'), active: true, concluded: false },
+      ],
+      sessions: [sess('s3', 'a3', 'd3', iso(7), 'Confirmado')],
+    });
+    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x.state]));
+    expect(by).toEqual({ d1: 'NO_PATIENT', d2: 'NO_SESSION', d3: 'SCHEDULED' });
   });
 
   it('consulta feriados na mesma janela do leitor ao vivo e holidaysConsidered segue o known', async () => {

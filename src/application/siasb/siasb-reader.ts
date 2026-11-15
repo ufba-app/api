@@ -227,7 +227,7 @@ export class SiasbReader {
   async snapshot(userId: string): Promise<{
     window: { from: Date; to: Date };
     disciplines: { id: string; name: string }[];
-    attendances: (ClinicalAttendance & { disciplineName: string })[];
+    attendances: (ClinicalAttendance & { disciplineName: string; active: boolean })[];
     sessions: ClinicalSession[];
   }> {
     const now = this.now();
@@ -248,7 +248,10 @@ export class SiasbReader {
       const seen = new Set<string>();
       return list.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
     };
-    const attendances = firstById([...active, ...inactive]).map((a) => ({
+    const attendances = firstById([
+      ...active.map((a) => ({ ...a, active: true })),
+      ...inactive.map((a) => ({ ...a, active: false })),
+    ]).map((a) => ({
       ...a,
       disciplineName: names.get(a.disciplineId) ?? '',
     }));

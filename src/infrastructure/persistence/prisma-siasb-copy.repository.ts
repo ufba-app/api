@@ -46,6 +46,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
             disciplineName: a.disciplineName,
             treatmentType: a.treatmentType,
             concluded: a.concluded,
+            active: a.active,
             firstNameCiphertext: a.firstName.ciphertext,
             firstNameIv: a.firstName.iv,
             firstNameAuthTag: a.firstName.authTag,
@@ -96,6 +97,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       disciplineName: r.disciplineName,
       treatmentType: r.treatmentType as SyncedAttendance['treatmentType'],
       concluded: r.concluded,
+      active: r.active,
       firstName: {
         ciphertext: r.firstNameCiphertext,
         iv: r.firstNameIv,

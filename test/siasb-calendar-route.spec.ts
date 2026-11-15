@@ -59,6 +59,7 @@ describe('GET /me/siasb/sessions', () => {
             disciplineName: 'Clinica 1',
             treatmentType: 'PLANNING',
             concluded: false,
+            active: true,
             firstName: cipher.encrypt(NOME, 'siasb-attendance:u1:a1'),
           },
         ],

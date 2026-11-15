@@ -39,6 +39,7 @@ export class SiasbSyncer {
           disciplineName: a.disciplineName,
           treatmentType: a.treatmentType,
           concluded: a.concluded,
+          active: a.active,
           firstName: this.cipher.encrypt(a.firstName, `siasb-attendance:${userId}:${a.id}`),
         }));
         const sessions = snap.sessions.map((s) => ({

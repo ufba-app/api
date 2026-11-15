@@ -389,6 +389,7 @@ describe('SiasbLink.status e disconnect', () => {
     disciplineName: 'Clínica',
     treatmentType: 'PLANNING' as const,
     concluded: false,
+    active: true,
     firstName: enc,
   };
 

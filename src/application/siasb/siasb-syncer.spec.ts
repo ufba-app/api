@@ -61,6 +61,7 @@ const snap = (firstName = NOME) => ({
       firstName,
       treatmentType: 'PLANNING' as const,
       concluded: false,
+      active: true,
     },
   ],
   sessions: [
@@ -106,6 +107,23 @@ describe('SiasbSyncer', () => {
     });
     // trava liberada
     expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe('claimed');
+  });
+
+  it('grava a origem ativo/inativo do atendimento sem cifrar', async () => {
+    const base = snap();
+    const { copy, syncer } = setup(() => ({
+      ...base,
+      attendances: [
+        base.attendances[0],
+        { ...base.attendances[0], id: 'a2', active: false, concluded: false },
+      ],
+    }));
+    expect(await syncer.syncUser(USER)).toBe('OK');
+    const rows = await copy.attendances(USER);
+    expect(rows.map((a) => [a.id, a.active])).toEqual([
+      ['a1', true],
+      ['a2', false],
+    ]);
   });
 
   it('grava as disciplinas do snapshot; sincronização seguinte com uma a menos a remove', async () => {
