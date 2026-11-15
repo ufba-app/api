@@ -93,7 +93,7 @@ As 7 ferramentas (`src/interface/mcp/clinica-tools.ts`). **Visibilidade:** apare
 | Ferramenta | Entrada | Devolve | Chamadas ao SIASB (máx.) |
 |---|---|---|---|
 | `clinica_situacao` | nenhuma | por disciplina: `estado`, `proximaClinica`, `prazoEstimado` (`null` em `sessao_marcada`), `feriadosConsiderados` | 3 (disciplinas, atendimentos ativos, sessões) |
-| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, primeiro nome, situação, `reagendamentoPara` | 1 |
+| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, primeiro nome, situação, `reagendamentoPara` | 0 (lê da cópia); 1 com `aoVivo: true` ou com período fora da janela sincronizada (leitura ao vivo) |
 | `clinica_prazo_marcacao` | exatamente um: `disciplinaId` ou `inicioSessao` | `prazoEstimado`, `feriadosConsiderados` | 1 com `disciplinaId`; 0 com `inicioSessao` |
 | `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `primeiroNome`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
 | `clinica_vagas` | nenhuma | `vagas` (contagem) por disciplina | 2 |
@@ -130,7 +130,7 @@ Detalhes em `docs/WEB-API.md`.
 | `DELETE /connections/siasb` | 204 (mantém o vínculo; apaga a cópia) |
 | `POST /connections/siasb/sync` | 204 (sincroniza agora) |
 | `GET /me/siasb/sessions?from=&to=` | `{ syncedAt, stale, items }` |
-| `GET /me` → `connections.siasb { offered, status, expiresAt }` | `status`: `connected`, `reconnect_required` ou `disconnected` |
+| `GET /me` → `connections.siasb { offered, status, expiresAt, syncedAt }` | `status`: `connected`, `reconnect_required` ou `disconnected` |
 
 Erros da conexão:
 
