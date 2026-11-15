@@ -249,12 +249,20 @@
                       "null"
                     ],
                     "format": "date-time"
+                  },
+                  "syncedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
                   }
                 },
                 "required": [
                   "offered",
                   "status",
-                  "expiresAt"
+                  "expiresAt",
+                  "syncedAt"
                 ]
               }
             },
@@ -981,12 +989,20 @@
                                 "null"
                               ],
                               "format": "date-time"
+                            },
+                            "syncedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
                             }
                           },
                           "required": [
                             "offered",
                             "status",
-                            "expiresAt"
+                            "expiresAt",
+                            "syncedAt"
                           ]
                         }
                       },
@@ -1753,6 +1769,135 @@
         "responses": {
           "204": {
             "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/siasb/sessions": {
+      "get": {
+        "operationId": "getSiasbCalendar",
+        "summary": "Calendário das clínicas (SIASB) lido da cópia sincronizada; ?from=&to= (ISO, até 190 dias; padrão: 14 dias atrás a 45 à frente). 404 sem conta SIASB",
+        "tags": [
+          "siasb"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+            },
+            "required": false,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+            },
+            "required": false,
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "syncedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "stale": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "attendanceId": {
+                            "type": "string"
+                          },
+                          "disciplineName": {
+                            "type": "string"
+                          },
+                          "startAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "endAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "locationName": {
+                            "type": "string"
+                          },
+                          "professorName": {
+                            "type": "string"
+                          },
+                          "patientFirstName": {
+                            "type": "string"
+                          },
+                          "statusLabel": {
+                            "type": "string"
+                          },
+                          "rescheduledStartAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "attendanceId",
+                          "disciplineName",
+                          "startAt",
+                          "endAt",
+                          "locationName",
+                          "professorName",
+                          "patientFirstName",
+                          "statusLabel",
+                          "rescheduledStartAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "syncedAt",
+                    "stale",
+                    "items"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "description": "Erro `{ error, message }`",

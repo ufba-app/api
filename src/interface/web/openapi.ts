@@ -101,6 +101,17 @@ export const ROUTES: Route[] = [
     ok: [200, C.AcademicState],
   },
   {
+    id: "getSiasbCalendar",
+    method: "get",
+    path: "/me/siasb/sessions",
+    tag: "siasb",
+    auth: "session",
+    summary:
+      "Calendário das clínicas (SIASB) lido da cópia sincronizada; ?from=&to= (ISO, até 190 dias; padrão: 14 dias atrás a 45 à frente). 404 sem conta SIASB",
+    query: C.SiasbCalendarQuery,
+    ok: [200, C.SiasbCalendarResponse],
+  },
+  {
     id: "setAcademicConsent",
     method: "put",
     path: "/me/academic/consent",

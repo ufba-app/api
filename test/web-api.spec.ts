@@ -31,6 +31,8 @@ import {
   UserRepository,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
+import { SiasbCopyRepository } from '../src/application/ports/siasb-copy';
+import { InMemorySiasbCopy } from './support/siasb-copy-fake';
 import { SiasbSyncer, type SyncOutcome } from '../src/application/siasb/siasb-syncer';
 import { SiasbError, SiasbSession, SiasbSource, type SiasbCourse } from '../src/application/ports/siasb-source';
 import { StudentRegistrations } from '../src/application/ports/repositories';
@@ -227,6 +229,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(moodle)
       .overrideProvider(SiasbSource)
       .useValue(siasbSource)
+      .overrideProvider(SiasbCopyRepository)
+      .useValue(new InMemorySiasbCopy())
       .overrideProvider(SiasbSyncer)
       .useValue({
         syncUser: async (u: string) => {
@@ -370,7 +374,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(me.email).toBe('fulano@ufba.br');
     expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
     expect(me.connections.moodle.status).toBe('disconnected');
-    expect(me.connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null });
+    expect(me.connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null });
   });
 
   it('cookie marcador: sai com a sessão, sem segredo, e some ao sair, ao excluir a conta e no 401', async () => {
@@ -1449,7 +1453,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('sem matrícula: offered false; conectar dá 400 invalid_request', async () => {
       const cookie = await signIn('siasb-sem-matricula');
-      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null });
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null });
       const r = await post(cookie);
       expect(r.status).toBe(400);
       expect(((await r.json()) as any).error).toBe('invalid_request');
@@ -1499,13 +1503,14 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('oferecido, conecta (connected + expiresAt), desconecta (disconnected)', async () => {
       const cookie = await aluno('siasb-fluxo');
-      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null });
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null, syncedAt: null });
       expect((await post(cookie)).status).toBe(204);
       const chamadas = siasbState.courseCalls;
       expect((await meOf(cookie)).connections.siasb).toEqual({
         offered: true,
         status: 'connected',
         expiresAt: '2099-01-01T00:00:00.000Z',
+        syncedAt: null,
       });
       // Conectado: /me não consulta o SIASB.
       expect(siasbState.courseCalls).toBe(chamadas);
