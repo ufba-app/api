@@ -5,6 +5,7 @@ import type { SourceAccountRepository, StudentRegistrations } from '../ports/rep
 import type { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, type SiasbCourse, type SiasbSource } from '../ports/siasb-source';
 import type { Secret } from '../shared/secret';
+import { encodeSession } from './session-codec';
 
 const COURSES_TTL_MS = 10 * 60 * 1000;
 const FAILURE_TTL_MS = 60 * 1000;
@@ -93,7 +94,7 @@ export class SiasbLink {
       userId,
       provider: 'SIASB',
       accountKey: ACCOUNT_KEY,
-      secret: this.cipher.encrypt(JSON.stringify(session.cookies)),
+      secret: this.cipher.encrypt(encodeSession(session)),
       expiresAt: session.expiresAt ?? undefined,
     });
   }

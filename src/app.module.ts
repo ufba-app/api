@@ -36,6 +36,9 @@ import { mcpExports, mcpProviders } from './mcp-wiring';
 import { SourceBindings } from './application/identity/source-bindings';
 import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
+import { SiasbReader } from './application/siasb/siasb-reader';
+import { AcademicCalendar } from './application/ports/academic-calendar';
+import { NoAcademicCalendar } from './infrastructure/calendar/no-academic-calendar';
 import { SiasbClient } from './infrastructure/sources/siasb/siasb-client';
 import { SigaaSessionStore, SourceAccountRepository, StudentRegistrations } from './application/ports/repositories';
 import { SecretCipher } from './application/ports/secret-cipher';
@@ -154,6 +157,13 @@ export function buildLiveSources(
         cipher: SecretCipher,
       ) => new SiasbLink(siasb, regs, bindings, accounts, cipher),
       inject: [SiasbSource, StudentRegistrations, SourceBindings, SourceAccountRepository, SecretCipher],
+    },
+    { provide: AcademicCalendar, useFactory: () => new NoAcademicCalendar() },
+    {
+      provide: SiasbReader,
+      useFactory: (siasb: SiasbSource, accounts: SourceAccountRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>
+        new SiasbReader(siasb, accounts, cipher, calendar),
+      inject: [SiasbSource, SourceAccountRepository, SecretCipher, AcademicCalendar],
     },
     // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
@@ -381,6 +391,7 @@ export function buildLiveSources(
     SecretCipher,
     SiasbSource,
     SiasbLink,
+    SiasbReader,
     ConsultaService,
     MemoryAdmin,
     MemoryUsers,
