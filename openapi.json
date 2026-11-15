@@ -2156,6 +2156,32 @@
                         true
                       ]
                     },
+                    "prerequisiteEdges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "REQUIRED",
+                              "ALTERNATIVE"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to",
+                          "kind"
+                        ]
+                      }
+                    },
                     "required": {
                       "type": "array",
                       "items": {
@@ -2235,6 +2261,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2251,7 +2308,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2334,6 +2393,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2350,7 +2440,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2433,6 +2525,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2449,7 +2572,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2658,6 +2783,7 @@
                     "curriculumCode",
                     "sameCurriculum",
                     "estimate",
+                    "prerequisiteEdges",
                     "required",
                     "electives",
                     "complementary",

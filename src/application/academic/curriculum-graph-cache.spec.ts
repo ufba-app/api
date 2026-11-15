@@ -34,7 +34,7 @@ describe('CurriculumGraphCache', () => {
   it('a primeira leitura monta; dentro do prazo não toca mais no banco', async () => {
     const { cache, repo, avancar } = await montar();
     const first = await cache.forProgram('10');
-    expect(first?.components.has('FISD36')).toBe(true);
+    expect(first?.graph.components.has('FISD36')).toBe(true);
     expect(repo.reads).toEqual({ curriculum: 1, components: 1 });
 
     avancar(GRAPH_CACHE_TTL_MS - 1);
@@ -64,8 +64,8 @@ describe('CurriculumGraphCache', () => {
     avancar(GRAPH_CACHE_TTL_MS + 1);
     const second = await cache.forProgram('10');
     expect(second).not.toBe(first);
-    expect(second?.components.has('NEW10')).toBe(true);
-    expect(second?.components.has('FISD36')).toBe(false);
+    expect(second?.graph.components.has('NEW10')).toBe(true);
+    expect(second?.graph.components.has('FISD36')).toBe(false);
   });
 
   it('o mesmo currículo com `fetchedAt` renovado também remonta (a versão inclui o fetchedAt)', async () => {
@@ -105,7 +105,7 @@ describe('CurriculumGraphCache', () => {
     };
     await expect(cache.forProgram('10')).rejects.toThrow('banco fora');
     falhar = false;
-    expect((await cache.forProgram('10'))?.components.has('FISD36')).toBe(true);
+    expect((await cache.forProgram('10'))?.graph.components.has('FISD36')).toBe(true);
   });
 
   it('cursos diferentes não se misturam', async () => {
@@ -113,7 +113,7 @@ describe('CurriculumGraphCache', () => {
     const other = sampleCurriculum('G20251', '9100');
     other.components = [{ ...other.components[0], code: 'OUT01' }];
     await repo.replaceCurriculum('11', other, AT);
-    expect((await cache.forProgram('10'))?.components.has('OUT01')).toBe(false);
-    expect((await cache.forProgram('11'))?.components.has('OUT01')).toBe(true);
+    expect((await cache.forProgram('10'))?.graph.components.has('OUT01')).toBe(false);
+    expect((await cache.forProgram('11'))?.graph.components.has('OUT01')).toBe(true);
   });
 });

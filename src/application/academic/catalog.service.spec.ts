@@ -129,4 +129,22 @@ describe('CatalogService.ensureCurriculum', () => {
     expect(r?.components).toHaveLength(1);
     expect(source.calls).toEqual(before);
   });
+
+  it('readView: o currículo com o grafo, em cache; a importação nova invalida o cache na hora, sem esperar o prazo', async () => {
+    const { svc, source, repo } = montar();
+    await expect(svc.readView('10')).resolves.toBeNull();
+    await svc.ensureCurriculum('10');
+    const first = await svc.readView('10');
+    expect(first?.curriculum.code).toBe('G20251');
+    expect(first?.graph.components.has('FISD36')).toBe(true);
+    expect(await svc.readView('10')).toBe(first);
+
+    // o currículo guardado envelheceu e o Ativo mudou; o relógio não andou, então o cache ainda estaria no prazo
+    await repo.touchCurriculum('10', new Date(0));
+    source.activeCode = 'G20271';
+    await svc.ensureCurriculum('10');
+    const nova = await svc.readView('10');
+    expect(nova).not.toBe(first);
+    expect(nova?.curriculum.code).toBe('G20271');
+  });
 });

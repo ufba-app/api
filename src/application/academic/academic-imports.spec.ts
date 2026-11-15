@@ -351,6 +351,17 @@ describe('AcademicImports: apagar e a grade do curso', () => {
     expect(progress.required.find((c) => c.code === 'FISD36')?.state).toBe('DONE');
   });
 
+  it('a grade traz as ligações de pré-requisito do currículo, e cada componente a última tentativa', async () => {
+    const m = montar();
+    await importar(m);
+    await m.svc.confirm(P);
+    const progress = await m.svc.progress(P);
+    expect(Array.isArray(progress.prerequisiteEdges)).toBe(true);
+    const fisd36 = progress.required.find((c) => c.code === 'FISD36')!;
+    expect(fisd36).toMatchObject({ toRedo: false });
+    expect(fisd36.lastAttempt).toMatchObject({ status: 'APR' });
+  });
+
   it('sem histórico gravado: 404 import_not_found; sem a grade do curso: 409 curriculum_unavailable', async () => {
     const m = montar();
     await expect(m.svc.progress(P)).rejects.toMatchObject({ status: 404, code: 'import_not_found' });
