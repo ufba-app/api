@@ -45,7 +45,7 @@ export class ConnectionStatus {
       const s = await this.siasbLink.status(p.userId);
       if (s.state === 'disconnected') {
         const offered = await this.offered(p.userId);
-        return { offered, status: 'disconnected', expiresAt: null };
+        return { offered, status: 'disconnected', expiresAt: null, syncedAt: null };
       }
       const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
       // Já conectado: só o banco decide a oferta (matrícula importada); matrícula apagada não vira erro nem consulta o SIASB.
@@ -54,9 +54,10 @@ export class ConnectionStatus {
         offered,
         status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
         expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
+        syncedAt: s.syncedAt ? s.syncedAt.toISOString() : null,
       };
     } catch {
-      return { offered: false, status: 'disconnected', expiresAt: null };
+      return { offered: false, status: 'disconnected', expiresAt: null, syncedAt: null };
     }
   }
 

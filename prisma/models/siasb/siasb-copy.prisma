@@ -1,0 +1,56 @@
+// Cópia por aluno das sessões e atendimentos do SIASB (fase 2A), para o painel e o cron.
+// Só entra o que o painel mostra; o primeiro nome do paciente fica cifrado (AES-256-GCM, SECRETS_KEY).
+// `DELETE /me` e a desconexão do SIASB apagam tudo (cascade / deleteAll).
+model SiasbSyncedAttendance {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String
+
+  disciplineId   String  @map("discipline_id")
+  disciplineName String  @map("discipline_name")
+  // TRIAGE | PLANNING | URGENCY | UNKNOWN
+  treatmentType  String  @map("treatment_type")
+  concluded      Boolean
+
+  firstNameCiphertext String @map("first_name_ciphertext")
+  firstNameIv         String @map("first_name_iv")
+  firstNameAuthTag    String @map("first_name_auth_tag")
+
+  @@id([userId, id])
+  @@map("siasb_attendances")
+}
+
+model SiasbSyncedSession {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String
+
+  attendanceId       String    @map("attendance_id")
+  disciplineId       String    @map("discipline_id")
+  disciplineName     String    @map("discipline_name")
+  professorName      String    @map("professor_name")
+  locationName       String    @map("location_name")
+  startAt            DateTime  @map("start_at")
+  endAt              DateTime  @map("end_at")
+  rescheduledStartAt DateTime? @map("rescheduled_start_at")
+  statusLabel        String    @map("status_label")
+
+  @@id([userId, id])
+  @@index([userId, startAt])
+  @@map("siasb_sessions")
+}
+
+// Estado da sincronização por aluno; `lockedUntil` é a trava (lease) contra execuções concorrentes.
+model SiasbSyncState {
+  userId String @id @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  // OK | RECONNECT_REQUIRED | UNAVAILABLE
+  result        String?
+  nextRunAt     DateTime? @map("next_run_at")
+  lockedUntil   DateTime? @map("locked_until")
+
+  @@map("siasb_sync_state")
+}

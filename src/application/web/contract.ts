@@ -24,6 +24,7 @@ export const API_ERROR_CODES = [
   "siasb_credentials_rejected",
   "siasb_password_migration_required",
   "siasb_unavailable",
+  "siasb_reconnect_required",
   "account_ambiguous",
   "not_supported",
   "device_code_invalid",
@@ -338,6 +339,8 @@ export const Me = z.object({
       status: z.union([AccountStatus, z.literal("disconnected")]),
       /** Fim estimado da sessão do SIASB (ISO 8601); null se desconectado ou sem estimativa. */
       expiresAt: z.string().datetime().nullable(),
+      /** Último sucesso da sincronização da cópia do SIASB (ISO 8601); null se nunca sincronizou ou desconectado. */
+      syncedAt: z.string().datetime().nullable(),
     }),
   }),
 });
@@ -353,6 +356,35 @@ export const ConnectSigaaBody = z.object({
 export const ConnectSiasbBody = z.object({
   /** Senha do SIASB; a matrícula vem do perfil da pessoa. */
   password: z.string().min(1),
+});
+
+/**
+ * Intervalo do calendário do SIASB: instantes ISO 8601 COM fuso (`Z` ou `±hh:mm`); data pura ou sem fuso é 400.
+ * Sem from e to: agora − 14 dias a agora + 45 dias; no máximo 190 dias.
+ */
+const IsoInstant = z.string().datetime({ offset: true });
+export const SiasbCalendarQuery = z.object({ from: IsoInstant.optional(), to: IsoInstant.optional() });
+
+export const SiasbCalendarResponse = z.object({
+  /** Último sucesso da sincronização (ISO 8601); null se nunca houve. */
+  syncedAt: z.string().datetime().nullable(),
+  /** A cópia pode estar velha: sem sincronização, última falhou ou sucesso há mais de 3 h. */
+  stale: z.boolean(),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      attendanceId: z.string(),
+      disciplineName: z.string(),
+      startAt: z.string().datetime(),
+      endAt: z.string().datetime(),
+      locationName: z.string(),
+      professorName: z.string(),
+      /** Só o primeiro nome do paciente; vazio se não pôde ser lido. */
+      patientFirstName: z.string(),
+      statusLabel: z.string(),
+      rescheduledStartAt: z.string().datetime().nullable(),
+    }),
+  ),
 });
 
 export const MoodleStartResponse = z.object({

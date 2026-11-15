@@ -41,6 +41,8 @@ import { AcademicRepository } from '../../application/ports/academic';
 import { PrismaCalendarLogRepository } from './prisma-calendar-log.repository';
 import { PrismaUserPermissionRepository } from './prisma-user-permission.repository';
 import { UserPermissionRepository } from '../../application/ports/permissions';
+import { SiasbCopyRepository } from '../../application/ports/siasb-copy';
+import { PrismaSiasbCopyRepository } from './prisma-siasb-copy.repository';
 import { CalendarLogRepository } from '../../application/ports/calendar';
 import { CatalogRepository } from '../../application/ports/catalog';
 import { PrismaService } from './prisma.service';
@@ -62,6 +64,7 @@ import { PrismaService } from './prisma.service';
     { provide: AcademicRepository, useClass: PrismaAcademicRepository },
     { provide: CalendarLogRepository, useClass: PrismaCalendarLogRepository },
     { provide: UserPermissionRepository, useClass: PrismaUserPermissionRepository },
+    { provide: SiasbCopyRepository, useClass: PrismaSiasbCopyRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: StudentRegistrations, useClass: PrismaStudentRegistrations },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
@@ -88,6 +91,7 @@ import { PrismaService } from './prisma.service';
     AcademicRepository,
     CalendarLogRepository,
     UserPermissionRepository,
+    SiasbCopyRepository,
     SourceBindingRepository,
     StudentRegistrations,
     MemoryUserRepository,

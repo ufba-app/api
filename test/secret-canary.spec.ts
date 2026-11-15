@@ -337,7 +337,7 @@ describe('canário: a senha do SIASB nunca aparece em log, erro nem resposta', (
     const bindings = { assertCompatible: async () => undefined, bind: async () => undefined };
     const cipher = { encrypt: (s: string) => ({ ciphertext: s.length }) };
     const regs = { find: async () => REG };
-    const link = new SiasbLink(siasb, regs as never, bindings as never, accounts as never, cipher as never);
+    const link = new SiasbLink(siasb, regs as never, bindings as never, accounts as never, cipher as never, {} as never);
     const service = new ConnectionsService(
       {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, link,
       { webOrigin: 'https://meu.ufba.app', institutionalDomain: 'ufba.br' },

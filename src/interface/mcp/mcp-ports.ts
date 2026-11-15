@@ -1,6 +1,7 @@
 /**
  * O que as ferramentas MCP precisam dos casos de uso. Tudo é leitura AO VIVO na fonte, com o token guardado da
- * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte.
+ * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte. Exceção:
+ * `clinica_sessoes` lê por padrão a cópia da última sincronização do SIASB.
  */
 
 import type {
@@ -9,6 +10,7 @@ import type {
   PatientsByDiscipline,
   SchedulingContext,
 } from '../../application/siasb/siasb-reader';
+import type { CalendarItem } from '../../application/siasb/siasb-copy-reader';
 import type { Progress } from '../../application/siasb/progress';
 import type { ClinicalSession } from '../../domain/siasb/types';
 
@@ -18,14 +20,24 @@ export const MCP_MEMORY = Symbol('MCP_MEMORY');
 export const MCP_CLINICA = Symbol('MCP_CLINICA');
 
 /**
- * Clínicas do SIASB (`clinica_*`). Opcional: sem ele o /mcp não oferece essas ferramentas. Tudo é leitura AO VIVO
- * com a conexão da pessoa; nada é gravado.
+ * Clínicas do SIASB (`clinica_*`). Opcional: sem ele o /mcp não oferece essas ferramentas. A leitura é AO VIVO com a
+ * conexão da pessoa, exceto `copySessions` (cópia da última sincronização); nada é gravado no SIASB.
  */
 export interface McpClinica {
   /** A pessoa tem conexão SIASB em qualquer estado (conectada ou a reconectar). */
   hasConnection(userId: string): Promise<boolean>;
   situation(userId: string): Promise<DisciplineSituation[]>;
   sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]>;
+  /**
+   * Sessões lidas da cópia da última sincronização (não consulta o SIASB). Mesmas regras de período de `sessions`
+   * (`resolveSessionPeriod`; `de` depois de `ate` lança `InvalidPeriodError`). `syncedAt` nulo e sem itens = nunca
+   * sincronizou. `null` = a cópia não cobre o período (começa antes da janela sincronizada ou está além do alcance):
+   * quem chama lê ao vivo.
+   */
+  copySessions(
+    userId: string,
+    range?: { from: Date; to: Date },
+  ): Promise<{ syncedAt: Date | null; stale: boolean; items: CalendarItem[] } | null>;
   bookingDeadline(userId: string, input: { disciplineId: string } | { sessionStart: Date }): Promise<BookingDeadline>;
   patients(userId: string): Promise<PatientsByDiscipline[]>;
   vacancies(userId: string): Promise<{ disciplineId: string; disciplineName: string; count: number }[]>;

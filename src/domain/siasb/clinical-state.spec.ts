@@ -4,10 +4,10 @@ import type { ClinicalAttendance, ClinicalDiscipline, ClinicalSession } from './
 const now = new Date('2026-11-16T12:00:00-03:00');
 const disc = (id: string): ClinicalDiscipline => ({ id, name: `D${id}` });
 const att = (id: string, disciplineId: string): ClinicalAttendance => ({
-  id, disciplineId, initials: 'AB', treatmentType: 'PLANNING', concluded: false,
+  id, disciplineId, firstName: 'Ab', treatmentType: 'PLANNING', concluded: false,
 });
 const ses = (id: string, attendanceId: string, disciplineId: string, start: string, statusLabel = 'Confirmado'): ClinicalSession => ({
-  id, attendanceId, disciplineId, disciplineName: 'x', initials: 'AB', professorName: 'p', locationName: 'l',
+  id, attendanceId, disciplineId, disciplineName: 'x', firstName: 'Ab', professorName: 'p', locationName: 'l',
   startAt: new Date(start), endAt: new Date(start), rescheduledStartAt: null, statusLabel,
 });
 

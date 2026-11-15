@@ -21,7 +21,7 @@ function sess(id: string, disc: string, attendance: string, startIso: string, la
     attendanceId: attendance,
     disciplineId: disc,
     disciplineName: `Disc ${disc}`,
-    initials: 'AB',
+    firstName: 'Ab',
     professorName: 'Prof',
     locationName: 'Sala',
     startAt,
@@ -38,6 +38,7 @@ class FakeSiasb extends SiasbSource {
   renew = false;
   discs: ClinicalDiscipline[] = [];
   atts: ClinicalAttendance[] = [];
+  inactiveAtts: ClinicalAttendance[] | null = null;
   sess: ClinicalSession[] = [];
   seenCookies: Record<string, string>[] = [];
   private touch(name: string, s: SiasbSession) {
@@ -60,9 +61,9 @@ class FakeSiasb extends SiasbSource {
     this.touch('disciplines', s);
     return this.discs;
   }
-  async attendances(s: SiasbSession) {
+  async attendances(s: SiasbSession, status: 'active' | 'inactive' = 'active') {
     this.touch('attendances', s);
-    return this.atts;
+    return status === 'inactive' && this.inactiveAtts ? this.inactiveAtts : this.atts;
   }
   async sessions(s: SiasbSession, from: Date, to: Date) {
     this.touch('sessions', s);
@@ -283,8 +284,8 @@ describe('SiasbReader.situation', () => {
       { id: '3', name: 'Disc 3' },
     ];
     s.siasb.atts = [
-      { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING', concluded: false },
-      { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
     ];
     s.siasb.sess = [
       // disciplina 3: sextas 10h (Bahia) atendidas e uma marcada no futuro
@@ -400,7 +401,7 @@ describe('SiasbReader: regravação do jar e erros', () => {
 });
 
 describe('SiasbReader: estado e prazo vencido', () => {
-  const att = { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING' as const, concluded: false };
+  const att = { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING' as const, concluded: false };
 
   it('Confirmado passada e Atendido futura não dão SCHEDULED', async () => {
     const s = setup();
@@ -443,5 +444,70 @@ describe('SiasbReader: estado e prazo vencido', () => {
     const s = setup();
     const r = await s.reader.bookingDeadline('u1', { sessionStart: d('2026-11-18T13:00:00Z') });
     expect(r.deadline).toEqual(d('2026-11-13T13:00:00Z'));
+  });
+});
+
+describe('SiasbReader.snapshot', () => {
+  const att = (id: string, disciplineId: string, concluded = false): ClinicalAttendance => ({
+    id,
+    disciplineId,
+    firstName: 'Ab',
+    treatmentType: 'PLANNING',
+    concluded,
+  });
+
+  it('devolve atendimentos ativos e inativos com o nome da disciplina e as sessões da janela', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [{ id: '2', name: 'Clínica 2' } as ClinicalDiscipline];
+    siasb.atts = [att('a1', '2')];
+    siasb.inactiveAtts = [att('a9', '2', true)];
+    siasb.sess = [sess('s1', '2', 'a1', '2026-11-10T13:00:00Z')];
+    const snap = await reader.snapshot('u1');
+    expect(snap.attendances.map((a) => [a.id, a.disciplineName])).toEqual([
+      ['a1', 'Clínica 2'],
+      ['a9', 'Clínica 2'],
+    ]);
+    expect(snap.sessions).toHaveLength(1);
+    expect(snap.window).toEqual({ from: new Date(NOW.getTime() - 120 * DAY), to: new Date(NOW.getTime() + 45 * DAY) });
+  });
+
+  it('chama sessions uma só vez, de agora-120 a agora+45 dias, e grava o jar uma vez', async () => {
+    const { siasb, accounts, reader } = setup();
+    siasb.renew = true;
+    await reader.snapshot('u1');
+    expect(siasb.sessionRanges).toEqual([
+      { from: new Date(NOW.getTime() - 120 * DAY), to: new Date(NOW.getTime() + 45 * DAY) },
+    ]);
+    expect(accounts.updates).toHaveLength(1);
+  });
+
+  it('sem conta SIASB lança ReconectarError', async () => {
+    const { reader } = setup(new FakeCalendar(), false);
+    await expect(reader.snapshot('u1')).rejects.toBeInstanceOf(ReconectarError);
+  });
+
+  it('atendimento nas duas listas vem uma vez, preferindo o ativo; sessão repetida vem uma vez (a primeira)', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [{ id: '2', name: 'Clínica 2' } as ClinicalDiscipline];
+    siasb.atts = [att('a1', '2', false)];
+    siasb.inactiveAtts = [att('a1', '2', true), att('a9', '2', true)];
+    siasb.sess = [
+      sess('s1', '2', 'a1', '2026-11-10T13:00:00Z', 'Primeira'),
+      sess('s1', '2', 'a1', '2026-11-11T13:00:00Z', 'Repetida'),
+    ];
+    const snap = await reader.snapshot('u1');
+    expect(snap.attendances.map((a) => [a.id, a.concluded])).toEqual([
+      ['a1', false],
+      ['a9', true],
+    ]);
+    expect(snap.sessions.map((s) => [s.id, s.statusLabel])).toEqual([['s1', 'Primeira']]);
+  });
+
+  it('atendimento de disciplina desconhecida fica com disciplineName vazio', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [];
+    siasb.atts = [att('a1', '99')];
+    const snap = await reader.snapshot('u1');
+    expect(snap.attendances[0].disciplineName).toBe('');
   });
 });

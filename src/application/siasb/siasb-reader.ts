@@ -8,21 +8,18 @@ import type { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, type SiasbSession, type SiasbSource } from '../ports/siasb-source';
 import { decodeSession, encodeSession } from './session-codec';
 import { computeProgress, PROGRESS_DEFAULT_DAYS, type Progress } from './progress';
+import {
+  DAY_MS,
+  InvalidPeriodError,
+  MAX_AHEAD_DAYS,
+  MAX_CALL_DAYS,
+  resolveSessionPeriod,
+  SYNC_LOOKBACK_DAYS,
+} from './session-period';
 
-const DAY_MS = 86_400_000;
-const DEFAULT_RANGE_DAYS = 14;
-const MAX_AHEAD_DAYS = 45;
 const HISTORY_DAYS = 60;
-/** Teto de uma chamada de sessões ao SIASB (spec): nenhuma consulta cobre mais que isso. */
-const MAX_CALL_DAYS = 190;
 
-/** Período pedido fora de ordem (início depois do fim). Mensagem fixa, em pt-BR, sem ecoar a entrada. */
-export class InvalidPeriodError extends Error {
-  constructor() {
-    super('O início do período vem depois do fim.');
-    this.name = 'InvalidPeriodError';
-  }
-}
+export { InvalidPeriodError };
 
 export interface DisciplineSituation {
   disciplineId: string;
@@ -46,7 +43,7 @@ const SLOTS_SHOWN = 3;
 export interface PatientsByDiscipline {
   disciplineId: string;
   disciplineName: string;
-  patients: { attendanceId: string; initials: string; type: ClinicalAttendance['treatmentType'] }[];
+  patients: { attendanceId: string; firstName: string; type: ClinicalAttendance['treatmentType'] }[];
 }
 
 export interface SchedulingContext {
@@ -137,17 +134,11 @@ export class SiasbReader {
   }
 
   async sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]> {
-    const now = this.now();
-    const from = range?.from ?? now;
-    const limit = new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS);
-    const wanted = range?.to ?? new Date(from.getTime() + DEFAULT_RANGE_DAYS * DAY_MS);
-    if (from.getTime() > wanted.getTime()) throw new InvalidPeriodError();
-    const to = wanted.getTime() > limit.getTime() ? limit : wanted;
+    const period = resolveSessionPeriod(this.now(), range);
     await this.requireAccount(userId);
     // Período inteiro além do alcance (agora+45 dias): não há o que perguntar ao SIASB.
-    if (from.getTime() > to.getTime()) return [];
-    const start = new Date(Math.max(from.getTime(), to.getTime() - MAX_CALL_DAYS * DAY_MS));
-    return this.withSession(userId, (session) => this.siasb.sessions(session, start, to));
+    if (period.kind === 'empty') return [];
+    return this.withSession(userId, (session) => this.siasb.sessions(session, period.from, period.to));
   }
 
   async bookingDeadline(
@@ -185,7 +176,7 @@ export class SiasbReader {
       disciplineName: d.name,
       patients: attendances
         .filter((a) => a.disciplineId === d.id)
-        .map((a) => ({ attendanceId: a.id, initials: a.initials, type: a.treatmentType })),
+        .map((a) => ({ attendanceId: a.id, firstName: a.firstName, type: a.treatmentType })),
     }));
   }
 
@@ -249,6 +240,40 @@ export class SiasbReader {
       sessions: await this.siasb.sessions(session, queryFrom, forwardEnd),
     }));
     return computeProgress({ disciplines, active, inactive, sessions, range: used, isDefault: !range, now });
+  }
+
+  /**
+   * Leitura para a cópia: atendimentos ativos e inativos, disciplinas e as sessões de [agora − 120 dias, agora + 45 dias]
+   * (165 dias, abaixo do teto de 190: uma só chamada de sessões), tudo numa única sessão guardada.
+   */
+  async snapshot(userId: string): Promise<{
+    window: { from: Date; to: Date };
+    attendances: (ClinicalAttendance & { disciplineName: string })[];
+    sessions: ClinicalSession[];
+  }> {
+    const now = this.now();
+    const window = {
+      from: new Date(now.getTime() - SYNC_LOOKBACK_DAYS * DAY_MS),
+      to: new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS),
+    };
+    const { disciplines, active, inactive, sessions } = await this.withSession(userId, async (session) => ({
+      disciplines: await this.siasb.disciplines(session),
+      active: await this.siasb.attendances(session, 'active'),
+      inactive: await this.siasb.attendances(session, 'inactive'),
+      sessions: await this.siasb.sessions(session, window.from, window.to),
+    }));
+    const names = new Map(disciplines.map((d) => [d.id, d.name]));
+    // A PK da cópia é (user_id, id): id repetido derrubaria a transação toda. Atendimento ativo vence o inativo
+    // (vem primeiro); sessão repetida: a primeira.
+    const firstById = <T extends { id: string }>(list: T[]): T[] => {
+      const seen = new Set<string>();
+      return list.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+    };
+    const attendances = firstById([...active, ...inactive]).map((a) => ({
+      ...a,
+      disciplineName: names.get(a.disciplineId) ?? '',
+    }));
+    return { window, attendances, sessions: firstById(sessions) };
   }
 
   /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */

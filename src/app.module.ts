@@ -37,6 +37,9 @@ import { SourceBindings } from './application/identity/source-bindings';
 import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
 import { SiasbReader } from './application/siasb/siasb-reader';
+import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
+import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AcademicCalendar } from './application/ports/academic-calendar';
 import { NoAcademicCalendar } from './infrastructure/calendar/no-academic-calendar';
 import { SiasbClient } from './infrastructure/sources/siasb/siasb-client';
@@ -155,8 +158,9 @@ export function buildLiveSources(
         bindings: SourceBindings,
         accounts: SourceAccountRepository,
         cipher: SecretCipher,
-      ) => new SiasbLink(siasb, regs, bindings, accounts, cipher),
-      inject: [SiasbSource, StudentRegistrations, SourceBindings, SourceAccountRepository, SecretCipher],
+        copy: SiasbCopyRepository,
+      ) => new SiasbLink(siasb, regs, bindings, accounts, cipher, copy),
+      inject: [SiasbSource, StudentRegistrations, SourceBindings, SourceAccountRepository, SecretCipher, SiasbCopyRepository],
     },
     { provide: AcademicCalendar, useFactory: () => new NoAcademicCalendar() },
     {
@@ -164,6 +168,17 @@ export function buildLiveSources(
       useFactory: (siasb: SiasbSource, accounts: SourceAccountRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>
         new SiasbReader(siasb, accounts, cipher, calendar),
       inject: [SiasbSource, SourceAccountRepository, SecretCipher, AcademicCalendar],
+    },
+    {
+      provide: SiasbSyncer,
+      useFactory: (reader: SiasbReader, copy: SiasbCopyRepository, cipher: SecretCipher) =>
+        new SiasbSyncer(reader, copy, cipher),
+      inject: [SiasbReader, SiasbCopyRepository, SecretCipher],
+    },
+    {
+      provide: SiasbCopyReader,
+      useFactory: (copy: SiasbCopyRepository, cipher: SecretCipher) => new SiasbCopyReader(copy, cipher),
+      inject: [SiasbCopyRepository, SecretCipher],
     },
     // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
@@ -392,6 +407,8 @@ export function buildLiveSources(
     SiasbSource,
     SiasbLink,
     SiasbReader,
+    SiasbSyncer,
+    SiasbCopyReader,
     ConsultaService,
     MemoryAdmin,
     MemoryUsers,

@@ -9,22 +9,36 @@ function connected(hasRegistration: () => Promise<boolean>, state = 'connected')
   return { s, offer };
 }
 
+describe('ConnectionStatus.siasb: syncedAt', () => {
+  it('devolve o último sucesso da sincronização em ISO', async () => {
+    const syncedAt = new Date('2026-11-15T10:00:00Z');
+    const link = { status: async () => ({ state: 'connected', expiresAt: null, syncedAt }), hasRegistration: async () => true };
+    const s = new ConnectionStatus({} as never, {} as never, {} as never, {} as never, link as never, Date.now, 30);
+    expect(await s.siasb(principal)).toEqual({
+      offered: true,
+      status: 'connected',
+      expiresAt: null,
+      syncedAt: '2026-11-15T10:00:00.000Z',
+    });
+  });
+});
+
 describe('ConnectionStatus.siasb: conta já conectada e matrícula', () => {
   it('com matrícula: offered true, status preservado, sem consultar o SIASB', async () => {
     const { s, offer } = connected(async () => true);
-    expect(await s.siasb(principal)).toEqual({ offered: true, status: 'connected', expiresAt: null });
+    expect(await s.siasb(principal)).toEqual({ offered: true, status: 'connected', expiresAt: null, syncedAt: null });
     expect(offer).not.toHaveBeenCalled();
   });
 
   it('matrícula apagada: offered false, status NÃO vira erro, sem consultar o SIASB', async () => {
     const { s, offer } = connected(async () => false, 'reconnect_required');
-    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'reconnect_required', expiresAt: null });
+    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'reconnect_required', expiresAt: null, syncedAt: null });
     expect(offer).not.toHaveBeenCalled();
   });
 
   it('falha ao olhar a matrícula: mantém o status e offered false', async () => {
     const { s } = connected(() => Promise.reject(new Error('x')));
-    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'connected', expiresAt: null });
+    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'connected', expiresAt: null, syncedAt: null });
   });
 });
 
@@ -37,7 +51,7 @@ describe('ConnectionStatus.siasb: teto de espera pelo SIASB no /me', () => {
   it('offer que não responde: offered false dentro do teto, sem erro', async () => {
     const s = status(() => new Promise(() => undefined), 30);
     const t0 = Date.now();
-    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'disconnected', expiresAt: null });
+    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null });
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 

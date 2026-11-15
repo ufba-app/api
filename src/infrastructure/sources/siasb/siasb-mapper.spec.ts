@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { SiasbError } from '../../../application/ports/siasb-source';
 import {
   countUnassigned,
-  initialsOf,
+  firstNameOf,
   mapAttendances,
   mapDisciplines,
   mapProcedures,
@@ -15,20 +15,21 @@ const fx = (name: string): unknown =>
 
 const unexpected = { code: 'UNEXPECTED_FORMAT' };
 
-describe('initialsOf', () => {
-  it('pega a inicial de cada nome, sem preposições', () => {
-    expect(initialsOf('Maria Souza Lima')).toBe('MSL');
-    expect(initialsOf('Otávio de Albuquerque dos Santos da Neves')).toBe('OASN');
-    expect(initialsOf('  ')).toBe('');
-    expect(initialsOf('')).toBe('');
+describe('firstNameOf', () => {
+  it('devolve só o primeiro nome, com maiúscula inicial', () => {
+    expect(firstNameOf('MARIA DA SILVA')).toBe('Maria');
+    expect(firstNameOf('  joão   pedro ')).toBe('João');
+    expect(firstNameOf('ÂNGELA')).toBe('Ângela');
+    expect(firstNameOf(null)).toBe('');
+    expect(firstNameOf(undefined)).toBe('');
+    expect(firstNameOf('   ')).toBe('');
   });
 });
 
 describe('mapSessions', () => {
-  it('descarta sessões reservadas por outro aluno (nem as iniciais saem)', () => {
+  it('descarta sessões reservadas por outro aluno (nem o primeiro nome sai)', () => {
     const out = mapSessions(fx('sessions'));
     expect(out.map((s) => s.id)).toEqual(['9001', '9002']);
-    expect(JSON.stringify(out)).not.toContain('HVM');
     expect(JSON.stringify(out)).not.toContain('Hortência');
   });
 
@@ -36,10 +37,10 @@ describe('mapSessions', () => {
     const out = mapSessions(fx('sessions'));
     const text = JSON.stringify(out);
     for (const secret of [
-      'Zenaide',
       'Quintanilha',
-      'Otávio',
+      'Prado',
       'Albuquerque',
+      'Neves',
       'PR-998877',
       'PR-112233',
       '7771',
@@ -50,8 +51,8 @@ describe('mapSessions', () => {
     ]) {
       expect(text).not.toContain(secret);
     }
-    expect(out[0].initials).toBe('ZQP');
-    expect(out[1].initials).toBe('OAN');
+    expect(out[0].firstName).toBe('Zenaide');
+    expect(out[1].firstName).toBe('Otávio');
   });
 
   it('lê os horários como hora da Bahia (UTC-3)', () => {
@@ -73,7 +74,7 @@ describe('mapSessions', () => {
         'disciplineName',
         'endAt',
         'id',
-        'initials',
+        'firstName',
         'locationName',
         'professorName',
         'rescheduledStartAt',
@@ -114,22 +115,23 @@ describe('paciente sem nome', () => {
     return [nulled, missing];
   };
 
-  it('sessão com patientName nulo ou ausente mapeia, com iniciais vazias', () => {
+  it('sessão com patientName nulo ou ausente mapeia, com primeiro nome vazio', () => {
     for (const raw of variants('sessions')) {
       const out = mapSessions([raw, (fx('sessions') as unknown[])[1]]);
       expect(out).toHaveLength(2);
-      expect(out[0].initials).toBe('');
+      expect(out[0].firstName).toBe('');
       expect(out[0]).toMatchObject({ id: '9001', attendanceId: '501', disciplineName: 'Clínica Integrada I' });
       expect(out[0].startAt.toISOString()).toBe('2026-11-27T11:00:00.000Z');
       expect(JSON.stringify(out)).not.toContain('Zenaide');
+      expect(JSON.stringify(out)).not.toContain('Quintanilha');
     }
   });
 
-  it('atendimento com patientName nulo ou ausente mapeia, com iniciais vazias', () => {
+  it('atendimento com patientName nulo ou ausente mapeia, com primeiro nome vazio', () => {
     for (const raw of variants('attendances')) {
       const out = mapAttendances([raw]);
       expect(out).toEqual([
-        { id: '501', disciplineId: '11', initials: '', treatmentType: 'PLANNING', concluded: false },
+        { id: '501', disciplineId: '11', firstName: '', treatmentType: 'PLANNING', concluded: false },
       ]);
       expect(JSON.stringify(out)).not.toContain('Zenaide');
     }
@@ -137,19 +139,19 @@ describe('paciente sem nome', () => {
 });
 
 describe('mapAttendances', () => {
-  it('mapeia tipo, concluído e iniciais, sem dados do paciente', () => {
+  it('mapeia tipo, concluído e primeiro nome, sem dados do paciente', () => {
     const out = mapAttendances(fx('attendances'));
     expect(out.map((a) => a.treatmentType)).toEqual(['PLANNING', 'URGENCY', 'TRIAGE', 'UNKNOWN']);
     expect(out.map((a) => a.concluded)).toEqual([false, true, false, false]);
     expect(out[0]).toEqual({
       id: '501',
       disciplineId: '11',
-      initials: 'ZQP',
+      firstName: 'Zenaide',
       treatmentType: 'PLANNING',
       concluded: false,
     });
     const text = JSON.stringify(out);
-    for (const secret of ['Zenaide', 'Lucrécia', 'PR-', 'patientName', 'patientRecord', 'responsible', 'Aluno Inventado']) {
+    for (const secret of ['Quintanilha', 'Mota', 'Albuquerque', 'PR-', 'patientName', 'patientRecord', 'responsible', 'Aluno Inventado']) {
       expect(text).not.toContain(secret);
     }
   });

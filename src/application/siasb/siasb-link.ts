@@ -4,6 +4,7 @@ import { LinkError } from '../oauth/oauth-ports';
 import type { SourceAccountRepository, StudentRegistrations } from '../ports/repositories';
 import type { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, type SiasbCourse, type SiasbSource } from '../ports/siasb-source';
+import type { SiasbCopyRepository } from '../ports/siasb-copy';
 import type { Secret } from '../shared/secret';
 import { encodeSession } from './session-codec';
 
@@ -48,6 +49,7 @@ export class SiasbLink {
     private readonly bindings: SourceBindings,
     private readonly accounts: SourceAccountRepository,
     private readonly cipher: SecretCipher,
+    private readonly copy: SiasbCopyRepository,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -110,12 +112,22 @@ export class SiasbLink {
 
   async disconnect(userId: string): Promise<void> {
     for (const a of await this.accounts.findByUserAndProvider(userId, 'SIASB')) await this.accounts.delete(a.id);
+    // Ordem obrigatória: conta primeiro, cópia depois. `replaceWindow` trava a linha da conta (FOR SHARE); uma gravação
+    // em curso termina antes e esta limpeza a apaga. Se a limpeza falhar, o erro propaga: a pessoa tenta de novo
+    // (desconectar é idempotente) e a cópia não fica órfã sem aviso.
+    await this.copy.deleteAll(userId);
   }
 
-  async status(userId: string): Promise<{ state: SiasbLinkState; expiresAt: Date | null }> {
+  /** syncedAt: último sucesso da sincronização (cópia); null se nunca houve ou se o estado não pôde ser lido. */
+  async status(userId: string): Promise<{ state: SiasbLinkState; expiresAt: Date | null; syncedAt: Date | null }> {
     const account = (await this.accounts.findByUserAndProvider(userId, 'SIASB'))[0];
-    if (!account) return { state: 'disconnected', expiresAt: null };
-    return { state: account.status === 'OK' ? 'connected' : 'reconnect_required', expiresAt: account.expiresAt };
+    if (!account) return { state: 'disconnected', expiresAt: null, syncedAt: null };
+    const syncedAt = (await this.copy.state(userId).catch(() => null))?.lastSuccessAt ?? null;
+    return {
+      state: account.status === 'OK' ? 'connected' : 'reconnect_required',
+      expiresAt: account.expiresAt,
+      syncedAt,
+    };
   }
 
   /** Matrícula só com dígitos; `null` se não há ou não tem dígito (tratada como ausente). */

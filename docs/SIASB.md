@@ -1,6 +1,6 @@
 # SIASB (clínicas)
 
-O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. É **só leitura** e **ao vivo**: cada pergunta vai ao SIASB na hora, com a conexão que a pessoa fez, e nada do conteúdo é copiado para o banco.
+O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. É **só leitura**. As ferramentas `clinica_*` vão ao SIASB na hora, com a conexão que a pessoa fez; a exceção é a cópia de sessões e atendimentos feita por cron (seção 10).
 
 Desenho completo: `docs/superpowers/specs/2026-11-15-siasb-design.md`. Ferramentas MCP: tabela abaixo e `docs/MCP.md`. Rotas do web: `docs/WEB-API.md`, seção 5.
 
@@ -64,7 +64,7 @@ GET repete até 2 vezes, só em 5xx ou falha de rede. 429 e redirecionamento vir
 
 ## 5. Privacidade
 
-- **Só iniciais** do paciente, mais disciplina, tipo de tratamento, horário, local e professor. Nome completo, prontuário e qualquer registro clínico **não passam** pelo mapeador.
+- **Só o primeiro nome** do paciente, mais disciplina, tipo de tratamento, horário, local e professor. Sobrenome, prontuário e qualquer registro clínico **não passam** pelo mapeador.
 - **A lista de pacientes sem responsável nunca sai do cliente.** `clinica_vagas` devolve só números por disciplina; os nomes de terceiros dessa lista são descartados no `siasb-mapper` (`countUnassigned`).
 - Nada de paciente vai a log, erro ou auditoria. O procedimento que o aluno cita em `clinica_contexto_agendamento` serve só para a estimativa do modelo e nunca é enviado ao SIASB (a busca no catálogo é local).
 
@@ -93,9 +93,9 @@ As 7 ferramentas (`src/interface/mcp/clinica-tools.ts`). **Visibilidade:** apare
 | Ferramenta | Entrada | Devolve | Chamadas ao SIASB (máx.) |
 |---|---|---|---|
 | `clinica_situacao` | nenhuma | por disciplina: `estado`, `proximaClinica`, `prazoEstimado` (`null` em `sessao_marcada`), `feriadosConsiderados` | 3 (disciplinas, atendimentos ativos, sessões) |
-| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, iniciais, situação, `reagendamentoPara` | 1 |
+| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, primeiro nome, situação, `reagendamentoPara` | 0 (lê da cópia); 1 com `aoVivo: true` ou com período fora da janela sincronizada (leitura ao vivo) |
 | `clinica_prazo_marcacao` | exatamente um: `disciplinaId` ou `inicioSessao` | `prazoEstimado`, `feriadosConsiderados` | 1 com `disciplinaId`; 0 com `inicioSessao` |
-| `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `iniciais`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
+| `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `primeiroNome`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
 | `clinica_vagas` | nenhuma | `vagas` (contagem) por disciplina | 2 |
 | `clinica_contexto_agendamento` | `atendimentoId`, `busca?` | duração da sessão, sessões já feitas (janela de 60 dias), procedimentos (50 primeiros ou filtrados por `busca`), até 3 próximos horários com prazo estimado | 4 (atendimentos, disciplinas, sessões, procedimentos) |
 | `clinica_progresso` | `desde?` e `ate?` (os dois ou nenhum; até 190 dias) | por disciplina: ativos, concluídos no período e no histórico, sessões atendidas e marcadas adiante; ritmo; avisos | 4 (disciplinas, ativos, inativos, sessões) |
@@ -127,8 +127,10 @@ Detalhes em `docs/WEB-API.md`.
 | Rota | Resposta |
 |---|---|
 | `POST /connections/siasb { "password": "string" }` | 204 |
-| `DELETE /connections/siasb` | 204 (mantém o vínculo) |
-| `GET /me` → `connections.siasb { offered, status, expiresAt }` | `status`: `connected`, `reconnect_required` ou `disconnected` |
+| `DELETE /connections/siasb` | 204 (mantém o vínculo; apaga a cópia) |
+| `POST /connections/siasb/sync` | 204 (sincroniza agora) |
+| `GET /me/siasb/sessions?from=&to=` | `{ syncedAt, stale, items }` |
+| `GET /me` → `connections.siasb { offered, status, expiresAt, syncedAt }` | `status`: `connected`, `reconnect_required` ou `disconnected` |
 
 Erros da conexão:
 
@@ -142,12 +144,38 @@ Erros da conexão:
 | 429 | `too_many_attempts` | mais de 5 tentativas de conectar em 10 minutos (por pessoa) |
 | 503 | `siasb_unavailable` | o SIASB não respondeu (fora do ar, 429, página inesperada) |
 
-## 10. O que NÃO está nesta fase
+## 10. Sincronização (fase 2A)
+
+Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railway** (`siasb-cron`, `docs/SIASB-CRON.md`) copia as sessões e os atendimentos de cada pessoa conectada para as tabelas `siasb_*`. O painel e a ferramenta `clinica_sessoes` leem dessa cópia, sem ir ao SIASB a cada pedido. A senha continua sem ser guardada; o job usa o jar de cookies da conexão.
+
+**O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por atendimento, disciplina, tipo de tratamento, se foi concluído e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
+
+**O que NÃO guarda:** sobrenome, prontuário, texto de procedimento e qualquer dado clínico. Não passam do mapeador. A lista de pacientes sem responsável também não é copiada.
+
+**Janela:** de 120 dias para trás a 45 dias à frente. Cada sincronização substitui as sessões dentro da janela e mantém as de fora; os atendimentos são substituídos por inteiro.
+
+**Estados de uma tentativa** (`SiasbSyncer.syncUser`):
+
+| Resultado | O que faz |
+|---|---|
+| `OK` | grava a cópia e agenda a próxima em 45 minutos |
+| `RECONNECT_REQUIRED` | o SIASB recusou o cookie; não agenda nova tentativa (a pessoa reconecta no painel) |
+| `UNAVAILABLE` | o SIASB não respondeu; tenta de novo em 15 minutos; o último sucesso e a cópia anterior ficam |
+| `BUSY` | outra execução da mesma pessoa está em curso (trava de 10 minutos); nada é feito |
+| `DISCONNECTED` | a pessoa não tem mais conta SIASB; nada é gravado |
+
+**`stale`:** o painel e o `clinica_sessoes` avisam que a cópia está velha quando nunca houve sincronização, a última tentativa falhou ou o último sucesso tem mais de 3 horas.
+
+**Quando sincroniza:** pelo cron (a cada 30 minutos, só quem está devido), logo após conectar e pelo botão "Sincronizar agora" (`POST /connections/siasb/sync`, 3 por 10 minutos por pessoa).
+
+**Desconectar** (`DELETE /connections/siasb`) apaga a **conta SIASB primeiro** e **só depois** a cópia e o estado (`SiasbLink.disconnect`). Essa ordem evita cópia órfã: a gravação da cópia trava a linha da conta, então uma desconexão concorrente espera a gravação terminar e a limpeza seguinte apaga o que foi gravado. Se a limpeza falhar, o erro volta para a pessoa tentar de novo (desconectar é idempotente). `DELETE /me` apaga tudo em cascata.
+
+## 11. O que NÃO está nesta fase
 
 - **Alertas por push**, **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 2, 3 e 4 do spec (seções 5.4, 5.6 e 5.7). Nada aqui grava no SIASB.
-- Ciclo em segundo plano e agendador (a trava por pessoa do jar vem com ele).
+- Avisos por push em segundo plano (o job de sincronização já existe; ver seção 10).
 
-## 11. Pendências (spec, seção 6)
+## 12. Pendências (spec, seção 6)
 
 Nenhuma delas exige requisição ao SIASB sem OK do André.
 

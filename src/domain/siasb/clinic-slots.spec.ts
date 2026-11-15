@@ -2,7 +2,7 @@ import { deduceSlots, nextSlotStart } from './clinic-slots';
 import type { ClinicalSession } from './types';
 
 const ses = (i: number, disciplineId: string, start: string, end: string): ClinicalSession => ({
-  id: String(i), attendanceId: 'a', disciplineId, disciplineName: 'x', initials: '', professorName: '', locationName: '',
+  id: String(i), attendanceId: 'a', disciplineId, disciplineName: 'x', firstName: '', professorName: '', locationName: '',
   startAt: new Date(start), endAt: new Date(end), rescheduledStartAt: null, statusLabel: 'Confirmado',
 });
 

@@ -101,6 +101,17 @@ export const ROUTES: Route[] = [
     ok: [200, C.AcademicState],
   },
   {
+    id: "getSiasbCalendar",
+    method: "get",
+    path: "/me/siasb/sessions",
+    tag: "siasb",
+    auth: "session",
+    summary:
+      "Calendário das clínicas (SIASB) lido da cópia sincronizada; ?from=&to= (ISO, até 190 dias; padrão: 14 dias atrás a 45 à frente). 404 sem conta SIASB",
+    query: C.SiasbCalendarQuery,
+    ok: [200, C.SiasbCalendarResponse],
+  },
+  {
     id: "setAcademicConsent",
     method: "put",
     path: "/me/academic/consent",
@@ -300,6 +311,16 @@ export const ROUTES: Route[] = [
     auth: "session",
     summary: "Conectar o SIASB (senha; a matrícula vem do perfil)",
     body: C.ConnectSiasbBody,
+    ok: [204, null],
+  },
+  {
+    id: "syncSiasb",
+    method: "post",
+    path: "/connections/siasb/sync",
+    tag: "connections",
+    auth: "session",
+    summary: "Sincronizar o SIASB agora (3 a cada 10 min por pessoa)",
+    body: z.object({}),
     ok: [204, null],
   },
   {

@@ -16,6 +16,7 @@ import { CredencialSigaaInvalidaError, type CofreSigaa } from '../sigaa/cofre-si
 import { RateWindow } from '../memory/rate-window';
 import { ApiError, sessionExpired, webCopyOf, MAX_WEB_COPIES, WEB_COPY_PREFIX, type GuestApp, type WebPrincipal } from './web-api';
 import type { SiasbLink } from '../siasb/siasb-link';
+import type { SyncOutcome } from '../siasb/siasb-syncer';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const toApp = (a: GuestApp): AppClassroom => (a === 'guest' ? 'convidado' : 'ufba');
@@ -29,6 +30,7 @@ export class ConnectionsService {
   private readonly keyRate: RateWindow;
   private readonly unlockRate: RateWindow;
   private readonly siasbRate: RateWindow;
+  private readonly siasbSyncRate: RateWindow;
   private readonly classroomStates = new Map<string, { userId: string; app: AppClassroom; expiresAt: number }>();
 
   constructor(
@@ -46,12 +48,18 @@ export class ConnectionsService {
     private readonly now: () => number = Date.now,
     /** Chamado depois de desconectar uma fonte inteira (as permissões dela somem). */
     private readonly onSourceDisconnected: (userId: string, source: string) => Promise<void> = async () => undefined,
+    /** Disparado (sem esperar) depois de conectar o SIASB: a primeira sincronização. */
+    private readonly onSiasbConnected: (userId: string) => Promise<void> = async () => undefined,
+    /** "Sincronizar agora": uma sincronização da pessoa e o resultado dela. */
+    private readonly runSiasbSync: (userId: string) => Promise<SyncOutcome> = async () => 'OK',
   ) {
     // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa).
     this.keyRate = new RateWindow(10, 60 * 60_000, this.now);
     this.unlockRate = new RateWindow(10, 60_000, this.now);
     // Cada tentativa é um login real no SIASB: poucas por pessoa, para não virar tentativa de adivinhar senha.
     this.siasbRate = new RateWindow(5, 10 * 60_000, this.now);
+    // Cada sincronização lê o SIASB de verdade: poucas por pessoa.
+    this.siasbSyncRate = new RateWindow(3, 10 * 60_000, this.now);
   }
 
   // ---- SIGAA ----
@@ -145,6 +153,28 @@ export class ConnectionsService {
     if (!this.siasbRate.take(p.userId)) throw tooMany();
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     await this.siasb.connect(p.userId, password);
+    // Primeira sincronização em segundo plano: a conexão não espera por ela e a falha dela nunca chega à pessoa.
+    try {
+      void Promise.resolve(this.onSiasbConnected(p.userId)).catch(() => undefined);
+    } catch {
+      // falha síncrona do disparo também não derruba a conexão
+    }
+  }
+
+  /** "Sincronizar agora". O limite vale antes de falar com o SIASB. */
+  async syncSiasb(p: WebPrincipal): Promise<void> {
+    if (!this.siasbSyncRate.take(p.userId)) throw tooMany();
+    const outcome = await this.runSiasbSync(p.userId);
+    switch (outcome) {
+      case 'RECONNECT_REQUIRED':
+        throw new ApiError(409, 'siasb_reconnect_required', 'A sessão do SIASB expirou. Conecte o SIASB de novo.');
+      case 'UNAVAILABLE':
+        throw new ApiError(503, 'siasb_unavailable', 'O SIASB está indisponível agora. Tente de novo em instantes.');
+      case 'DISCONNECTED':
+        throw new ApiError(404, 'not_found', 'O SIASB não está conectado.');
+      default:
+        return; // OK e BUSY (já há uma em andamento)
+    }
   }
 
   async disconnectSiasb(p: WebPrincipal): Promise<void> {

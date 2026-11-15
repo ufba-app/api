@@ -113,11 +113,15 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
     {
       description:
         'Sessões de clínica da pessoa no SIASB entre `de` e `ate` (datas ISO; padrão: próximos 14 dias; no máximo 45 ' +
-        'dias à frente). Traz disciplina, horário (offset da Bahia), local, professor, iniciais do paciente, situação ' +
-        'e `reagendamentoPara`. Nunca traz nome completo nem prontuário. ' + AO_VIVO,
+        'dias à frente). Traz disciplina, horário (offset da Bahia), local, professor, primeiro nome do paciente, situação ' +
+        'e `reagendamentoPara`. Nunca traz sobrenome nem prontuário. Por padrão lê a cópia da última sincronização ' +
+        '(`atualizadoEm`; `desatualizado` avisa quando ela está velha) e não consulta o SIASB; `aoVivo: true` força a ' +
+        'consulta AO VIVO, com a conexão da pessoa, e também vale enquanto não houver sincronização. A resposta diz a ' +
+        '`origem` (`copia` ou `ao_vivo`); não grava nada no SIASB.',
       inputSchema: {
         de: z.string().optional().describe('Início, ISO (ex.: 2026-11-27).'),
         ate: z.string().optional().describe('Fim, ISO (ex.: 2026-12-04).'),
+        aoVivo: z.boolean().optional().describe('`true` consulta o SIASB na hora em vez de usar a última sincronização.'),
       },
     },
     (args) =>
@@ -126,18 +130,36 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         const to = args.ate ? parseData(args.ate, true) : undefined;
         const range = from && to ? { from, to } : from ? { from, to: new Date(from.getTime() + 14 * 86_400_000) } : undefined;
         if (!from && to) throw new EntradaInvalida('Informe `de` junto com `ate`.');
-        if (from && to && from.getTime() > to.getTime()) {
-          throw new EntradaInvalida('O início do período (`de`) vem depois do fim (`ate`).');
+        if (args.aoVivo !== true) {
+          const copia = await clinica.copySessions(p.userId, range);
+          if (copia && (copia.syncedAt || copia.items.length > 0)) {
+            return {
+              origem: 'copia' as const,
+              atualizadoEm: iso(copia.syncedAt),
+              desatualizado: copia.stale,
+              sessoes: copia.items.map((s) => ({
+                disciplina: s.disciplineName,
+                inicio: toBahiaIso(s.startAt),
+                fim: toBahiaIso(s.endAt),
+                local: s.locationName,
+                professor: s.professorName,
+                primeiroNome: s.patientFirstName,
+                situacao: s.statusLabel,
+                reagendamentoPara: iso(s.rescheduledStartAt),
+              })),
+            };
+          }
         }
         const sessions = await clinica.sessions(p.userId, range);
         return {
+          origem: 'ao_vivo' as const,
           sessoes: sessions.map((s) => ({
             disciplina: s.disciplineName,
             inicio: toBahiaIso(s.startAt),
             fim: toBahiaIso(s.endAt),
             local: s.locationName,
             professor: s.professorName,
-            iniciais: s.initials,
+            primeiroNome: s.firstName,
             situacao: s.statusLabel,
             reagendamentoPara: iso(s.rescheduledStartAt),
           })),
@@ -179,7 +201,7 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
     'clinica_pacientes',
     {
       description:
-        'Atendimentos ATIVOS da pessoa por disciplina de clínica: `atendimentoId`, `iniciais` do paciente e `tipo` ' +
+        'Atendimentos ATIVOS da pessoa por disciplina de clínica: `atendimentoId`, `primeiroNome` do paciente e `tipo` ' +
         '(`triagem`, `planejamento`, `urgencia` ou `desconhecido`). Nunca traz nome completo nem prontuário. ' + AO_VIVO,
       inputSchema: {},
     },
@@ -188,7 +210,7 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         disciplinas: (await clinica.patients(p.userId)).map((d) => ({
           disciplinaId: d.disciplineId,
           disciplina: d.disciplineName,
-          pacientes: d.patients.map((x) => ({ atendimentoId: x.attendanceId, iniciais: x.initials, tipo: TIPOS[x.type] })),
+          pacientes: d.patients.map((x) => ({ atendimentoId: x.attendanceId, primeiroNome: x.firstName, tipo: TIPOS[x.type] })),
         })),
       })),
   );
@@ -255,7 +277,7 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         'semana, semanas sem sessão, horários habituais). Passe `desde` e `ate` (ISO, os dois ou nenhum; no máximo ' +
         `${PROGRESS_MAX_DAYS} dias) com as datas do semestre: pegue-as de uma ferramenta de calendário, se houver, ` +
         `ou pergunte ao aluno. Sem datas vale o padrão de ${PROGRESS_DEFAULT_DAYS} dias até agora, que é ` +
-        'aproximado. A resposta diz o período usado. Só iniciais de paciente. ' + AO_VIVO,
+        'aproximado. A resposta diz o período usado. Só o primeiro nome do paciente. ' + AO_VIVO,
       inputSchema: {
         desde: z.string().optional().describe('Início do período, ISO (ex.: 2026-08-10).'),
         ate: z.string().optional().describe('Fim do período, ISO (ex.: 2026-12-19).'),

@@ -62,7 +62,7 @@ Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`
 
 **Sem telas no backend:** só JSON e os redirecionamentos do OAuth. Login, consentimento, conexões e capturas são do web. O `oauth.controller` tem só `.well-known/*`, `POST /register`, `GET /authorize`, `/oauth/callback/google|classroom` e `POST /token`. O cliente da casa é `ufba-web`, criado no boot.
 
-**Leitura ao vivo:** cada consulta vai à fonte na hora; nada do conteúdo é copiado. As tabelas de `catalog/academic/coursework/sync` são da era da sincronização e não são gravadas.
+**Leitura ao vivo:** cada consulta vai à fonte na hora; nada do conteúdo é copiado. As tabelas de `catalog/academic/coursework/sync` são da era da sincronização e não são gravadas. Exceção: o SIASB é sincronizado para `siasb_*` por um cron do Railway (`docs/SIASB-CRON.md`); ver `docs/SIASB.md`.
 
 ## Segurança
 

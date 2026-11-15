@@ -10,6 +10,7 @@ import {
   type UpsertSourceAccountInput,
 } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
+import { InMemorySiasbCopy } from '../../../test/support/siasb-copy-fake';
 import { SiasbError, SiasbSession, SiasbSource, type SiasbCourse } from '../ports/siasb-source';
 import { SourceBindings } from '../identity/source-bindings';
 import { Secret } from '../shared/secret';
@@ -127,15 +128,17 @@ function setup(registration: string | null = REG) {
   const cipher = new FakeCipher();
   let t = 1_000_000;
   const regs = new FakeRegs(registration);
+  const copy = new InMemorySiasbCopy();
   const link = new SiasbLink(
     siasb,
     regs,
     new SourceBindings(bindingRepo, new FakeHasher()),
     accounts,
     cipher,
+    copy,
     () => t,
   );
-  return { siasb, accounts, bindingRepo, cipher, link, regs, advance: (ms: number) => (t += ms) };
+  return { siasb, accounts, bindingRepo, cipher, link, regs, copy, advance: (ms: number) => (t += ms) };
 }
 
 const pwd = () => Secret.of(SENHA);
@@ -225,7 +228,11 @@ describe('SiasbLink: matrícula ausente, apagada ou fora do padrão', () => {
     regs.value = null;
     siasb.courseCalls = 0;
     siasb.loginCalls = [];
-    expect(await link.status('u1')).toEqual({ state: 'connected', expiresAt: new Date('2026-12-01T00:00:00Z') });
+    expect(await link.status('u1')).toEqual({
+      state: 'connected',
+      expiresAt: new Date('2026-12-01T00:00:00Z'),
+      syncedAt: null,
+    });
     expect(await link.offer('u1')).toEqual({ offered: false, courses: [] });
     const err = await link.connect('u1', pwd()).catch((e) => e);
     expect(err).toBeInstanceOf(LinkError);
@@ -342,13 +349,28 @@ describe('SiasbLink.connect', () => {
 describe('SiasbLink.status e disconnect', () => {
   it('sem conta: disconnected', async () => {
     const { link } = setup();
-    expect(await link.status('u1')).toEqual({ state: 'disconnected', expiresAt: null });
+    expect(await link.status('u1')).toEqual({ state: 'disconnected', expiresAt: null, syncedAt: null });
+  });
+
+  it('syncedAt vem do último sucesso da cópia', async () => {
+    const { link, copy } = setup();
+    await link.connect('u1', pwd());
+    expect((await link.status('u1')).syncedAt).toBeNull();
+    copy.accounts.set('u1', 'OK');
+    const at = new Date('2026-11-15T10:00:00Z');
+    copy.seedState('u1');
+    await copy.recordAttempt('u1', { result: 'OK', at, nextRunAt: null });
+    expect((await link.status('u1')).syncedAt).toEqual(at);
   });
 
   it('conta OK: connected com expiresAt; outro status: reconnect_required', async () => {
     const { link, accounts } = setup();
     await link.connect('u1', pwd());
-    expect(await link.status('u1')).toEqual({ state: 'connected', expiresAt: new Date('2026-12-01T00:00:00Z') });
+    expect(await link.status('u1')).toEqual({
+      state: 'connected',
+      expiresAt: new Date('2026-12-01T00:00:00Z'),
+      syncedAt: null,
+    });
     accounts.rows[0].status = 'REAUTH_NEEDED';
     expect((await link.status('u1')).state).toBe('reconnect_required');
   });
@@ -358,5 +380,63 @@ describe('SiasbLink.status e disconnect', () => {
     await link.connect('u1', pwd());
     await link.disconnect('u1');
     expect(accounts.rows).toHaveLength(0);
+  });
+
+  const enc = { ciphertext: 'c', iv: 'i', authTag: 't' };
+  const att = {
+    id: 'a1',
+    disciplineId: 'd',
+    disciplineName: 'Clínica',
+    treatmentType: 'PLANNING' as const,
+    concluded: false,
+    firstName: enc,
+  };
+
+  it('disconnect apaga a conta primeiro e só depois a cópia (ordem contra cópia órfã)', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    const calls: string[] = [];
+    const del = accounts.delete.bind(accounts);
+    accounts.delete = async (id: string) => {
+      calls.push('deleteAccount');
+      return del(id);
+    };
+    const delAll = copy.deleteAll.bind(copy);
+    copy.deleteAll = async (u: string) => {
+      calls.push('copy.deleteAll');
+      return delAll(u);
+    };
+    await link.disconnect('u1');
+    expect(calls).toEqual(['deleteAccount', 'copy.deleteAll']);
+  });
+
+  it('disconnect apaga a cópia e o estado da pessoa e não toca nos de outra', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    copy.accounts.set('u1', 'OK');
+    copy.accounts.set('u2', 'OK');
+    const at = new Date('2026-11-15T10:00:00Z');
+    for (const u of ['u1', 'u2']) {
+      await copy.replaceWindow(u, { from: at, to: at }, { attendances: [att], sessions: [] });
+      copy.seedState(u);
+      await copy.recordAttempt(u, { result: 'OK', at, nextRunAt: null });
+    }
+    await link.disconnect('u1');
+    expect(accounts.rows).toHaveLength(0);
+    expect(await copy.attendances('u1')).toEqual([]);
+    expect(await copy.state('u1')).toBeNull();
+    expect(await copy.attendances('u2')).toHaveLength(1);
+    expect((await copy.state('u2'))?.lastSuccessAt).toEqual(at);
+  });
+
+  it('disconnect: se a limpeza da cópia falhar, o erro propaga (a conta já saiu; desconectar de novo é idempotente)', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    copy.deleteAll = async () => {
+      throw new Error('falha');
+    };
+    await expect(link.disconnect('u1')).rejects.toThrow('falha');
+    expect(accounts.rows).toHaveLength(0);
+    await expect(link.disconnect('u1')).rejects.toThrow('falha');
   });
 });

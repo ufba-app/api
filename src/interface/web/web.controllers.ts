@@ -24,6 +24,8 @@ import { ConnectionsService } from '../../application/web/connections.service';
 import { SigaaPasskeys } from '../../application/web/sigaa-passkeys.service';
 import { SigaaPairings } from '../../application/web/sigaa-pairings.service';
 import { AcademicImports, type AcademicState } from '../../application/academic/academic-imports';
+import { SiasbCopyReader } from '../../application/siasb/siasb-copy-reader';
+import { SiasbLink } from '../../application/siasb/siasb-link';
 import { parseUserAgent } from '../../application/web/user-agent';
 import {
   ClassroomStartQuery,
@@ -38,6 +40,7 @@ import {
   DeliverPairingBody,
   UnlockSigaaBody,
   SaveSigaaPasskeyBody,
+  SiasbCalendarQuery,
   SigaaPasskeySlotBody,
   parseInput,
 } from '../../application/web/contract';
@@ -199,6 +202,13 @@ export class ConnectionsController {
     await this.web.connectSiasb(must(p), parseInput(ConnectSiasbBody, b, invalidRequest));
   }
 
+  @Post('siasb/sync')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async siasbSync(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.web.syncSiasb(must(p));
+  }
+
   @Delete('siasb')
   @HttpCode(204)
   @UseGuards(SessionGuard)
@@ -294,6 +304,47 @@ export class PermissionsController {
 }
 
 const academicState = (s: AcademicState) => ({ ...s, importedAt: s.importedAt ? s.importedAt.toISOString() : null });
+
+const DAY_MS = 86_400_000;
+const CALENDAR_MAX_DAYS = 190;
+
+/** Calendário das clínicas (SIASB), lido da cópia sincronizada: nunca fala com o SIASB. */
+@Controller('me/siasb')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class SiasbController {
+  constructor(
+    private readonly link: SiasbLink,
+    private readonly reader: SiasbCopyReader,
+  ) {}
+
+  @Get('sessions')
+  @Header('Cache-Control', 'no-store')
+  async sessions(@Principal() p: WebPrincipal | null, @Query() q: unknown) {
+    const who = must(p);
+    const { from, to } = parseInput(SiasbCalendarQuery, q, invalidRequest);
+    const now = Date.now();
+    const start = from ? new Date(from) : new Date(now - 14 * DAY_MS);
+    const end = to ? new Date(to) : new Date(now + 45 * DAY_MS);
+    if (start.getTime() > end.getTime() || end.getTime() - start.getTime() > CALENDAR_MAX_DAYS * DAY_MS) {
+      throw invalidRequest();
+    }
+    if ((await this.link.status(who.userId)).state === 'disconnected') {
+      throw new ApiError(404, 'not_found', 'O SIASB não está conectado.');
+    }
+    const r = await this.reader.calendar(who.userId, start, end);
+    return {
+      syncedAt: r.syncedAt ? r.syncedAt.toISOString() : null,
+      stale: r.stale,
+      items: r.items.map((i) => ({
+        ...i,
+        startAt: i.startAt.toISOString(),
+        endAt: i.endAt.toISOString(),
+        rescheduledStartAt: i.rescheduledStartAt ? i.rescheduledStartAt.toISOString() : null,
+      })),
+    };
+  }
+}
 
 /**
  * Vida acadêmica (docs/specs/2026-11-15-vida-academica.md): consentimento, importação do histórico em segundo plano

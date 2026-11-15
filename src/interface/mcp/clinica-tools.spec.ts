@@ -12,6 +12,9 @@ import { SecretCipher } from '../../application/ports/secret-cipher';
 import { SiasbError, SiasbSession, SiasbSource } from '../../application/ports/siasb-source';
 import { ReconectarError, SiasbReadError, SiasbReader } from '../../application/siasb/siasb-reader';
 import { FERRAMENTAS_CLINICA, resolveSiasbFlag, toBahiaIso } from './clinica-tools';
+import type { SiasbCopyReader } from '../../application/siasb/siasb-copy-reader';
+import type { SiasbLink } from '../../application/siasb/siasb-link';
+import { McpClinicaImpl } from './mcp-clinica';
 import { buildMcpServer } from './mcp-tools';
 import type { McpClinica, McpPrincipal, McpUseCases } from './mcp-ports';
 
@@ -28,7 +31,7 @@ function sess(id: string, disc: string, att: string, startIso: string, label = '
     attendanceId: att,
     disciplineId: disc,
     disciplineName: `Disc ${disc}`,
-    initials: 'FB',
+    firstName: 'Fb',
     professorName: 'Profa Maria',
     locationName: 'Clínica 2',
     startAt,
@@ -47,8 +50,8 @@ class FakeSiasb extends SiasbSource {
     { id: '3', name: 'Disc 3' },
   ];
   atts: ClinicalAttendance[] = [
-    { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING', concluded: false },
-    { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
+    { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING', concluded: false },
+    { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
   ];
   inactiveAtts: ClinicalAttendance[] = [];
   procs: Procedure[] = [];
@@ -140,20 +143,33 @@ class FakeCalendar extends AcademicCalendar {
   }
 }
 
-function setup(calendar = new FakeCalendar()) {
+type CopyResult = NonNullable<Awaited<ReturnType<McpClinica['copySessions']>>>;
+const SEM_COPIA: CopyResult = { syncedAt: null, stale: true, items: [] };
+
+function setup(calendar = new FakeCalendar(), copy: CopyResult = SEM_COPIA) {
   const siasb = new FakeSiasb();
   const reader = new SiasbReader(siasb, new FakeAccounts(), new FakeCipher(), calendar, () => NOW);
+  const copyRanges: { from: Date; to: Date }[] = [];
+  // O McpClinicaImpl real decide o período da cópia; só o leitor da cópia (banco) é substituído.
+  const copyReader = {
+    calendar: async (_u: string, from: Date, to: Date) => {
+      copyRanges.push({ from, to });
+      return copy;
+    },
+  } as unknown as SiasbCopyReader;
+  const impl = new McpClinicaImpl(reader, {} as SiasbLink, copyReader, () => NOW);
   const clinica: McpClinica = {
     hasConnection: async () => true,
     situation: (u) => reader.situation(u),
     sessions: (u, r) => reader.sessions(u, r),
+    copySessions: (u, r) => impl.copySessions(u, r),
     bookingDeadline: (u, i) => reader.bookingDeadline(u, i),
     patients: (u) => reader.patients(u),
     vacancies: (u) => reader.vacancies(u),
     schedulingContext: (u, a, t) => reader.schedulingContext(u, a, t),
     progress: (u, r) => reader.progress(u, r),
   };
-  return { siasb, reader, clinica };
+  return { siasb, reader, clinica, copyRanges };
 }
 
 const uc = {} as McpUseCases;
@@ -301,7 +317,7 @@ describe('clinica_sessoes', () => {
       fim: '2026-11-27T11:00:00-03:00',
       local: 'Clínica 2',
       professor: 'Profa Maria',
-      iniciais: 'FB',
+      primeiroNome: 'Fb',
       situacao: 'Confirmado',
       reagendamentoPara: '2026-12-02T10:00:00-03:00',
     });
@@ -316,6 +332,129 @@ describe('clinica_sessoes', () => {
     expect(res.isError).toBe(true);
     expect(texto(res)).toContain('Data inválida');
     expect(siasb.calls).toEqual([]);
+  });
+});
+
+describe('clinica_sessoes: cópia e ao vivo', () => {
+  const SYNCED = new Date('2026-11-23T11:00:00Z');
+  const copia = (stale: boolean): CopyResult => ({
+    syncedAt: SYNCED,
+    stale,
+    items: [
+      {
+        id: 'c1',
+        attendanceId: 'a3',
+        disciplineName: 'Disc Copia',
+        startAt: d('2026-11-27T13:00:00Z'),
+        endAt: d('2026-11-27T14:00:00Z'),
+        locationName: 'Clínica 9',
+        professorName: 'Prof Copia',
+        patientFirstName: 'Zé',
+        statusLabel: 'Confirmado',
+        rescheduledStartAt: null,
+      },
+    ],
+  });
+
+  it('com cópia não consulta o SIASB e devolve atualizadoEm, desatualizado e origem', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-11-27', ate: '2026-12-04' } });
+    expect(res.isError).toBeFalsy();
+    const out = JSON.parse(texto(res));
+    expect(siasb.calls).toEqual([]);
+    expect(out.origem).toBe('copia');
+    expect(out.atualizadoEm).toBe('2026-11-23T08:00:00-03:00');
+    expect(out.desatualizado).toBe(false);
+    expect(out.sessoes).toEqual([
+      {
+        disciplina: 'Disc Copia',
+        inicio: '2026-11-27T10:00:00-03:00',
+        fim: '2026-11-27T11:00:00-03:00',
+        local: 'Clínica 9',
+        professor: 'Prof Copia',
+        primeiroNome: 'Zé',
+        situacao: 'Confirmado',
+        reagendamentoPara: null,
+      },
+    ]);
+  });
+
+  it('desatualizado espelha stale', async () => {
+    const { clinica } = setup(new FakeCalendar(), copia(true));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(out.desatualizado).toBe(true);
+  });
+
+  it('aoVivo: true ignora a cópia e lê do SIASB', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { aoVivo: true } })));
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+    expect(out.sessoes[0].disciplina).toBe('Disc 3');
+  });
+
+  it('sem nenhuma sincronização cai no ao vivo', async () => {
+    const { clinica, siasb } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+  });
+
+  it('cópia sincronizada e vazia no período devolve lista vazia, sem consultar o SIASB', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), { syncedAt: SYNCED, stale: false, items: [] });
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(siasb.calls).toEqual([]);
+    expect(out.sessoes).toEqual([]);
+    expect(out.origem).toBe('copia');
+  });
+
+  it('o período da cópia segue validado: de depois de ate é rejeitado', async () => {
+    const { clinica, copyRanges } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-12-04', ate: '2026-11-27' } });
+    expect(res.isError).toBe(true);
+    expect(texto(res)).not.toContain('2026-12-04');
+    expect(copyRanges).toEqual([]);
+  });
+
+  it('de anterior à janela sincronizada (agora − 120 dias) lê ao vivo, não a lista vazia da cópia', async () => {
+    const { clinica, siasb, copyRanges } = setup(new FakeCalendar(), { syncedAt: SYNCED, stale: false, items: [] });
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-05-01', ate: '2026-05-10' } })));
+    expect(copyRanges).toEqual([]);
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+  });
+
+  it('de exatamente em agora − 120 dias ainda usa a cópia', async () => {
+    const { clinica, siasb, copyRanges } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const de = new Date(NOW.getTime() - 120 * 86_400_000).toISOString();
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de, ate: '2026-11-30' } })));
+    expect(siasb.calls).toEqual([]);
+    expect(copyRanges).toHaveLength(1);
+    expect(out.origem).toBe('copia');
+  });
+
+  it('período todo dentro da janela fica na cópia', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-09-01', ate: '2026-10-01' } })));
+    expect(siasb.calls).toEqual([]);
+    expect(out.origem).toBe('copia');
+  });
+
+  it('a descrição diz que lê da última sincronização e que aoVivo força a consulta ao vivo', async () => {
+    const { clinica } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const t = (await c.listTools()).tools.find((x) => x.name === 'clinica_sessoes');
+    expect(t?.description).toMatch(/última sincronização/);
+    expect(t?.description).toMatch(/aoVivo/);
   });
 });
 
@@ -446,13 +585,13 @@ function comDadosDePaciente(siasb: FakeSiasb) {
 }
 
 describe('clinica_pacientes', () => {
-  it('lista por disciplina só iniciais e tipo, sem nome nem prontuário', async () => {
+  it('lista por disciplina só primeiro nome e tipo, sem sobrenome nem prontuário', async () => {
     const { clinica, siasb } = setup();
     siasb.atts = [
-      { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'TRIAGE', concluded: false },
-      { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
-      { id: 'a4', disciplineId: '3', initials: 'EF', treatmentType: 'URGENCY', concluded: false },
-      { id: 'a5', disciplineId: '3', initials: 'GH', treatmentType: 'UNKNOWN', concluded: false },
+      { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'TRIAGE', concluded: false },
+      { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a4', disciplineId: '3', firstName: 'Ef', treatmentType: 'URGENCY', concluded: false },
+      { id: 'a5', disciplineId: '3', firstName: 'Gh', treatmentType: 'UNKNOWN', concluded: false },
     ];
     comDadosDePaciente(siasb);
     const res = await call(await connect(user, clinica), 'clinica_pacientes');
@@ -460,14 +599,14 @@ describe('clinica_pacientes', () => {
     const out = JSON.parse(texto(res));
     expect(out.disciplinas).toEqual([
       { disciplinaId: '1', disciplina: 'Disc 1', pacientes: [] },
-      { disciplinaId: '2', disciplina: 'Disc 2', pacientes: [{ atendimentoId: 'a2', iniciais: 'AB', tipo: 'triagem' }] },
+      { disciplinaId: '2', disciplina: 'Disc 2', pacientes: [{ atendimentoId: 'a2', primeiroNome: 'Ab', tipo: 'triagem' }] },
       {
         disciplinaId: '3',
         disciplina: 'Disc 3',
         pacientes: [
-          { atendimentoId: 'a3', iniciais: 'CD', tipo: 'planejamento' },
-          { atendimentoId: 'a4', iniciais: 'EF', tipo: 'urgencia' },
-          { atendimentoId: 'a5', iniciais: 'GH', tipo: 'desconhecido' },
+          { atendimentoId: 'a3', primeiroNome: 'Cd', tipo: 'planejamento' },
+          { atendimentoId: 'a4', primeiroNome: 'Ef', tipo: 'urgencia' },
+          { atendimentoId: 'a5', primeiroNome: 'Gh', tipo: 'desconhecido' },
         ],
       },
     ]);
@@ -552,7 +691,7 @@ describe('clinica_contexto_agendamento', () => {
 
   it('atendimento que não é ativo da pessoa: erro em pt-BR, sem chamar procedures e sem ecoar o id', async () => {
     const { clinica, siasb } = setup();
-    siasb.inactiveAtts = [{ id: 'i9', disciplineId: '3', initials: 'ZZ', treatmentType: 'PLANNING', concluded: true }];
+    siasb.inactiveAtts = [{ id: 'i9', disciplineId: '3', firstName: 'Zz', treatmentType: 'PLANNING', concluded: true }];
     const c = await connect(user, clinica);
     for (const id of ['zzz-desconhecido', 'i9']) {
       const res = await call(c, 'clinica_contexto_agendamento', { atendimentoId: id });
@@ -626,11 +765,11 @@ describe('clinica_progresso', () => {
   const ARGS = { desde: '2026-11-02', ate: '2026-11-29' };
 
   function fixture(siasb: FakeSiasb) {
-    siasb.atts = [{ id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false }];
+    siasb.atts = [{ id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false }];
     siasb.inactiveAtts = [
-      { id: 'i1', disciplineId: '3', initials: 'IA', treatmentType: 'PLANNING', concluded: true },
-      { id: 'i2', disciplineId: '3', initials: 'IB', treatmentType: 'PLANNING', concluded: true },
-      { id: 'i3', disciplineId: '3', initials: 'IC', treatmentType: 'PLANNING', concluded: false },
+      { id: 'i1', disciplineId: '3', firstName: 'Ia', treatmentType: 'PLANNING', concluded: true },
+      { id: 'i2', disciplineId: '3', firstName: 'Ib', treatmentType: 'PLANNING', concluded: true },
+      { id: 'i3', disciplineId: '3', firstName: 'Ic', treatmentType: 'PLANNING', concluded: false },
     ];
     siasb.sess = [
       sess('o1', '3', 'a3', '2026-10-20T13:00:00Z', 'Atendido'), // fora do período
@@ -708,7 +847,7 @@ describe('clinica_progresso', () => {
 
   it('período padrão: marcada 10 dias à frente conta em sessoesMarcadasAdiante, numa única chamada de sessões', async () => {
     const { clinica, siasb } = setup();
-    siasb.atts = [{ id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false }];
+    siasb.atts = [{ id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false }];
     siasb.sess = [sess('f1', '3', 'a3', '2026-12-03T13:00:00Z', 'Confirmado')];
     const out = JSON.parse(texto(await call(await connect(user, clinica), 'clinica_progresso')));
     const d3 = out.disciplinas.find((x: { disciplinaId: string }) => x.disciplinaId === '3');
