@@ -22,6 +22,7 @@ import {
   ApiKeyRepository,
   SigaaCredentialRepository,
   SigaaMasterSlotRepository,
+  SigaaPairingRepository,
   SourceAccountRecord,
   SourceBindingRepository,
   SourceAccountRepository,
@@ -34,6 +35,7 @@ import { MemoryProjectRepository } from '../src/application/memory/project-ports
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
+import { InMemoryPairings } from './support/pairing-fake';
 import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
@@ -65,6 +67,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const creds = new Map<string, SigaaCredentialRecord>();
   const accounts: SourceAccountRecord[] = [];
   const slotsRepo = new InMemorySlots();
+  const pairingsRepo = new InMemoryPairings();
   const sigaaValidations: string[] = [];
   // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
   const users = new (class extends MemoryUserDirectory {
@@ -177,6 +180,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(bindings)
       .overrideProvider(SigaaMasterSlotRepository)
       .useValue(slotsRepo)
+      .overrideProvider(SigaaPairingRepository)
+      .useValue(pairingsRepo)
       .overrideProvider(SigaaCredentialRepository)
       .useValue({
         upsert: async (i: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) => {
@@ -709,6 +714,96 @@ describe('API do app web (docs/WEB-API.md)', () => {
     it('o texto cifrado e o sal nunca aparecem em log ou erro', async () => {
       expect(saida.join('\n')).not.toContain(CT);
       expect(saida.join('\n')).not.toContain(SAL);
+    });
+  });
+
+  describe('liberação por QR (correio entre computador e celular)', () => {
+    const PUB = 'CANARIOpub' + 'P'.repeat(77); // 87 caracteres = 65 bytes
+    const IV = 'CANARIOiv0123456'; // 16 caracteres = 12 bytes
+    const CT = 'CANARIOpacoteLacrado0123456789abcdefghij';
+    const pacote = { pub: PUB, iv: IV, ciphertext: CT };
+    const novo = async (cookie: string, body: Record<string, unknown> = { label: 'Firefox no Windows', client: 'Claude' }) => {
+      const r = await send('POST', '/pairings', { cookie, body });
+      expect(r.status).toBe(201);
+      return (await r.json()) as any;
+    };
+
+    it('fluxo completo: o computador cria, o celular da mesma conta vê e entrega, o computador lê uma vez só', async () => {
+      const pc = await signIn('par1');
+      const celular = await signIn('par1'); // mesma conta, outra sessão
+      const criado = await novo(pc);
+      expect(criado.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(new Date(criado.expiresAt).getTime()).toBeGreaterThan(Date.now());
+
+      expect(await (await get(`/pairings/${criado.id}`, pc)).json()).toEqual({ status: 'pending' });
+
+      const info = (await (await get(`/pairings/${criado.id}/info`, celular)).json()) as any;
+      expect(info).toMatchObject({ label: 'Firefox no Windows', client: 'Claude', delivered: false });
+
+      expect((await send('POST', `/pairings/${criado.id}`, { cookie: celular, body: pacote })).status).toBe(204);
+      const segunda = await send('POST', `/pairings/${criado.id}`, { cookie: celular, body: pacote });
+      expect(segunda.status).toBe(409);
+      expect(((await segunda.json()) as any).error).toBe('pairing_already_delivered');
+
+      const lido = await get(`/pairings/${criado.id}`, pc);
+      expect(lido.headers.get('cache-control')).toBe('no-store');
+      expect(await lido.json()).toEqual({ status: 'delivered', ...pacote });
+      const depois = await get(`/pairings/${criado.id}`, pc);
+      expect(depois.status).toBe(404);
+      expect(((await depois.json()) as any).error).toBe('pairing_not_found');
+    });
+
+    it('outra conta não vê, não entrega e não lê (responde como "não encontrado")', async () => {
+      const dono = await signIn('par2');
+      const intruso = await signIn('par2-intruso');
+      const criado = await novo(dono);
+      for (const r of [
+        await get(`/pairings/${criado.id}/info`, intruso),
+        await send('POST', `/pairings/${criado.id}`, { cookie: intruso, body: pacote }),
+        await get(`/pairings/${criado.id}`, intruso),
+      ]) {
+        expect(r.status).toBe(404);
+        expect(((await r.json()) as any).error).toBe('pairing_not_found');
+      }
+      // O pedido do dono segue intacto.
+      expect(await (await get(`/pairings/${criado.id}`, dono)).json()).toEqual({ status: 'pending' });
+    });
+
+    it('pedido vencido some para todos', async () => {
+      const cookie = await signIn('par3');
+      const criado = await novo(cookie);
+      pairingsRepo.rows.get(criado.id)!.expiresAt = new Date(Date.now() - 1000);
+      expect((await get(`/pairings/${criado.id}/info`, cookie)).status).toBe(404);
+      expect((await send('POST', `/pairings/${criado.id}`, { cookie, body: pacote })).status).toBe(404);
+      expect((await get(`/pairings/${criado.id}`, cookie)).status).toBe(404);
+    });
+
+    it('no máximo 3 pedidos abertos por pessoa (429)', async () => {
+      const cookie = await signIn('par4');
+      for (let i = 0; i < 3; i++) await novo(cookie);
+      const quarto = await send('POST', '/pairings', { cookie, body: {} });
+      expect(quarto.status).toBe(429);
+      expect(((await quarto.json()) as any).error).toBe('too_many_attempts');
+    });
+
+    it('entrada inválida dá 400 sem ecoar o valor; exige sessão e CSRF', async () => {
+      const cookie = await signIn('par5');
+      const criado = await novo(cookie, {});
+      expect((await get('/pairings/curto', cookie)).status).toBe(400);
+      expect((await get('/pairings/curto/info', cookie)).status).toBe(400);
+      for (const ruim of [{ ...pacote, pub: 'curto' }, { ...pacote, iv: 'I'.repeat(15) }, { ...pacote, ciphertext: 'a+b/c=' }, {}]) {
+        const r = await send('POST', `/pairings/${criado.id}`, { cookie, body: ruim });
+        expect(r.status).toBe(400);
+        expect(await r.text()).not.toContain('a+b/c=');
+      }
+      expect((await send('POST', '/pairings', { cookie, body: { label: 'x'.repeat(61) } })).status).toBe(400);
+      expect((await send('POST', '/pairings', { body: {} })).status).toBe(401);
+      expect((await send('POST', '/pairings', { cookie, body: {}, csrf: false })).status).toBe(403);
+      expect((await get(`/pairings/${criado.id}`)).status).toBe(401);
+    });
+
+    it('o pacote lacrado nunca aparece em log ou erro', async () => {
+      for (const s of [PUB, IV, CT]) expect(saida.join('\n')).not.toContain(s);
     });
   });
 

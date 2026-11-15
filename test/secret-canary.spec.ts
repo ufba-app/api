@@ -261,3 +261,39 @@ describe('canário: cópia mestra do SIGAA (passkey)', () => {
     }
   });
 });
+
+describe('canário: correio do QR (pairings)', () => {
+  const PUB = 'CANARIOpub' + 'P'.repeat(77);
+  const IV = 'CANARIOiv0123456';
+  const CT = 'CANARIOpacoteLacrado0123456789abcdefghij';
+
+  it('criar, ver, entregar e ler, mais os erros, não vazam o pacote nem o id do pedido', async () => {
+    const { SigaaPairings } = await import('../src/application/web/sigaa-pairings.service');
+    const { InMemoryPairings } = await import('./support/pairing-fake');
+    const { toApiError } = await import('../src/interface/web/api-error.filter');
+    const svc = new SigaaPairings(new InMemoryPairings());
+    const dono = { userId: 'u1', clientId: 'ufba-web' };
+    const outro = { userId: 'u2', clientId: 'ufba-web' };
+    const erros: unknown[] = [];
+    const tenta = async (f: () => Promise<unknown>) => void (await f().catch((e) => erros.push(e)));
+    let id = '';
+
+    const out = await captureOutput(async () => {
+      id = (await svc.create(dono, { label: 'Firefox no Windows' })).id;
+      await svc.info(dono, id);
+      await tenta(() => svc.info(outro, id));
+      await svc.deliver(dono, id, { pub: PUB, iv: IV, ciphertext: CT });
+      await tenta(() => svc.deliver(dono, id, { pub: PUB, iv: IV, ciphertext: CT })); // já entregue
+      await tenta(() => svc.deliver(outro, id, { pub: PUB, iv: IV, ciphertext: CT })); // outra conta
+      await svc.read(dono, id);
+      await tenta(() => svc.read(dono, id)); // uso único
+      for (let i = 0; i < 12; i++) await tenta(() => svc.deliver(dono, id, { pub: PUB, iv: IV, ciphertext: CT })); // estoura 10/min
+    });
+
+    expect(erros.length).toBeGreaterThan(3);
+    const respostas = erros.map((e) => JSON.stringify(toApiError(e)) + String(e) + inspect(e, { depth: 10 }));
+    for (const visto of [out, ...respostas]) {
+      for (const s of [PUB, IV, CT, id, 'CANARIO']) expect(visto).not.toContain(s);
+    }
+  });
+});

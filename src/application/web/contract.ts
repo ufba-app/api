@@ -37,6 +37,8 @@ export const API_ERROR_CODES = [
   "role_not_found",
   "passkey_limit_reached",
   "passkey_not_found",
+  "pairing_not_found",
+  "pairing_already_delivered",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -98,6 +100,43 @@ export const SigaaPasskeyView = z.object({
 });
 
 export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyView) });
+
+// ---- liberação do SIGAA por QR (correio entre o computador e o celular) ----
+
+export const CreatePairingBody = z.object({
+  /** Mostrado no celular: "Firefox no Windows". */
+  label: z.string().trim().min(1).max(60).optional(),
+  /** Cliente OAuth que está sendo autorizado, se houver. */
+  client: z.string().trim().min(1).max(60).optional(),
+});
+
+export const PairingCreated = z.object({
+  /** 16 bytes em base64url: vai no QR (com a chave pública do computador no fragmento, que não chega ao servidor). */
+  id: z.string(),
+  expiresAt: z.string().datetime(),
+});
+
+export const PairingInfo = z.object({
+  label: z.string().nullable(),
+  client: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  delivered: z.boolean(),
+});
+
+/** Pacote lacrado do celular: chave pública efêmera (P-256 não comprimida, 65 bytes), iv (12) e AES-GCM. */
+export const DeliverPairingBody = z.object({
+  pub: b64url(87, 87, 65),
+  iv: b64url(16, 16, 12),
+  ciphertext: b64url(22, 2048),
+});
+
+export const PairingRead = z.object({
+  status: z.enum(["pending", "delivered"]),
+  pub: z.string().optional(),
+  iv: z.string().optional(),
+  ciphertext: z.string().optional(),
+});
 
 export const AccountStatus = z.enum(["connected", "reconnect_required"]);
 export const GuestApp = z.enum(["ufba", "guest"]);

@@ -16,6 +16,7 @@ model User {
   sigaaCredentials SigaaCredential[]
   sigaaSessions    SigaaSession[]
   sigaaMasterSlots SigaaMasterSlot[]
+  sigaaPairings    SigaaPairing[]
   sourceBindings   SourceBinding[]
   memoryUser       MemoryUser?
   ownedProjects    MemoryProject[]

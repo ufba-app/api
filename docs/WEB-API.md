@@ -109,6 +109,29 @@ Se o SIGAA **recusar** a senha em `POST /connections/sigaa`, o servidor apaga as
 Desbloquear: `GET /sigaa/passkey` → `get` da passkey com `evalByCredential` → `POST …/slot` → abrir no navegador →
 `POST /connections/sigaa` com login e senha (caminho de sempre). Qualquer falha cai no formulário da senha.
 
+### Liberar o SIGAA por QR (correio entre o computador e o celular)
+
+Método escolhido em 15/11/2026 (`dev/ufba/handoffs/metodo-chave-mestra-sigaa.md`; desenho em
+`docs/specs/2026-11-14-chave-mestra-passkey.md` §13). O computador mostra um QR **do próprio ufba.app**; o celular da
+**mesma conta** lê com a câmera comum, confirma com a digital (a passkey **nunca sai do celular**; o PRF só é usado ali)
+e entrega ao computador um pacote lacrado que só ele abre. A API é só o **correio**: guarda bytes que não consegue abrir.
+Todas as rotas exigem sessão e CSRF e respondem `Cache-Control: no-store`.
+
+- `POST /pairings` `{ label?, client? }` → 201 `{ id, expiresAt }`. O **computador** abre o pedido (preso à conta dele;
+  vale 5 min; no máximo 3 abertos por pessoa, 10 por hora). O QR leva `id` e, **no fragmento** (`#…`, que o navegador não
+  manda ao servidor), a chave pública P-256 descartável do computador.
+- `GET /pairings/{id}/info` → `{ label, client, createdAt, expiresAt, delivered }`. O **celular** mostra "Liberar
+  *Firefox no Windows*?" antes de pedir a digital. Pedido de outra conta responde **404** `pairing_not_found` (não revela que existe).
+- `POST /pairings/{id}` `{ pub, iv, ciphertext }` → 204. O **celular** entrega o pacote (`pub` = chave pública efêmera do
+  celular, 65 bytes; `iv` 12 bytes; `ciphertext` AES-GCM, base64url). **Uma entrega por pedido**: a segunda dá 409
+  `pairing_already_delivered`. 404 se vencido ou de outra conta.
+- `GET /pairings/{id}` → 200 `{ status: "pending" }` ou `{ status: "delivered", pub, iv, ciphertext }`. O **computador**
+  consulta a cada ~1,5 s; quando o pacote chega, a leitura o devolve e **apaga o pedido** (uso único). Depois, ou vencido, 404.
+- Lacre (feito nos navegadores, não aqui): `chave = HKDF-SHA256(ECDH, salt = id, info = "ufba.app/pair/v1" || pubPC || pubCelular)`,
+  AES-256-GCM, AAD = `id`. O conteúdo do pacote é o `{ login, password }` aberto da cópia da passkey; o computador o
+  abre e chama o `POST /connections/sigaa` de sempre (a API valida e cifra com a K da sessão nova).
+- Falha em qualquer ponto (sem celular, navegador sem WebAuthn, pedido vencido): a tela cai em "digite a senha".
+
 ## 3. Segurança das chamadas
 
 - O web chama a API direto do navegador com `credentials: 'include'`.

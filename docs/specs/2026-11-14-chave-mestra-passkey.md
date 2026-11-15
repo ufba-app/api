@@ -171,6 +171,22 @@ O resultado entra num arquivo `handoffs/passkey-prf-resultado.md` (sem valores d
 4. **Nome na tela:** "passkey" ou algo como "biometria do celular"? (Texto pt-BR, decisão do Mosaico com o André.)
 5. **Onde hospedar a página de teste** da etapa 0 (rota escondida do painel do Mosaico, ou outro subdomínio de teste)?
 
+## 13. Etapa 2: liberar outro aparelho por QR (decidido em 15/11/2026, sem a DK)
+
+Método do André (`dev/ufba/handoffs/metodo-chave-mestra-sigaa.md`). Um aparelho novo mostra um QR com um link do
+próprio ufba.app; o celular da **mesma conta** lê com a câmera comum, confirma com a passkey **no próprio celular** (o PRF
+nunca atravessa aparelhos) e entrega ao aparelho novo um pacote lacrado. A API faz só o "correio" (`sigaa_pairings`,
+rotas `/pairings`, ver `docs/WEB-API.md`).
+
+**Decisão:** o pacote leva o `{ login, password }` (o mesmo conteúdo da cópia da passkey), e o aparelho novo chama o
+`POST /connections/sigaa` de sempre. A **DK** (chave de dados por pessoa, com cópias embrulhadas por cliente e por passkey)
+fica como **etapa própria depois**: o formato da cópia da passkey já é versionado (`v` no AAD), então a DK entra sem apagar nada.
+
+Cuidados: pedido preso à conta de quem o abre (o celular de outra conta recebe 404); uso único e 5 min; o celular mostra
+**o que** está liberando (`label`, `client`, horário) vindo do servidor, não do fragmento; a chave pública do aparelho novo
+vai só no fragmento do link. Pendências: testar o fluxo completo no iPhone; aviso "novo cliente liberado" com "não fui eu";
+revogar a passkey do celular em "Clientes com acesso".
+
 ## 12. Resultado do spike (etapa 0, 14 e 15/11/2026)
 
 Detalhes em `dev/ufba/handoffs/spike-passkey-prf-resultado.md`. **SEGUIR COM RESSALVA.**
