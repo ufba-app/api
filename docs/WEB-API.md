@@ -86,7 +86,28 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 
 - `sigaa.password_required`: existe senha guardada, mas ela não abre com esta sessão (sessão nova depois de
   expirar) ou o SIGAA recusou a senha. A pessoa digita de novo.
+- `sigaa.status = locked`: não há senha utilizável nesta sessão, mas existe cópia mestra (passkey). A tela oferece
+  "Desbloquear" (um toque). `sigaa.passkey.slots` diz quantas cópias existem.
 - `classroom.available = false`: o servidor não tem Google configurado (esconder o bloco).
+
+### Chave mestra do SIGAA com passkey
+
+Desenho em `docs/specs/2026-11-14-chave-mestra-passkey.md`. O servidor só guarda e devolve o texto cifrado **no
+navegador** com o PRF da passkey; ele nunca abre a cópia. Rotas (cookie + CSRF), todas em `openapi.json`:
+
+- `GET /sigaa/passkey` → `{ passkeys: [{ credentialId, prfSalt, label, createdAt, lastUnlockedAt }] }`. O `prfSalt` não é
+  segredo: o navegador precisa dele antes do toque (`evalByCredential`).
+- `POST /sigaa/passkey` `{ credentialId, prfSalt, iv, ciphertext, label? }` → 204. Exige o SIGAA `connected` **nesta**
+  sessão (409 `source_not_connected`). Limite de 5 cópias (409 `passkey_limit_reached`) e 5 gravações por hora (429).
+- `POST /sigaa/passkey/slot` `{ credentialId }` → `{ prfSalt, iv, ciphertext }` (o id vai no corpo, não na URL). 10 por
+  minuto. 404 `passkey_not_found`. Marca `lastUnlockedAt`.
+- `DELETE /sigaa/passkey/{credentialId}` → 204 (a conexão do SIGAA não muda).
+- `DELETE /connections/sigaa` apaga também as cópias; `DELETE /me` apaga em cascata. Sair (`DELETE /session`) **não** apaga.
+
+Se o SIGAA **recusar** a senha em `POST /connections/sigaa`, o servidor apaga as cópias mestras da pessoa (a senha guardada não vale mais).
+
+Desbloquear: `GET /sigaa/passkey` → `get` da passkey com `evalByCredential` → `POST …/slot` → abrir no navegador →
+`POST /connections/sigaa` com login e senha (caminho de sempre). Qualquer falha cai no formulário da senha.
 
 ## 3. Segurança das chamadas
 

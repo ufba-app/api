@@ -21,6 +21,7 @@ import { OAuthService, splitToken } from '../src/application/oauth/oauth.service
 import {
   ApiKeyRepository,
   SigaaCredentialRepository,
+  SigaaMasterSlotRepository,
   SourceAccountRecord,
   SourceBindingRepository,
   SourceAccountRepository,
@@ -32,6 +33,7 @@ import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
 import { MemoryProjectRepository } from '../src/application/memory/project-ports';
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
+import { InMemorySlots } from './support/slot-fake';
 import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
@@ -62,6 +64,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   let cofre: CofreSigaa;
   const creds = new Map<string, SigaaCredentialRecord>();
   const accounts: SourceAccountRecord[] = [];
+  const slotsRepo = new InMemorySlots();
   const sigaaValidations: string[] = [];
   // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
   const users = new (class extends MemoryUserDirectory {
@@ -172,6 +175,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue({ findActiveByHash: async () => null })
       .overrideProvider(SourceBindingRepository)
       .useValue(bindings)
+      .overrideProvider(SigaaMasterSlotRepository)
+      .useValue(slotsRepo)
       .overrideProvider(SigaaCredentialRepository)
       .useValue({
         upsert: async (i: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) => {
@@ -282,7 +287,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const cookie = await signIn();
     const me = await (await get('/me', cookie)).json() as any;
     expect(me.email).toBe('fulano@ufba.br');
-    expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null });
+    expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
     expect(me.connections.moodle.status).toBe('disconnected');
   });
 
@@ -409,7 +414,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const ok = await send('POST', '/connections/sigaa', { cookie, body: { login: ' aluno ', password: SENHA } });
     expect(ok.status).toBe(204);
     const me = await (await get('/me', cookie)).json() as any;
-    expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'aluno' });
+    expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'aluno', passkey: { slots: 0 } });
 
     // Outra sessão da mesma pessoa não abre a senha (K diferente): pede de novo.
     const other = await signIn('sigaa1');
@@ -555,6 +560,156 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(out.headers.get('set-cookie')).toMatch(/Max-Age=0/);
     expect((await get('/me', cookie)).status).toBe(401);
     expect(await cofre.situacao({ userId: me.id, clientId: WEB_CLIENT_ID })).toBeNull();
+  });
+
+  describe('chave mestra do SIGAA (passkey)', () => {
+    const CT = 'CANARIOcifradoNoNavegador0123456789_-abcdefghij';
+    const SAL = 'S'.repeat(43);
+    const slot = (n: number, extra: Record<string, unknown> = {}) => ({
+      credentialId: `cred${n}-` + 'x'.repeat(16),
+      prfSalt: SAL,
+      iv: 'I'.repeat(16),
+      ciphertext: CT,
+      label: `iPhone ${n}`,
+      ...extra,
+    });
+    async function conectado(who: string) {
+      const cookie = await signIn(who);
+      expect((await send('POST', '/connections/sigaa', { cookie, body: { login: who, password: SENHA } })).status).toBe(204);
+      return cookie;
+    }
+
+    it('guardar, listar, sair e entrar: o SIGAA volta como "locked" e um toque o religa', async () => {
+      const cookie = await conectado('mestra1');
+      expect((await send('POST', '/sigaa/passkey', { cookie, body: slot(1) })).status).toBe(204);
+
+      const lista = (await (await get('/sigaa/passkey', cookie)).json()) as any;
+      expect(lista.passkeys).toHaveLength(1);
+      expect(lista.passkeys[0]).toMatchObject({ credentialId: slot(1).credentialId, prfSalt: SAL, label: 'iPhone 1', lastUnlockedAt: null });
+      expect(lista.passkeys[0].ciphertext).toBeUndefined();
+      const me = (await (await get('/me', cookie)).json()) as any;
+      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra1', passkey: { slots: 1 } });
+
+      // Sair apaga a cópia do cliente; a mestra fica.
+      expect((await send('DELETE', '/session', { cookie })).status).toBe(204);
+      const nova = await signIn('mestra1');
+      const me2 = (await (await get('/me', nova)).json()) as any;
+      expect(me2.connections.sigaa).toEqual({ status: 'locked', login: null, passkey: { slots: 1 } });
+
+      // O navegador pede a cópia (id no corpo), abre com a passkey e conecta pelo caminho de sempre.
+      const s = await send('POST', '/sigaa/passkey/slot', { cookie: nova, body: { credentialId: slot(1).credentialId } });
+      expect(s.status).toBe(200);
+      expect(await s.json()).toEqual({ prfSalt: SAL, iv: slot(1).iv, ciphertext: CT });
+      expect((await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra1', password: SENHA } })).status).toBe(204);
+      const me3 = (await (await get('/me', nova)).json()) as any;
+      expect(me3.connections.sigaa.status).toBe('connected');
+      const l2 = (await (await get('/sigaa/passkey', nova)).json()) as any;
+      expect(l2.passkeys[0].lastUnlockedAt).not.toBeNull();
+    });
+
+    it('outra sessão com a senha guardada mas sem a K também fica "locked"', async () => {
+      const cookie = await conectado('mestra2');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      const outra = await signIn('mestra2');
+      expect(((await (await get('/me', outra)).json()) as any).connections.sigaa).toMatchObject({ status: 'locked', login: 'mestra2' });
+    });
+
+    it('só guarda com o SIGAA conectado nesta sessão', async () => {
+      const cookie = await signIn('mestra3');
+      const r = await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_not_connected');
+    });
+
+    it('limite de 5 por pessoa (409); passam de 5 gravações por hora, 429', async () => {
+      const cookie = await conectado('mestra4');
+      for (let i = 1; i <= 5; i++) expect((await send('POST', '/sigaa/passkey', { cookie, body: slot(i) })).status).toBe(204);
+      const sexta = await send('POST', '/sigaa/passkey', { cookie, body: slot(6) });
+      expect(sexta.status).toBe(409);
+      expect(((await sexta.json()) as any).error).toBe('passkey_limit_reached');
+      // Regravar uma passkey que já existe não conta no limite de cópias, mas conta nas 5 gravações por hora.
+      expect((await send('POST', '/sigaa/passkey', { cookie, body: slot(3) })).status).toBe(429);
+      expect(((await (await get('/sigaa/passkey', cookie)).json()) as any).passkeys).toHaveLength(5);
+    });
+
+    it('remover: 204, depois 404 passkey_not_found; id inválido é 400; cópia de outra pessoa não existe', async () => {
+      const cookie = await conectado('mestra5');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      const outro = await signIn('mestra5-outro');
+      const alheia = await send('POST', '/sigaa/passkey/slot', { cookie: outro, body: { credentialId: slot(1).credentialId } });
+      expect(alheia.status).toBe(404);
+      expect((await send('DELETE', `/sigaa/passkey/${slot(1).credentialId}`, { cookie: outro })).status).toBe(404);
+
+      expect((await send('DELETE', `/sigaa/passkey/${slot(1).credentialId}`, { cookie })).status).toBe(204);
+      const denovo = await send('DELETE', `/sigaa/passkey/${slot(1).credentialId}`, { cookie });
+      expect(denovo.status).toBe(404);
+      expect(((await denovo.json()) as any).error).toBe('passkey_not_found');
+      expect((await send('DELETE', '/sigaa/passkey/id%20ruim', { cookie })).status).toBe(400);
+      expect(((await (await get('/me', cookie)).json()) as any).connections.sigaa.passkey.slots).toBe(0);
+    });
+
+    it('desconectar o SIGAA apaga as cópias mestras', async () => {
+      const cookie = await conectado('mestra6');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      expect((await send('DELETE', '/connections/sigaa', { cookie })).status).toBe(204);
+      const me = (await (await get('/me', cookie)).json()) as any;
+      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+    });
+
+    it('senha recusada ao desbloquear descarta as cópias mestras (senha velha não é tentada a cada login)', async () => {
+      const cookie = await conectado('mestra8');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      await send('DELETE', '/session', { cookie });
+      const nova = await signIn('mestra8');
+      expect(((await (await get('/me', nova)).json()) as any).connections.sigaa.status).toBe('locked');
+
+      const recusada = await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra8', password: `${SENHA}-velha` } });
+      expect(recusada.status).toBe(422);
+      const me = (await (await get('/me', nova)).json()) as any;
+      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+    });
+
+    it('as respostas com a cópia cifrada vão com Cache-Control: no-store', async () => {
+      const cookie = await conectado('mestra9');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      expect((await get('/sigaa/passkey', cookie)).headers.get('cache-control')).toBe('no-store');
+      const s = await send('POST', '/sigaa/passkey/slot', { cookie, body: { credentialId: slot(1).credentialId } });
+      expect(s.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('duas gravações juntas não furam o limite de 5 cópias', async () => {
+      const cookie = await conectado('mestra10');
+      for (let i = 1; i <= 4; i++) await send('POST', '/sigaa/passkey', { cookie, body: slot(i) });
+      const [a, b] = await Promise.all([
+        send('POST', '/sigaa/passkey', { cookie, body: slot(5) }),
+        send('POST', '/sigaa/passkey', { cookie, body: slot(6) }),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([204, 409]);
+      expect(((await (await get('/sigaa/passkey', cookie)).json()) as any).passkeys).toHaveLength(5);
+    });
+
+    it('entrada inválida: sal, iv, id e rótulo fora do formato dão 400 sem ecoar o valor; exige sessão e CSRF', async () => {
+      const cookie = await conectado('mestra7');
+      for (const ruim of [
+        slot(1, { prfSalt: 'curto' }),
+        slot(1, { iv: 'I'.repeat(15) }),
+        slot(1, { credentialId: 'tem espaço' }),
+        slot(1, { ciphertext: 'a+b/c=' }),
+        slot(1, { label: 'x'.repeat(41) }),
+      ]) {
+        const r = await send('POST', '/sigaa/passkey', { cookie, body: ruim });
+        expect(r.status).toBe(400);
+        expect(await r.text()).not.toContain('espaço');
+      }
+      expect((await send('POST', '/sigaa/passkey', { body: slot(1) })).status).toBe(401);
+      expect((await send('POST', '/sigaa/passkey', { cookie, body: slot(1), csrf: false })).status).toBe(403);
+      expect((await get('/sigaa/passkey')).status).toBe(401);
+    });
+
+    it('o texto cifrado e o sal nunca aparecem em log ou erro', async () => {
+      expect(saida.join('\n')).not.toContain(CT);
+      expect(saida.join('\n')).not.toContain(SAL);
+    });
   });
 
   describe('segurança (revisão)', () => {

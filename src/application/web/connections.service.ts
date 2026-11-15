@@ -10,7 +10,7 @@ import {
   type UserDirectory,
 } from '../oauth/oauth-ports';
 import { randomToken } from '../oauth/pkce';
-import type { SourceAccountRepository } from '../ports/repositories';
+import type { SigaaMasterSlotRepository, SourceAccountRepository } from '../ports/repositories';
 import { Secret } from '../shared/secret';
 import type { CofreSigaa } from '../sigaa/cofre-sigaa';
 import { ApiError, sessionExpired, WEB_CLIENT_ID, type GuestApp, type WebPrincipal } from './web-api';
@@ -35,6 +35,7 @@ export class ConnectionsService {
     private readonly accounts: SourceAccountRepository,
     private readonly identity: IdentityService,
     private readonly bindings: SourceBindings,
+    private readonly slots: SigaaMasterSlotRepository,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
   ) {}
@@ -47,7 +48,15 @@ export class ConnectionsService {
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     // Conta já ligada a outro CPF: recusa antes de falar com o SIGAA (não gasta tentativa nem revela nada de ninguém).
     await this.bindings.assertCompatible(p.userId, sigaaSubject(login));
-    const usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
+    let usuario: string;
+    try {
+      usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
+    } catch (e) {
+      // O SIGAA recusou a senha: a cópia mestra (passkey) guarda uma senha que não vale mais (ex.: trocada no SIGAA).
+      // Descarta, para o desbloqueio não tentar de novo a senha velha a cada login (e bloquear a conta no SIGAA).
+      if (e instanceof LinkError && e.code === 'invalid_credentials') await this.slots.deleteAll(p.userId);
+      throw e;
+    }
     // Senha certa provou que o CPF é desta pessoa: só agora o vínculo (e a recusa se o CPF for de outra conta).
     await this.bindings.bind(p.userId, sigaaSubject(usuario));
     await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
@@ -55,6 +64,8 @@ export class ConnectionsService {
 
   async disconnectSigaa(p: WebPrincipal): Promise<void> {
     await this.cofre.apagar({ userId: p.userId, clientId: WEB_CLIENT_ID });
+    // A pessoa quis tirar a senha: a cópia mestra (passkey) também vai.
+    await this.slots.deleteAll(p.userId);
   }
 
   // ---- Moodle ----

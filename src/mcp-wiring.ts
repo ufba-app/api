@@ -22,6 +22,7 @@ import { AuthorizationRequests } from './application/web/authorization-requests.
 import { AuthorizedApps } from './application/web/authorized-apps.service';
 import { ConnectionStatus } from './application/web/connection-status';
 import { ConnectionsService } from './application/web/connections.service';
+import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
 import { WebSessionService } from './application/web/web-session.service';
 import { FileVerifiedApps, HttpsClientMetadataFetcher } from './infrastructure/oauth/client-metadata';
 import { webEnv } from './interface/web/web-auth';
@@ -30,6 +31,7 @@ import { OAuthAccessTokenAuthenticator, OAuthService } from './application/oauth
 import { AUTHENTICATORS, type Authenticator } from './application/ports/authenticator';
 import {
   SigaaCredentialRepository,
+  SigaaMasterSlotRepository,
   SourceAccountRepository,
   SourceBindingRepository,
 } from './application/ports/repositories';
@@ -81,9 +83,14 @@ export const mcpProviders: Provider[] = [
   // API do app web: um caso de uso por responsabilidade (sessão, conexões, autorização, apps autorizados).
   {
     provide: ConnectionStatus,
-    useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort) =>
-      new ConnectionStatus(cofre, accounts, classroom),
-    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK],
+    useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort, slots: SigaaMasterSlotRepository) =>
+      new ConnectionStatus(cofre, accounts, classroom, slots),
+    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository],
+  },
+  {
+    provide: SigaaPasskeys,
+    useFactory: (slots: SigaaMasterSlotRepository, status: ConnectionStatus) => new SigaaPasskeys(slots, status),
+    inject: [SigaaMasterSlotRepository, ConnectionStatus],
   },
   {
     provide: WebSessionService,
@@ -108,8 +115,9 @@ export const mcpProviders: Provider[] = [
       accounts: SourceAccountRepository,
       identity: IdentityService,
       bindings: SourceBindings,
+      slots: SigaaMasterSlotRepository,
     ) =>
-      new ConnectionsService(users, cofre, sigaa, moodle, classroom, accounts, identity, bindings, {
+      new ConnectionsService(users, cofre, sigaa, moodle, classroom, accounts, identity, bindings, slots, {
         webOrigin: webEnv().webOrigin,
         institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br',
       }),
@@ -122,6 +130,7 @@ export const mcpProviders: Provider[] = [
       SourceAccountRepository,
       IdentityService,
       SourceBindings,
+      SigaaMasterSlotRepository,
     ],
   },
   {
@@ -185,6 +194,7 @@ export const mcpProviders: Provider[] = [
 export const mcpExports = [
   WebSessionService,
   ConnectionsService,
+  SigaaPasskeys,
   AuthorizationRequests,
   AuthorizedApps,
   CLIENT_DIRECTORY,

@@ -51,7 +51,7 @@ describe('origens do painel', () => {
   it('o redirect da API para o painel (volta do Classroom) usa a origem principal', async () => {
     process.env.WEB_ORIGIN = `${NOVA},${ANTIGA}`;
     const svc = new ConnectionsService(
-      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
       { webOrigin: webEnv().webOrigin, institutionalDomain: 'ufba.br' },
     );
     const to = await svc.classroomCallback({ state: 'web.desconhecido' }, undefined, 'https://api.ufba.app');

@@ -1,0 +1,20 @@
+// Cópia MESTRA da senha do SIGAA, uma por passkey do aluno: `{ login, password }` cifrado NO NAVEGADOR (AES-256-GCM)
+// com uma chave derivada do PRF da passkey. O PRF nunca chega ao servidor, então daqui não dá para abrir nada: o
+// servidor só guarda e devolve os bytes. Serve para religar o SIGAA depois de sair e entrar (docs/specs/2026-11-14-chave-mestra-passkey.md).
+model SigaaMasterSlot {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  credentialId   String    @map("credential_id") // base64url do id da passkey
+  prfSalt        String    @map("prf_salt") // base64url, 32 bytes (não é segredo)
+  iv             String // base64url, 12 bytes
+  ciphertext     String // base64url, AES-GCM com a tag
+  label          String? // texto curto vindo do navegador ("iPhone")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastUnlockedAt DateTime? @map("last_unlocked_at")
+
+  @@unique([userId, credentialId])
+  @@map("sigaa_master_slots")
+}
