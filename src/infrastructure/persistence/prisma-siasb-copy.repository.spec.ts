@@ -22,7 +22,7 @@ const session = {
 
 function setup() {
   const tx = {
-    sourceAccount: { findFirst: jest.fn().mockResolvedValue({ id: 'acc' }) },
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'acc' }]),
     siasbSyncedAttendance: { deleteMany: jest.fn(), createMany: jest.fn() },
     siasbSyncedSession: { deleteMany: jest.fn(), createMany: jest.fn() },
   };
@@ -66,9 +66,17 @@ describe('PrismaSiasbCopyRepository', () => {
     });
     expect(ok).toBe(true);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.sourceAccount.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: U, provider: 'SIASB' } }),
-    );
+    // trava de linha da conta SIASB, no cliente da transação e antes de qualquer escrita
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = (tx.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('FROM source_accounts');
+    expect(sql).toContain("provider = 'SIASB'");
+    expect(sql).toContain('FOR SHARE');
+    expect(tx.$queryRaw.mock.calls[0][1]).toBe(U);
+    const lockOrder = tx.$queryRaw.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(tx.siasbSyncedAttendance.deleteMany.mock.invocationCallOrder[0]);
+    expect(lockOrder).toBeLessThan(tx.siasbSyncedSession.deleteMany.mock.invocationCallOrder[0]);
+    expect(lockOrder).toBeLessThan(tx.siasbSyncedSession.createMany.mock.invocationCallOrder[0]);
     expect(tx.siasbSyncedAttendance.deleteMany).toHaveBeenCalledWith({
       where: { userId: U },
     });
@@ -98,7 +106,7 @@ describe('PrismaSiasbCopyRepository', () => {
 
   it('replaceWindow: false e nada gravado sem conta SIASB', async () => {
     const { repo, tx } = setup();
-    tx.sourceAccount.findFirst.mockResolvedValue(null);
+    tx.$queryRaw.mockResolvedValue([]);
     await expect(repo.replaceWindow(U, W, { attendances: [], sessions: [session] })).resolves.toBe(false);
     expect(tx.siasbSyncedAttendance.deleteMany).not.toHaveBeenCalled();
     expect(tx.siasbSyncedSession.createMany).not.toHaveBeenCalled();

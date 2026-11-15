@@ -39,7 +39,8 @@ export interface SyncState {
 export abstract class SiasbCopyRepository {
   /**
    * false (e nada gravado) se a pessoa não tem conta SIASB no momento da gravação. Atendimentos: substitui todos.
-   * Sessões: apaga as de `window` (e as de mesmo id das novas) e grava as novas; as de fora ficam. Tudo numa transação.
+   * Sessões: apaga as de `window` (e as de mesmo id das novas) e grava as novas; as de fora ficam. Tudo numa transação que trava a linha da conta SIASB (FOR SHARE):
+   * uma desconexão concorrente espera o commit e o `deleteAll` dela, depois, apaga o que foi gravado.
    */
   abstract replaceWindow(
     userId: string,

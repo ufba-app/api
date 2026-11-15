@@ -21,12 +21,13 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      // conta checada dentro da transação: desconectar o SIASB no meio da sincronização não deixa cópia órfã
-      const account = await tx.sourceAccount.findFirst({
-        where: { userId, provider: 'SIASB' },
-        select: { id: true },
-      });
-      if (!account) return false;
+      // FOR SHARE trava a linha da conta até o commit: uma desconexão concorrente (DELETE da conta) espera esta
+      // transação e o `deleteAll` dela, que vem depois, apaga o que gravamos aqui. Sem a trava, o DELETE poderia
+      // commitar entre a checagem e as gravações e deixar cópia órfã (nunca mais sincronizada nem apagada).
+      const locked = await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT id FROM source_accounts WHERE user_id = ${userId}::uuid AND provider = 'SIASB' FOR SHARE`;
+      if (locked.length === 0) return false;
       await tx.siasbSyncedAttendance.deleteMany({ where: { userId } });
       if (data.attendances.length) {
         await tx.siasbSyncedAttendance.createMany({
