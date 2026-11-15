@@ -5253,6 +5253,195 @@
         }
       }
     },
+    "/admin/calendar/alerts": {
+      "get": {
+        "operationId": "getAdminCalendarAlerts",
+        "summary": "Leituras do calendário que pedem conferência (não verificadas ou com erro) e calendário vencido",
+        "tags": [
+          "calendar"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          },
+                          "term": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "NOT_VERIFIED",
+                              "ERROR"
+                            ]
+                          },
+                          "warnings": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "model": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "inputTokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "outputTokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "createdAt",
+                          "sourceUrl",
+                          "term",
+                          "status",
+                          "warnings",
+                          "model",
+                          "inputTokens",
+                          "outputTokens"
+                        ]
+                      }
+                    },
+                    "expired": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "term": {
+                          "type": "string"
+                        },
+                        "termEnd": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "term",
+                        "termEnd"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "expired"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/calendar/logs/{id}/seen": {
+      "post": {
+        "operationId": "markAdminCalendarLogSeen",
+        "summary": "Marca o alerta como visto (quem e quando ficam no registro)",
+        "tags": [
+          "calendar"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/memory/sync": {
       "get": {
         "operationId": "getAdminMemorySync",

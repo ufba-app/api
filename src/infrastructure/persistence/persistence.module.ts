@@ -36,6 +36,8 @@ import { PrismaSigaaVaultRepository } from './prisma-sigaa-vault.repository';
 import { PrismaCatalogRepository } from './prisma-catalog.repository';
 import { PrismaAcademicRepository } from './prisma-academic.repository';
 import { AcademicRepository } from '../../application/ports/academic';
+import { PrismaCalendarLogRepository } from './prisma-calendar-log.repository';
+import { CalendarLogRepository } from '../../application/ports/calendar';
 import { CatalogRepository } from '../../application/ports/catalog';
 import { PrismaService } from './prisma.service';
 
@@ -54,6 +56,7 @@ import { PrismaService } from './prisma.service';
     { provide: SigaaVaultRepository, useClass: PrismaSigaaVaultRepository },
     { provide: CatalogRepository, useClass: PrismaCatalogRepository },
     { provide: AcademicRepository, useClass: PrismaAcademicRepository },
+    { provide: CalendarLogRepository, useClass: PrismaCalendarLogRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
     { provide: DeviceAuthorizationRepository, useClass: PrismaDeviceAuthorizationRepository },
@@ -77,6 +80,7 @@ import { PrismaService } from './prisma.service';
     SigaaVaultRepository,
     CatalogRepository,
     AcademicRepository,
+    CalendarLogRepository,
     SourceBindingRepository,
     MemoryUserRepository,
     DeviceAuthorizationRepository,

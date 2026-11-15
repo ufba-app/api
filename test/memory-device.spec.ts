@@ -65,7 +65,7 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
     process.env.WEB_ORIGIN = WEB;
     process.env.AUTH_ORIGIN = 'http://localhost:3002';
     process.env.PUBLIC_URL = 'http://localhost:3000';
-    process.env.MEMORY_ADMIN_EMAILS = 'fulana@ufba.br';
+    process.env.ADMIN_EMAILS = 'fulana@ufba.br';
     delete process.env.GOOGLE_CLIENT_ID;
     fake = new FakeAiMemory(ROOT);
     const url = await fake.start();
@@ -110,7 +110,7 @@ describe('memória: login de dispositivo e computadores (HTTP)', () => {
   afterAll(async () => {
     await app.close();
     await fake.stop();
-    for (const k of ['WEB_ORIGIN', 'AUTH_ORIGIN', 'PUBLIC_URL', 'MEMORY_URL', 'MEMORY_ADMIN_EMAILS']) delete process.env[k];
+    for (const k of ['WEB_ORIGIN', 'AUTH_ORIGIN', 'PUBLIC_URL', 'MEMORY_URL', 'ADMIN_EMAILS']) delete process.env[k];
     for (const s of spies) s.mockRestore();
   });
 

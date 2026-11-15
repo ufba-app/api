@@ -500,6 +500,27 @@ export const TeamSearchQuery = z.object({ q: z.string().max(100).optional() });
 
 export const TeamSearchResponse = z.object({ people: z.array(TeamMemberView) });
 
+/** Alertas do calendário acadêmico para os admins (sem o contrato completo: é grande). */
+export const CalendarAlertsResponse = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().uuid(),
+      createdAt: z.string().datetime(),
+      sourceUrl: z.string(),
+      /** "2026.2"; nulo quando a página inteira falhou. */
+      term: z.string().nullable(),
+      status: z.enum(["NOT_VERIFIED", "ERROR"]),
+      /** Avisos da conferência (NOT_VERIFIED) ou o motivo do erro (ERROR). */
+      warnings: z.array(z.string()),
+      model: z.string().nullable(),
+      inputTokens: z.number().int().nullable(),
+      outputTokens: z.number().int().nullable(),
+    }),
+  ),
+  /** O último calendário publicado já terminou e nada novo apareceu. */
+  expired: z.object({ term: z.string(), termEnd: z.string() }).nullable(),
+});
+
 export const MemorySyncResponse = z.object({
   failing: z.array(
     z.object({

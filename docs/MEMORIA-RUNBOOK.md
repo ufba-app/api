@@ -14,7 +14,7 @@ Para quem opera o serviço (hoje o André). Desenho: `docs/specs/2026-11-14-memo
 
 ## Configuração da API (só nomes)
 
-`MEMORY_URL` (padrão `https://memory.ufba.app`; https obrigatório; nunca `*.up.railway.app`), `MEMORY_ROOT_TOKEN`, `SECRETS_KEY`, `MEMORY_ADMIN_EMAILS`, `MEMORY_INSTALL_MANIFEST_URL` (opcional), `MEMORY_PROXY_KEY_MAX_AGE_DAYS` (opcional, padrão 90), `MEMORY_SCHEDULER=off` (desliga a varredura; use só para diagnóstico). Sem `MEMORY_ROOT_TOKEN` a memória fica "não configurada": o `/mcp` volta a ter só as ferramentas da casa e o resto da API segue igual.
+`MEMORY_URL` (padrão `https://memory.ufba.app`; https obrigatório; nunca `*.up.railway.app`), `MEMORY_ROOT_TOKEN`, `SECRETS_KEY`, `ADMIN_EMAILS`, `MEMORY_INSTALL_MANIFEST_URL` (opcional), `MEMORY_PROXY_KEY_MAX_AGE_DAYS` (opcional, padrão 90), `MEMORY_SCHEDULER=off` (desliga a varredura; use só para diagnóstico). Sem `MEMORY_ROOT_TOKEN` a memória fica "não configurada": o `/mcp` volta a ter só as ferramentas da casa e o resto da API segue igual.
 
 No serviço `memory`: `AI_MEMORY_AUTH_TOKEN`, `AI_MEMORY_ALLOWED_HOSTS`, `AI_MEMORY_AUTH__SECURE_COOKIE=true`, e **`AI_MEMORY_AUTH__RECOVERY_TOKEN`** (32 caracteres ou mais) se ainda não existir um usuário root humano recuperável: com usuários humanos criados, o servidor se recusa a subir sem um deles (`human authentication is enabled but no recoverable root user exists`). Conferir **antes** da primeira pessoa usar a memória.
 

@@ -21,6 +21,13 @@ import { MemoryComputers } from './application/memory/memory-computers';
 import { MemoryWeb } from './application/web/memory-web.service';
 import { HttpManifestSource } from './infrastructure/memory/http-manifest-source';
 import { MemoryModule } from './interface/memory/memory.module';
+import { CalendarModule } from './interface/calendar/calendar.module';
+import { CalendarAlertService } from './application/calendar/calendar-alerts';
+import { CalendarWatcher } from './application/calendar/calendar-watcher';
+import { CalendarLogRepository, CalendarReader, CalendarSource, CalendarTextExtractor, CALENDAR_READER } from './application/ports/calendar';
+import { AnthropicCalendarReader } from './infrastructure/sources/supac/anthropic-calendar-reader';
+import { PdfParseCalendarText, SupacCalendarSource } from './infrastructure/sources/supac/supac-calendar-source';
+import { CalendarScheduler } from './infrastructure/calendar/calendar-scheduler';
 import { webEnv } from './interface/web/web-auth';
 import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUserRepository } from './application/memory/memory-ports';
 import { MemoryUsers } from './application/memory/memory-users';
@@ -113,7 +120,7 @@ export function buildLiveSources(
 // Global: o McpModule (interface) enxerga as portas ligadas aqui sem importar a infraestrutura.
 @Global()
 @Module({
-  imports: [PersistenceModule, McpModule, WebModule, MemoryModule],
+  imports: [PersistenceModule, McpModule, WebModule, MemoryModule, CalendarModule],
   controllers: [HealthController, UsuariosController, FontesController, DownloadController],
   providers: [
     IdentityService,
@@ -153,7 +160,7 @@ export function buildLiveSources(
     },
     {
       provide: MemoryAdmins,
-      useFactory: (directory: UserDirectory) => new MemoryAdmins(directory, MemoryAdmins.parse(process.env.MEMORY_ADMIN_EMAILS)),
+      useFactory: (directory: UserDirectory) => new MemoryAdmins(directory, MemoryAdmins.parse(process.env.ADMIN_EMAILS)),
       inject: [USER_DIRECTORY],
     },
     {
@@ -239,6 +246,22 @@ export function buildLiveSources(
       inject: [MemoryAdmin, MemoryUserRepository, ProxyKeyStore, SecretCipher],
     },
     MemoryScheduler,
+    // Calendário acadêmico (SUPAC): leitura semanal pela IA + alertas para admin. Sem ANTHROPIC_API_KEY não lê nada.
+    { provide: CALENDAR_READER, useFactory: () => (process.env.ANTHROPIC_API_KEY ? new AnthropicCalendarReader() : null) },
+    { provide: CalendarSource, useFactory: () => new SupacCalendarSource() },
+    { provide: CalendarTextExtractor, useFactory: () => new PdfParseCalendarText() },
+    {
+      provide: CalendarWatcher,
+      useFactory: (logs: CalendarLogRepository, source: CalendarSource, extractor: CalendarTextExtractor, reader: CalendarReader | null) =>
+        new CalendarWatcher(logs, source, extractor, reader),
+      inject: [CalendarLogRepository, CalendarSource, CalendarTextExtractor, CALENDAR_READER],
+    },
+    {
+      provide: CalendarAlertService,
+      useFactory: (logs: CalendarLogRepository, admins: MemoryAdmins) => new CalendarAlertService(logs, admins),
+      inject: [CalendarLogRepository, MemoryAdmins],
+    },
+    CalendarScheduler,
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
     {
       provide: MemoryProxy,
@@ -349,6 +372,7 @@ export function buildLiveSources(
     MemoryProjects,
     GrantReconciler,
     TeamRoles,
+    CalendarAlertService,
     AccountDeparture,
     DownloadLinks,
     LiveSources,

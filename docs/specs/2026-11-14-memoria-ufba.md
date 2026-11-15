@@ -270,7 +270,7 @@ model MemorySyncJob {                                           // fila de recon
 ```
 
 Notas:
-- **Papel de aplicação `admin`** não é tabela: é a lista de e-mails de administradores da configuração do serviço (variável `MEMORY_ADMIN_EMAILS`, só nomes de variável aqui). Evita que alguém se promova.
+- **Papel de aplicação `admin`** não é tabela: é a lista de e-mails de administradores da configuração do serviço (variável `ADMIN_EMAILS`, só nomes de variável aqui). Evita que alguém se promova.
 - `TeamRole`/`TeamRoleGrant` são semeadas na migração com `dev` e `maintainer` (tabela de §4.5) e com os projetos `ufba-app/{api,web,docs}` marcados `kind=team`. Projeto novo do time = nova linha em `TeamRoleGrant` (migração) e a reconciliação concede a todos os com o papel.
 - `DeviceAuthorization` e tokens curtos são limpos por varredura (`expiresAt`). `DELETE /me` apaga em cascata depois de revogar no memory (§4.4). Migração entra no `prisma migrate deploy` do Dockerfile.
 
@@ -522,7 +522,7 @@ Cada etapa só vai para produção depois de CI verde. Nenhum teste contra SIGAA
 - **Usuário "humano" sem login** no memory: a senha temporária é descartada; console web do memory fica **desligado** para as pessoas por ora.
 - **Minisign** nos releases: etapa 9 (não na primeira versão).
 - **Convite a quem ainda não tem conta**: fica `pending` e vale no primeiro login.
-- **Admin** = e-mails da configuração do serviço (`MEMORY_ADMIN_EMAILS`), não tabela editável.
+- **Admin** = e-mails da configuração do serviço (`ADMIN_EMAILS`), não tabela editável.
 - **Tabela de papéis** só muda por migração/PR (a escrita em `docs` exige revisão).
 - **Marcador `.ai-memory.toml`**: o instalador não grava; a tela do projeto mostra o trecho.
 

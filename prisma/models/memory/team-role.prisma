@@ -1,6 +1,6 @@
 // Papéis do time: atalho de permissões. Tabelas de CONFIGURAÇÃO semeadas por migração (mudar papel ou o que ele
 // concede é migração/PR, nunca tela por pessoa: `write` em docs publica no docs.ufba.app). Só a atribuição por pessoa
-// (`UserTeamRole`) muda em tempo de execução, e só pelo admin (MEMORY_ADMIN_EMAILS).
+// (`UserTeamRole`) muda em tempo de execução, e só pelo admin (ADMIN_EMAILS).
 model TeamRole {
   key         String @id // dev | maintainer
   description String

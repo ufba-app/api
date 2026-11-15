@@ -68,7 +68,7 @@ Rotas do web (no `openapi.json`, sem prefixo, como as demais): `POST /device/loo
 
 ### Configuração nova (só nomes)
 
-- `MEMORY_ADMIN_EMAILS`: e-mails (separados por vírgula) dos administradores da memória (alimenta `isAdmin` em `GET /memory/status` e a Administração).
+- `ADMIN_EMAILS`: e-mails (separados por vírgula) dos administradores (memória e alertas do calendário; alimenta `isAdmin` em `GET /memory/status` e a Administração).
 - `MEMORY_INSTALL_MANIFEST_URL`: ver acima.
 
 ## Meus projetos, reconciliação e saída da conta (etapa 7)
@@ -82,7 +82,7 @@ Rotas do web (no `openapi.json`, sem prefixo, como as demais): `POST /device/loo
 ## Papéis do time e Administração (etapa 8)
 
 - **Papéis** (`team_roles`, `team_role_grants`): configuração semeada por migração, **somente leitura** na API e na tela. Existe um só papel atribuível, `maintainer`: escreve em `ufba-app/api`, `web` e `docs` (`write` em `docs` publica no docs.ufba.app, por isso só ele). Não há papel de estudante nem de dev: **toda pessoa com conta lê `ufba-app/docs`** por uma base fixa no código (`BASELINE_READ` em `team-roles.ts`, aplicada pelo reconciliador no primeiro uso do MCP), sem atribuir nada. Mudar o papel ou a base = migração/PR. Projeto novo do time = nova linha em `team_role_grants` (migração) e a próxima reconciliação concede a todos com o papel.
-- **Atribuição** (`user_team_roles`): só o admin. Admin = e-mails de `MEMORY_ADMIN_EMAILS` (sem diferença de maiúsculas; não é tabela editável por outros). Qualquer outra pessoa recebe 403 `not_admin` e nada é criado no memory.
+- **Atribuição** (`user_team_roles`): só o admin. Admin = e-mails de `ADMIN_EMAILS` (sem diferença de maiúsculas; não é tabela editável por outros). Qualquer outra pessoa recebe 403 `not_admin` e nada é criado no memory.
 - **Rotas** (`/admin`, contrato): `GET team` (o papel com os projetos que concede e só as pessoas que o têm, os mantenedores), `GET team/people?q=` (busca por nome ou e-mail para escolher quem promover: mínimo 2 letras, até 20 resultados), `PUT team/members/{userId}/roles/{roleKey}` (corpo `{}` por causa da regra de CSRF; 404 `role_not_found`), `DELETE` do mesmo caminho, `GET memory/sync` (jobs com falha: só código/status; e projetos desconhecidos nos `ufba-*`).
 - **Efeito:** atribuir ou retirar reconcilia a pessoa na hora (falha vira job com backoff). O nível efetivo é o maior entre papel, convite e posse; retirar um papel só revoga o que nenhum convite ou outro papel sustenta. Projeto do time aparece em "Meus projetos" com `team: true` e `source: team`.
 

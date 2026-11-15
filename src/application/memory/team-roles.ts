@@ -46,7 +46,7 @@ export class DbTeamGrantSource extends TeamGrantSource {
   }
 }
 
-/** Quem é administrador da memória: e-mails de `MEMORY_ADMIN_EMAILS` (não é tabela editável por outros). */
+/** Quem é administrador (memória e calendário): e-mails de `ADMIN_EMAILS` (não é tabela editável por outros). */
 export class MemoryAdmins {
   constructor(
     private readonly directory: { findProfile(id: string): Promise<{ email: string | null } | null> },
