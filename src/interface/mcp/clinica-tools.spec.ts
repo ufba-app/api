@@ -318,6 +318,27 @@ describe('clinica_sessoes', () => {
   });
 });
 
+describe('clinica_sessoes: limites do período', () => {
+  it('de depois de ate: erro de entrada em pt-BR, sem ecoar o valor e sem chamar o SIASB', async () => {
+    const { clinica, siasb } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-12-04', ate: '2026-11-27' } });
+    expect(res.isError).toBe(true);
+    expect(texto(res)).toMatch(/depois/);
+    expect(texto(res)).not.toContain('2026-12-04');
+    expect(siasb.calls).toEqual([]);
+  });
+
+  it('período acima de 190 dias: a chamada ao SIASB não passa de 190 dias', async () => {
+    const { clinica, siasb } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2025-01-01', ate: '2026-12-10' } });
+    expect(res.isError).toBeFalsy();
+    const r = siasb.sessionRanges[0];
+    expect((r.to.getTime() - r.from.getTime()) / 86_400_000).toBeLessThanOrEqual(190);
+  });
+});
+
 describe('sem dados de paciente na saída', () => {
   it('nome completo e prontuário não aparecem em situacao nem em sessoes', async () => {
     const { clinica, siasb } = setup();

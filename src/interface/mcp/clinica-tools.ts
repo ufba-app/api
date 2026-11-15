@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
+import { InvalidPeriodError } from '../../application/siasb/siasb-reader';
 import { PROGRESS_DEFAULT_DAYS, PROGRESS_MAX_DAYS } from '../../application/siasb/progress';
 import { parseSiasbDateTime } from '../../domain/siasb/time';
 import type { McpClinica, McpPrincipal } from './mcp-ports';
@@ -73,7 +74,7 @@ async function runEntrada<T>(fn: () => Promise<T>) {
   try {
     return json(await fn());
   } catch (e) {
-    return e instanceof EntradaInvalida ? { isError: true, content: [{ type: 'text' as const, text: e.message }] } : falha(e);
+    return e instanceof EntradaInvalida || e instanceof InvalidPeriodError ? { isError: true, content: [{ type: 'text' as const, text: e.message }] } : falha(e);
   }
 }
 
@@ -124,6 +125,9 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         const to = args.ate ? parseData(args.ate, true) : undefined;
         const range = from && to ? { from, to } : from ? { from, to: new Date(from.getTime() + 14 * 86_400_000) } : undefined;
         if (!from && to) throw new EntradaInvalida('Informe `de` junto com `ate`.');
+        if (from && to && from.getTime() > to.getTime()) {
+          throw new EntradaInvalida('O início do período (`de`) vem depois do fim (`ate`).');
+        }
         const sessions = await clinica.sessions(p.userId, range);
         return {
           sessoes: sessions.map((s) => ({

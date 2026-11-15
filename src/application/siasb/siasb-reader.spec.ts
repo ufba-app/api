@@ -8,7 +8,7 @@ import {
 import { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, SiasbSession, SiasbSource } from '../ports/siasb-source';
 import type { ClinicalAttendance, ClinicalDiscipline, ClinicalSession } from '../../domain/siasb/types';
-import { ReconectarError, SiasbReader } from './siasb-reader';
+import { InvalidPeriodError, ReconectarError, SiasbReader } from './siasb-reader';
 
 const NOW = new Date('2026-11-16T12:00:00Z'); // segunda
 const DAY = 86_400_000;
@@ -207,6 +207,71 @@ describe('SiasbReader.sessions', () => {
     const { siasb, reader } = setup();
     await reader.sessions('u1', { from: NOW, to: new Date(NOW.getTime() + 200 * DAY) });
     expect(siasb.sessionRanges[0].to).toEqual(new Date(NOW.getTime() + 45 * DAY));
+  });
+});
+
+describe('SiasbReader: limite do intervalo enviado ao SIASB (190 dias)', () => {
+  const at = (days: number) => new Date(NOW.getTime() + days * DAY);
+
+  it('sessions: 190 dias passa inteiro; 191 dias tem o início puxado para 190 dias antes do fim', async () => {
+    const a = setup();
+    await a.reader.sessions('u1', { from: at(-150), to: at(40) });
+    expect(a.siasb.sessionRanges[0]).toEqual({ from: at(-150), to: at(40) });
+    const b = setup();
+    await b.reader.sessions('u1', { from: at(-151), to: at(40) });
+    expect(b.siasb.sessionRanges[0]).toEqual({ from: at(-150), to: at(40) });
+  });
+
+  it('sessions: o fim ainda é limitado a agora+45 antes de contar os 190 dias', async () => {
+    const { siasb, reader } = setup();
+    await reader.sessions('u1', { from: at(-400), to: at(300) });
+    expect(siasb.sessionRanges[0]).toEqual({ from: at(45 - 190), to: at(45) });
+  });
+
+  it('sessions: de > ate dá InvalidPeriodError e não chama o SIASB', async () => {
+    const { siasb, reader } = setup();
+    await expect(reader.sessions('u1', { from: at(5), to: at(1) })).rejects.toBeInstanceOf(InvalidPeriodError);
+    expect(siasb.calls).toEqual([]);
+  });
+
+  it('sessions: período todo além de agora+45 devolve vazio sem chamar o SIASB', async () => {
+    const { siasb, reader } = setup();
+    await expect(reader.sessions('u1', { from: at(60), to: at(70) })).resolves.toEqual([]);
+    expect(siasb.calls).toEqual([]);
+  });
+
+  it('progress: de > ate dá InvalidPeriodError', async () => {
+    const { siasb, reader } = setup();
+    await expect(reader.progress('u1', { from: at(5), to: at(1) })).rejects.toBeInstanceOf(InvalidPeriodError);
+    expect(siasb.calls).toEqual([]);
+  });
+
+  it('progress: período de 190 dias que termina antes de agora+45 estende só até 190 dias do início', async () => {
+    const { siasb, reader } = setup();
+    await reader.progress('u1', { from: at(-190), to: at(0) });
+    expect(siasb.sessionRanges[0]).toEqual({ from: at(-190), to: at(0) });
+    const s = setup();
+    await s.reader.progress('u1', { from: at(-150), to: at(-10) });
+    expect(s.siasb.sessionRanges[0]).toEqual({ from: at(-150), to: at(40) });
+  });
+
+  it('progress: período futuro (to além de agora+45) não é estendido', async () => {
+    const { siasb, reader } = setup();
+    await reader.progress('u1', { from: at(50), to: at(100) });
+    expect(siasb.sessionRanges[0]).toEqual({ from: at(50), to: at(100) });
+  });
+
+  it('progress: nenhuma chamada passa de 190 dias, mesmo com período maior que o teto', async () => {
+    const { siasb, reader } = setup();
+    await reader.progress('u1', { from: at(-300), to: at(-1) });
+    const r = siasb.sessionRanges[0];
+    expect((r.to.getTime() - r.from.getTime()) / DAY).toBeLessThanOrEqual(190);
+  });
+
+  it('progress padrão: 120 dias atrás até agora+45', async () => {
+    const { siasb, reader } = setup();
+    await reader.progress('u1');
+    expect(siasb.sessionRanges[0]).toEqual({ from: at(-120), to: at(45) });
   });
 });
 

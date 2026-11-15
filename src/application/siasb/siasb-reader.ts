@@ -13,6 +13,16 @@ const DAY_MS = 86_400_000;
 const DEFAULT_RANGE_DAYS = 14;
 const MAX_AHEAD_DAYS = 45;
 const HISTORY_DAYS = 60;
+/** Teto de uma chamada de sessões ao SIASB (spec): nenhuma consulta cobre mais que isso. */
+const MAX_CALL_DAYS = 190;
+
+/** Período pedido fora de ordem (início depois do fim). Mensagem fixa, em pt-BR, sem ecoar a entrada. */
+export class InvalidPeriodError extends Error {
+  constructor() {
+    super('O início do período vem depois do fim.');
+    this.name = 'InvalidPeriodError';
+  }
+}
 
 export interface DisciplineSituation {
   disciplineId: string;
@@ -131,8 +141,13 @@ export class SiasbReader {
     const from = range?.from ?? now;
     const limit = new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS);
     const wanted = range?.to ?? new Date(from.getTime() + DEFAULT_RANGE_DAYS * DAY_MS);
+    if (from.getTime() > wanted.getTime()) throw new InvalidPeriodError();
     const to = wanted.getTime() > limit.getTime() ? limit : wanted;
-    return this.withSession(userId, (session) => this.siasb.sessions(session, from, to));
+    await this.requireAccount(userId);
+    // Período inteiro além do alcance (agora+45 dias): não há o que perguntar ao SIASB.
+    if (from.getTime() > to.getTime()) return [];
+    const start = new Date(Math.max(from.getTime(), to.getTime() - MAX_CALL_DAYS * DAY_MS));
+    return this.withSession(userId, (session) => this.siasb.sessions(session, start, to));
   }
 
   async bookingDeadline(
@@ -221,12 +236,17 @@ export class SiasbReader {
   async progress(userId: string, range?: { from: Date; to: Date }): Promise<Progress> {
     const now = this.now();
     const used = range ?? { from: new Date(now.getTime() - PROGRESS_DEFAULT_DAYS * DAY_MS), to: now };
-    const forwardEnd = new Date(Math.max(used.to.getTime(), now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
+    if (used.from.getTime() > used.to.getTime()) throw new InvalidPeriodError();
+    // Estende até agora+45 só quando o fim do período está ao alcance dessa janela; a chamada nunca passa de 190 dias.
+    const reach = now.getTime() + MAX_AHEAD_DAYS * DAY_MS;
+    const extended = used.to.getTime() <= reach ? Math.max(used.to.getTime(), reach) : used.to.getTime();
+    const forwardEnd = new Date(Math.min(extended, used.from.getTime() + MAX_CALL_DAYS * DAY_MS));
+    const queryFrom = new Date(Math.max(used.from.getTime(), forwardEnd.getTime() - MAX_CALL_DAYS * DAY_MS));
     const { disciplines, active, inactive, sessions } = await this.withSession(userId, async (session) => ({
       disciplines: await this.siasb.disciplines(session),
       active: await this.siasb.attendances(session, 'active'),
       inactive: await this.siasb.attendances(session, 'inactive'),
-      sessions: await this.siasb.sessions(session, used.from, forwardEnd),
+      sessions: await this.siasb.sessions(session, queryFrom, forwardEnd),
     }));
     return computeProgress({ disciplines, active, inactive, sessions, range: used, isDefault: !range, now });
   }
