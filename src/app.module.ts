@@ -37,6 +37,8 @@ import { SourceBindings } from './application/identity/source-bindings';
 import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
 import { SiasbReader } from './application/siasb/siasb-reader';
+import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AcademicCalendar } from './application/ports/academic-calendar';
 import { NoAcademicCalendar } from './infrastructure/calendar/no-academic-calendar';
 import { SiasbClient } from './infrastructure/sources/siasb/siasb-client';
@@ -164,6 +166,12 @@ export function buildLiveSources(
       useFactory: (siasb: SiasbSource, accounts: SourceAccountRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>
         new SiasbReader(siasb, accounts, cipher, calendar),
       inject: [SiasbSource, SourceAccountRepository, SecretCipher, AcademicCalendar],
+    },
+    {
+      provide: SiasbSyncer,
+      useFactory: (reader: SiasbReader, copy: SiasbCopyRepository, cipher: SecretCipher) =>
+        new SiasbSyncer(reader, copy, cipher),
+      inject: [SiasbReader, SiasbCopyRepository, SecretCipher],
     },
     // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
@@ -392,6 +400,7 @@ export function buildLiveSources(
     SiasbSource,
     SiasbLink,
     SiasbReader,
+    SiasbSyncer,
     ConsultaService,
     MemoryAdmin,
     MemoryUsers,
