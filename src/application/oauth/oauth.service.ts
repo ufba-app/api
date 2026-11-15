@@ -55,6 +55,8 @@ export interface TokenVerificado {
   userId: string;
   clientId: string;
   chave?: Buffer;
+  /** Só em sessão do web: quando ela vence (ms), já com a renovação deste uso. */
+  expiresAt?: number;
 }
 
 /** Separa `base.K` (K em base64url, 32 bytes). Sufixo ausente ou inválido = sem chave (o token inteiro segue sendo a base). */
@@ -275,11 +277,13 @@ export class OAuthService {
     const rec = await this.store.getToken(hash);
     if (!rec || rec.kind !== 'session') return null;
     const now = this.now();
+    let expiresAt = rec.expiresAt;
     if (now - (rec.lastUsedAt ?? rec.createdAt ?? 0) >= SESSION_TOUCH_EVERY_MS) {
-      await this.store.touchToken(hash, now, now + SESSION_TTL_MS);
+      expiresAt = now + SESSION_TTL_MS;
+      await this.store.touchToken(hash, now, expiresAt);
     }
     const { chave } = splitToken(token);
-    return { userId: rec.userId, clientId: rec.clientId, ...(chave ? { chave } : {}) };
+    return { userId: rec.userId, clientId: rec.clientId, ...(chave ? { chave } : {}), ...(expiresAt ? { expiresAt } : {}) };
   }
 
   async revokeToken(token: string): Promise<void> {

@@ -33,4 +33,6 @@ export interface WebPrincipal {
   userId: string;
   clientId: string;
   chave?: Buffer;
+  /** Quando a sessão vence (ms). Só vem do cookie de sessão. */
+  sessionExpiresAt?: number;
 }

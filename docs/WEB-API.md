@@ -28,6 +28,7 @@ tipos e Zod a partir dele. Este documento fica com os **fluxos e as regras**.
 |---|---|
 | Cookie | `__Host-ufba_session` (quando `PUBLIC_URL` é https) ou `ufba_session` (http, dev) |
 | Atributos | `HttpOnly; SameSite=Lax; Path=/; Secure` (https); sem `Domain` (só o host da API) |
+| Marcador | `ufba_signed_in=1` (ver abaixo) |
 | Valor | token de sessão `<random>.<K>` (tipo `session` em `oauth_tokens`) |
 | Duração | 30 dias **desde o último uso** (renovada a cada uso, no máximo 1 vez por hora) |
 
@@ -46,10 +47,27 @@ POST /session
 Content-Type: application/json
 X-UFBA: 1
 { "code": "…", "codeVerifier": "…", "redirectUri": "{AUTH}/sign-in/callback" }
-→ 204, Set-Cookie: <sessão>
+→ 204, Set-Cookie: <sessão> e Set-Cookie: <marcador>
 ```
 
 5. O web limpa `?code&state` da URL (`history.replaceState`) e apaga o verifier.
+
+### Cookie marcador `ufba_signed_in`
+
+O cookie de sessão não tem `Domain` (só vai para `api.ufba.app`), então quem fica na frente do painel (a landing, o
+servidor que serve o painel) não o vê. Para decidir o redirect sem piscar a tela, a API emite junto um **marcador sem
+segredo**:
+
+`ufba_signed_in=1; Path=/; HttpOnly; SameSite=Lax; Secure; Domain=.ufba.app; Max-Age=<o da sessão>`
+
+- **Não autentica nada.** A API continua validando só o cookie de sessão; o marcador diz apenas "houve login" e pode estar
+  velho (ex.: sessão revogada no servidor). Quem o lê trata como dica de UX, nunca como prova.
+- Emitido em `POST /session` e **reemitido em `GET /me`** quando a sessão é válida (idempotente, mesmos atributos, `Max-Age` = o que resta da sessão): quem entrou antes do marcador existir o ganha na próxima chamada, sem loop de redirect.
+  sem loop de redirect.
+- Apagado (`Max-Age=0`, mesmo `Domain` e `Path`) em `DELETE /session`, `DELETE /me` e em
+  qualquer resposta `401 session_expired`.
+- `Domain` vem da config: o sufixo que `WEB_ORIGIN`, `AUTH_ORIGIN` e `PUBLIC_URL` têm em comum (hoje `.ufba.app`).
+  Em dev (http, localhost) não há `Domain` nem `Secure`. É `HttpOnly`: só o servidor lê (o JavaScript do painel não).
 
 ### Sair
 

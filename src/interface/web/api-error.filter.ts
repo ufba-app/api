@@ -8,6 +8,7 @@ import {
 import { LinkError } from '../../application/oauth/oauth-ports';
 import { SourceError } from '../../application/ports/source-gateway';
 import { ApiError } from '../../application/web/web-api';
+import { clearSignedInMarker } from './web-auth';
 
 const LINK_STATUS: Record<LinkError['code'], number> = {
   invalid_request: 400,
@@ -50,6 +51,8 @@ export class ApiErrorFilter implements ExceptionFilter {
       this.log.error(`${e instanceof Error ? e.name : typeof e}: ${e instanceof Error ? e.message : ''}`);
     }
     if (res.headersSent) return;
+    // Sessão vencida: o marcador "há sessão" não vale mais (o cookie de sessão a API já não aceita).
+    if (api.status === 401 && api.code === 'session_expired') clearSignedInMarker(res);
     res.status(api.status).setHeader('Cache-Control', 'no-store').json({ error: api.code, message: api.message });
   }
 }
