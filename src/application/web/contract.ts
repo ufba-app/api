@@ -35,6 +35,8 @@ export const API_ERROR_CODES = [
   "invalid_email_domain",
   "not_admin",
   "role_not_found",
+  "passkey_limit_reached",
+  "passkey_not_found",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -51,7 +53,52 @@ export const SigaaStatus = z.enum([
   "connected",
   "disconnected",
   "password_required",
+  /** Sem a senha nesta sessão, mas há cópia mestra: um toque na passkey religa. */
+  "locked",
 ]);
+// ---- chave mestra do SIGAA (passkey) ----
+
+const b64url = (min: number, max: number, bytes?: number) =>
+  z
+    .string()
+    .min(min)
+    .max(max)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .refine((v) => bytes === undefined || Buffer.from(v, "base64url").length === bytes);
+
+/** Id da passkey: até 1023 bytes na especificação (1364 caracteres base64url). */
+const CredentialId = b64url(1, 1364);
+
+export const SaveSigaaPasskeyBody = z.object({
+  credentialId: CredentialId,
+  /** 32 bytes que o navegador usa como salt do PRF. */
+  prfSalt: b64url(43, 43, 32),
+  /** 12 bytes. */
+  iv: b64url(16, 16, 12),
+  /** AES-GCM do `{ login, password }` (texto + 16 bytes da tag). */
+  ciphertext: b64url(22, 4096),
+  label: z.string().trim().min(1).max(40).optional(),
+});
+
+export const SigaaPasskeySlotBody = z.object({ credentialId: CredentialId });
+
+export const SigaaPasskeySlot = z.object({
+  prfSalt: z.string(),
+  iv: z.string(),
+  ciphertext: z.string(),
+});
+
+export const SigaaPasskeyView = z.object({
+  credentialId: z.string(),
+  /** Salt do PRF desta passkey (não é segredo): o navegador precisa dele antes do toque (`evalByCredential`). */
+  prfSalt: z.string(),
+  label: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  lastUnlockedAt: z.string().datetime().nullable(),
+});
+
+export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyView) });
+
 export const AccountStatus = z.enum(["connected", "reconnect_required"]);
 export const GuestApp = z.enum(["ufba", "guest"]);
 export const SourceName = z.enum(["sigaa", "moodle", "classroom"]);
@@ -69,7 +116,12 @@ export const Me = z.object({
   email: z.string().nullable(),
   name: z.string().nullable(),
   connections: z.object({
-    sigaa: z.object({ status: SigaaStatus, login: z.string().nullable() }),
+    sigaa: z.object({
+      status: SigaaStatus,
+      login: z.string().nullable(),
+      /** Cópias mestras (passkeys) que guardam a senha do SIGAA para religar depois de sair. */
+      passkey: z.object({ slots: z.number().int() }),
+    }),
     moodle: z.object({
       status: z.union([AccountStatus, z.literal("disconnected")]),
       account: z.string().nullable(),

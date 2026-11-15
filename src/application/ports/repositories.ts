@@ -143,3 +143,26 @@ export abstract class SigaaSessionStore {
   abstract save(key: SigaaSessionKey, token: string, rec: SigaaSessionRecord): Promise<boolean>;
   abstract delete(key: SigaaSessionKey, token: string): Promise<boolean>;
 }
+
+/** Cópia mestra da senha do SIGAA (cifrada no navegador com o PRF de uma passkey). O servidor só guarda e devolve. */
+export interface SigaaMasterSlotRecord {
+  credentialId: string;
+  prfSalt: string;
+  iv: string;
+  ciphertext: string;
+  label: string | null;
+  createdAt: Date;
+  lastUnlockedAt: Date | null;
+}
+
+export abstract class SigaaMasterSlotRepository {
+  abstract list(userId: string): Promise<SigaaMasterSlotRecord[]>;
+  abstract count(userId: string): Promise<number>;
+  abstract find(userId: string, credentialId: string): Promise<SigaaMasterSlotRecord | null>;
+  /** Cria ou troca a cópia desta passkey (mesma `credentialId` = a pessoa gravou de novo). */
+  abstract upsert(userId: string, slot: Omit<SigaaMasterSlotRecord, 'createdAt' | 'lastUnlockedAt'>): Promise<void>;
+  abstract touch(userId: string, credentialId: string, at: Date): Promise<void>;
+  /** `false` se não existia. */
+  abstract delete(userId: string, credentialId: string): Promise<boolean>;
+  abstract deleteAll(userId: string): Promise<void>;
+}

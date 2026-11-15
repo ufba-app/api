@@ -1,5 +1,5 @@
 import type { ClassroomLinkPort } from '../oauth/oauth-ports';
-import type { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
+import type { SigaaMasterSlotRepository, SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
 import { WEB_CLIENT_ID, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
 
@@ -16,13 +16,18 @@ export class ConnectionStatus {
     private readonly cofre: CofreSigaa,
     private readonly accounts: SourceAccountRepository,
     private readonly classroom: ClassroomLinkPort,
+    private readonly slots: SigaaMasterSlotRepository,
   ) {}
 
   async sigaa(p: WebPrincipal): Promise<Me['connections']['sigaa']> {
+    const slots = await this.slots.count(p.userId);
+    const passkey = { slots };
     const rec = await this.cofre.situacao({ userId: p.userId, clientId: WEB_CLIENT_ID });
-    if (!rec) return { status: 'disconnected', login: null };
-    if (rec.status !== 'OK' || !(await this.sigaaOpens(p))) return { status: 'password_required', login: rec.login };
-    return { status: 'connected', login: rec.login };
+    // `locked`: não há senha utilizável nesta sessão, mas existe cópia mestra (um toque na passkey religa).
+    if (!rec) return { status: slots > 0 ? 'locked' : 'disconnected', login: null, passkey };
+    if (rec.status !== 'OK') return { status: 'password_required', login: rec.login, passkey };
+    if (!(await this.sigaaOpens(p))) return { status: slots > 0 ? 'locked' : 'password_required', login: rec.login, passkey };
+    return { status: 'connected', login: rec.login, passkey };
   }
 
   async sigaaOpens(p: WebPrincipal): Promise<boolean> {

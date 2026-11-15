@@ -18,11 +18,14 @@ import { Inject } from '@nestjs/common';
 import { AuthorizationRequests } from '../../application/web/authorization-requests.service';
 import { AuthorizedApps } from '../../application/web/authorized-apps.service';
 import { ConnectionsService } from '../../application/web/connections.service';
+import { SigaaPasskeys } from '../../application/web/sigaa-passkeys.service';
 import {
   ClassroomStartQuery,
   ConnectMoodleBody,
   ConnectSigaaBody,
   CreateSessionBody,
+  SaveSigaaPasskeyBody,
+  SigaaPasskeySlotBody,
   parseInput,
 } from '../../application/web/contract';
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
@@ -152,6 +155,50 @@ export class ConnectionsController {
   @UseGuards(SessionGuard)
   async classroomOff(@Principal() p: WebPrincipal | null, @Param('email') email: string): Promise<void> {
     await this.web.disconnectClassroom(must(p), email);
+  }
+}
+
+/**
+ * Chave mestra do SIGAA com passkey. O servidor só guarda e devolve o texto cifrado no navegador; o toque (PRF) e a
+ * decifragem acontecem no navegador. O id da passkey vai no corpo (não na URL) ao pedir a cópia.
+ */
+@Controller('sigaa/passkey')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class SigaaPasskeyController {
+  constructor(private readonly passkeys: SigaaPasskeys) {}
+
+  @Get()
+  async list(@Principal() p: WebPrincipal | null) {
+    const passkeys = await this.passkeys.list(must(p));
+    return {
+      passkeys: passkeys.map((k) => ({
+        credentialId: k.credentialId,
+        prfSalt: k.prfSalt,
+        label: k.label,
+        createdAt: k.createdAt.toISOString(),
+        lastUnlockedAt: k.lastUnlockedAt ? k.lastUnlockedAt.toISOString() : null,
+      })),
+    };
+  }
+
+  @Post()
+  @HttpCode(204)
+  async save(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
+    await this.passkeys.save(must(p), parseInput(SaveSigaaPasskeyBody, b, invalidRequest));
+  }
+
+  @Post('slot')
+  @HttpCode(200)
+  slot(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    return this.passkeys.slot(must(p), parseInput(SigaaPasskeySlotBody, b, invalidRequest).credentialId);
+  }
+
+  @Delete(':credentialId')
+  @HttpCode(204)
+  async remove(@Principal() p: WebPrincipal | null, @Param('credentialId') credentialId: string): Promise<void> {
+    if (!/^[A-Za-z0-9_-]{1,1364}$/.test(credentialId)) throw invalidRequest();
+    await this.passkeys.remove(must(p), credentialId);
   }
 }
 

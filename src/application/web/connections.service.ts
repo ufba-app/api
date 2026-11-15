@@ -10,7 +10,7 @@ import {
   type UserDirectory,
 } from '../oauth/oauth-ports';
 import { randomToken } from '../oauth/pkce';
-import type { SourceAccountRepository } from '../ports/repositories';
+import type { SigaaMasterSlotRepository, SourceAccountRepository } from '../ports/repositories';
 import { Secret } from '../shared/secret';
 import type { CofreSigaa } from '../sigaa/cofre-sigaa';
 import { ApiError, sessionExpired, WEB_CLIENT_ID, type GuestApp, type WebPrincipal } from './web-api';
@@ -35,6 +35,7 @@ export class ConnectionsService {
     private readonly accounts: SourceAccountRepository,
     private readonly identity: IdentityService,
     private readonly bindings: SourceBindings,
+    private readonly slots: SigaaMasterSlotRepository,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
   ) {}
@@ -55,6 +56,8 @@ export class ConnectionsService {
 
   async disconnectSigaa(p: WebPrincipal): Promise<void> {
     await this.cofre.apagar({ userId: p.userId, clientId: WEB_CLIENT_ID });
+    // A pessoa quis tirar a senha: a cópia mestra (passkey) também vai.
+    await this.slots.deleteAll(p.userId);
   }
 
   // ---- Moodle ----

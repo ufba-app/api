@@ -4,6 +4,7 @@ import {
   ApiKeyRepository,
   SigaaCredentialRepository,
   SigaaSessionStore,
+  SigaaMasterSlotRepository,
   SourceBindingRepository,
   SourceAccountRepository,
   UserRepository,
@@ -27,6 +28,7 @@ import { PrismaMemoryProjectRepository, PrismaMemorySyncJobRepository } from './
 import { PrismaDeviceAuthorizationRepository, PrismaMemoryComputerRepository } from './prisma-device.repositories';
 import { PrismaOAuthStore, PrismaUserDirectory } from './prisma-oauth.repositories';
 import { PrismaSigaaSessionStore } from './prisma-sigaa-session.store';
+import { PrismaSigaaMasterSlotRepository } from './prisma-sigaa-master-slot.repository';
 import { PrismaService } from './prisma.service';
 
 /** Só identidade, contas conectadas (token cifrado) e OAuth. Conteúdo das fontes não é gravado (leitura ao vivo). */
@@ -39,6 +41,7 @@ import { PrismaService } from './prisma.service';
     { provide: SourceAccountRepository, useClass: PrismaSourceAccountRepository },
     { provide: SigaaCredentialRepository, useClass: PrismaSigaaCredentialRepository },
     { provide: SigaaSessionStore, useClass: PrismaSigaaSessionStore },
+    { provide: SigaaMasterSlotRepository, useClass: PrismaSigaaMasterSlotRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
     { provide: DeviceAuthorizationRepository, useClass: PrismaDeviceAuthorizationRepository },
@@ -57,6 +60,7 @@ import { PrismaService } from './prisma.service';
     SourceAccountRepository,
     SigaaCredentialRepository,
     SigaaSessionStore,
+    SigaaMasterSlotRepository,
     SourceBindingRepository,
     MemoryUserRepository,
     DeviceAuthorizationRepository,
