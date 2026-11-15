@@ -96,6 +96,8 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 - `siasb.status`: `connected`, `reconnect_required` ou `disconnected`. `reconnect_required` vem de uma conta marcada
   (o SIASB recusou o cookie) **ou** de `expiresAt` já no passado (cookie de 30 dias vencido).
 - `siasb.expiresAt`: fim do cookie (ISO 8601); `null` se desconectado ou sem estimativa.
+- `siasb.syncedAt`: último sucesso da sincronização da cópia (ISO 8601); `null` se nunca houve ou se desconectado.
+- **Regra do painel (faixa de reconexão):** mostrar a faixa quando faltam 7 dias ou menos para `expiresAt`; `status === 'reconnect_required'` vale a qualquer momento, sem esperar os 7 dias.
 
 ### Chave mestra do SIGAA com passkey
 
@@ -198,6 +200,7 @@ Todas as rotas desta API (exceto `/authorize`, `/token`, `/register`, que seguem
 | 403 | `source_account_not_owned` | a conta do AVA não é da pessoa logada (não é o login institucional dela) |
 | 422 | `siasb_credentials_rejected` | o SIASB recusou a matrícula ou a senha |
 | 422 | `siasb_password_migration_required` | a pessoa precisa entrar uma vez no SIASB para atualizar a senha |
+| 409 | `siasb_reconnect_required` | a conexão com o SIASB expirou ou foi recusada; a pessoa precisa reconectar no painel |
 | 503 | `siasb_unavailable` | o SIASB não respondeu agora (fora do ar ou página inesperada) |
 | 501 | `not_supported` | a fonte não oferece essa leitura |
 | 502 | `source_unavailable` | a fonte falhou ou respondeu algo inesperado |
@@ -259,7 +262,16 @@ DELETE /connections/siasb                            → 204
   existe), `409 source_account_taken` (matrícula de outra conta), `422 siasb_credentials_rejected`,
   `422 siasb_password_migration_required` (entrar uma vez no site do SIASB para atualizar a senha) e
   `503 siasb_unavailable`.
-- `DELETE` apaga o cookie e **mantém o vínculo** com a matrícula (para trocar, `DELETE /me`).
+- `DELETE` apaga o cookie e a cópia sincronizada, e **mantém o vínculo** com a matrícula (para trocar, `DELETE /me`).
+
+```
+POST /connections/siasb/sync                          → 204
+GET  /me/siasb/sessions?from=&to=                    → 200 { syncedAt, stale, items }
+```
+
+- `POST /connections/siasb/sync` ("Sincronizar agora"): sincroniza a cópia da pessoa na hora. Sem corpo. Erros: `404 not_found` (sem conta SIASB), `409 siasb_reconnect_required` (reconectar), `503 siasb_unavailable` (o SIASB não respondeu), `429 too_many_attempts` (mais de 3 por 10 minutos por pessoa). Uma sincronização já em curso conta como sucesso (204).
+- `GET /me/siasb/sessions` (calendário do painel, lido da cópia, `Cache-Control: no-store`): `syncedAt` (ISO ou `null`), `stale` (`true` se nunca sincronizou, a última tentativa falhou ou o último sucesso tem mais de 3 h) e `items` (`id`, `attendanceId`, `disciplineName`, `startAt`, `endAt`, `locationName`, `professorName`, `patientFirstName`, `statusLabel`, `rescheduledStartAt`). `patientFirstName` é só o primeiro nome, decifrado para o dono; vazio se não puder ser lido. Padrão: de 14 dias atrás a 45 à frente. `400 invalid_request` se `from > to` ou o intervalo passa de 190 dias; `404 not_found` sem conta SIASB.
+- **`from` e `to` devem ser ISO 8601 COM fuso** (ex.: `2026-11-15T00:00:00Z`): sem fuso valem como hora local do servidor.
 - Detalhes da integração: `docs/SIASB.md`.
 
 ### Classroom (pode haver várias contas)

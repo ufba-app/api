@@ -380,4 +380,61 @@ describe('SiasbLink.status e disconnect', () => {
     await link.disconnect('u1');
     expect(accounts.rows).toHaveLength(0);
   });
+
+  const enc = { ciphertext: 'c', iv: 'i', authTag: 't' };
+  const att = {
+    id: 'a1',
+    disciplineId: 'd',
+    disciplineName: 'Clínica',
+    treatmentType: 'PLANNING' as const,
+    concluded: false,
+    firstName: enc,
+  };
+
+  it('disconnect apaga a conta primeiro e só depois a cópia (ordem contra cópia órfã)', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    const calls: string[] = [];
+    const del = accounts.delete.bind(accounts);
+    accounts.delete = async (id: string) => {
+      calls.push('deleteAccount');
+      return del(id);
+    };
+    const delAll = copy.deleteAll.bind(copy);
+    copy.deleteAll = async (u: string) => {
+      calls.push('copy.deleteAll');
+      return delAll(u);
+    };
+    await link.disconnect('u1');
+    expect(calls).toEqual(['deleteAccount', 'copy.deleteAll']);
+  });
+
+  it('disconnect apaga a cópia e o estado da pessoa e não toca nos de outra', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    copy.accounts.set('u1', 'OK');
+    copy.accounts.set('u2', 'OK');
+    const at = new Date('2026-11-15T10:00:00Z');
+    for (const u of ['u1', 'u2']) {
+      await copy.replaceWindow(u, { from: at, to: at }, { attendances: [att], sessions: [] });
+      await copy.recordAttempt(u, { result: 'OK', at, nextRunAt: null });
+    }
+    await link.disconnect('u1');
+    expect(accounts.rows).toHaveLength(0);
+    expect(await copy.attendances('u1')).toEqual([]);
+    expect(await copy.state('u1')).toBeNull();
+    expect(await copy.attendances('u2')).toHaveLength(1);
+    expect((await copy.state('u2'))?.lastSuccessAt).toEqual(at);
+  });
+
+  it('disconnect: se a limpeza da cópia falhar, o erro propaga (a conta já saiu; desconectar de novo é idempotente)', async () => {
+    const { link, accounts, copy } = setup();
+    await link.connect('u1', pwd());
+    copy.deleteAll = async () => {
+      throw new Error('falha');
+    };
+    await expect(link.disconnect('u1')).rejects.toThrow('falha');
+    expect(accounts.rows).toHaveLength(0);
+    await expect(link.disconnect('u1')).rejects.toThrow('falha');
+  });
 });

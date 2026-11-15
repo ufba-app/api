@@ -112,6 +112,10 @@ export class SiasbLink {
 
   async disconnect(userId: string): Promise<void> {
     for (const a of await this.accounts.findByUserAndProvider(userId, 'SIASB')) await this.accounts.delete(a.id);
+    // Ordem obrigatória: conta primeiro, cópia depois. `replaceWindow` trava a linha da conta (FOR SHARE); uma gravação
+    // em curso termina antes e esta limpeza a apaga. Se a limpeza falhar, o erro propaga: a pessoa tenta de novo
+    // (desconectar é idempotente) e a cópia não fica órfã sem aviso.
+    await this.copy.deleteAll(userId);
   }
 
   /** syncedAt: último sucesso da sincronização (cópia); null se nunca houve ou se o estado não pôde ser lido. */
