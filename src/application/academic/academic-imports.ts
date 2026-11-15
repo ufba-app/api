@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import { programLabelFor } from './program-label';
+import type { ProgramLabel } from '../../domain/academic/program-label';
 import { buildProgress, type Progress, type TranscriptInput } from '../../domain/academic/progress';
 import { AcademicRepository, TranscriptSource, type ImportFailure, type ImportState, type ImportStatus } from '../ports/academic';
 import type { CatalogComponent } from '../ports/catalog';
@@ -31,6 +33,7 @@ export type CurriculumStatus = 'NONE' | 'READY' | 'IMPORTING' | 'UNAVAILABLE';
 
 export interface AcademicSummary {
   programName: string;
+  programLabel: ProgramLabel;
   curriculum: string;
   currentTerm: number;
   completionDeadline: { standard: string; maximum: string };
@@ -137,6 +140,7 @@ export class AcademicImports {
       summary: transcript
         ? {
             programName: transcript.program.name,
+            programLabel: programLabelFor(transcript.program.name),
             curriculum: transcript.program.curriculum,
             currentTerm: transcript.program.currentTerm,
             completionDeadline: transcript.program.completionDeadline,

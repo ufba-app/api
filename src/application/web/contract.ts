@@ -163,8 +163,26 @@ export const AcademicDraft = z.object({
   }),
 });
 
+/**
+ * O curso separado em pedaços para a tela mostrar um título curto. Vem do texto do histórico (`NOME/UNIDADE - CAMPUS - GRAU -
+ * MODALIDADE - TURNO`). `raw` é sempre o texto original; `format` diz até onde o texto foi reconhecido: `full` (5 pedaços),
+ * `partial` (só os que existem; os demais `null`) ou `raw` (nada reconhecido: `name` é o texto original e o resto é `null`).
+ */
+export const ProgramLabel = z.object({
+  raw: z.string(),
+  name: z.string(),
+  unit: z.string().nullable(),
+  campus: z.string().nullable(),
+  degree: z.string().nullable(),
+  modality: z.string().nullable(),
+  shift: z.string().nullable(),
+  format: z.enum(["full", "partial", "raw"]),
+});
+
 export const AcademicSummary = z.object({
+  /** O texto do curso exatamente como o histórico traz. A tela prefere `programLabel` e cai neste se precisar. */
   programName: z.string(),
+  programLabel: ProgramLabel,
   /** O currículo do próprio aluno, como impresso no histórico ("G20251 - 2025.2"). */
   curriculum: z.string(),
   currentTerm: z.number(),
