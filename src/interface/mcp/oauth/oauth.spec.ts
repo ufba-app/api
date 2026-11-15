@@ -152,6 +152,61 @@ describe('servidor OAuth 2.1 (HTTP)', () => {
     }
   });
 
+  describe('loopback http: a porta é livre (RFC 8252), o resto é exato', () => {
+    const SEM_PORTA = 'http://localhost/callback';
+    const registrar = async () =>
+      ((await (await post('/register', { redirect_uris: [SEM_PORTA, 'http://127.0.0.1/callback'] })).json()) as any).client_id as string;
+
+    it('porta aleatória aceita no /authorize; o código volta para a MESMA URL com porta; o /token exige a mesma URL (com porta)', async () => {
+      const client_id = await registrar();
+      const pedido = 'http://localhost:54321/callback';
+      const r = await fetch(`${base}/authorize?${authorizeQuery(client_id, { redirect_uri: pedido, state: 's1' })}`, { redirect: 'manual' });
+      expect(r.status).toBe(303);
+      const loc = new URL(r.headers.get('location')!);
+      expect(`${loc.origin}${loc.pathname}`).toBe('http://localhost:3001/authorize'); // não é a página de erro
+      const back = await approveAsWeb(loc.searchParams.get('request')!, 'loop@example.com');
+      expect(`${back.origin}${back.pathname}`).toBe('http://localhost:54321/callback');
+      const code = back.searchParams.get('code')!;
+
+      // /token: o redirect_uri tem que ser exatamente o do pedido (com a porta). Sem porta ou outra porta: recusado.
+      const base_ = { grant_type: 'authorization_code', code, client_id, code_verifier: VERIFIER };
+      expect((await post('/token', { ...base_, redirect_uri: SEM_PORTA }, true)).status).toBe(400);
+      expect((await post('/token', { ...base_, redirect_uri: 'http://localhost:54322/callback' }, true)).status).toBe(400);
+    });
+
+    it('com a mesma URL (porta incluída) o /token troca o código', async () => {
+      const client_id = await registrar();
+      const pedido = 'http://127.0.0.1:60123/callback';
+      const r = await fetch(`${base}/authorize?${authorizeQuery(client_id, { redirect_uri: pedido })}`, { redirect: 'manual' });
+      const requestId = new URL(r.headers.get('location')!).searchParams.get('request')!;
+      const code = (await approveAsWeb(requestId, 'loop2@example.com')).searchParams.get('code')!;
+      const ok = await post('/token', { grant_type: 'authorization_code', code, client_id, redirect_uri: pedido, code_verifier: VERIFIER }, true);
+      expect(ok.status).toBe(200);
+    });
+
+    it('host, path, query ou scheme diferentes, e porta em host que não é loopback: página de erro do web, nunca o cliente', async () => {
+      const client_id = await registrar();
+      for (const redirect_uri of [
+        'http://evil.test:54321/callback',
+        'http://localhost.evil.test:54321/callback',
+        'http://localhost:54321/outro',
+        'http://localhost:54321/callback?x=1',
+        'https://localhost:54321/callback',
+        'http://[::1]:54321/callback',
+      ]) {
+        const r = await fetch(`${base}/authorize?${authorizeQuery(client_id, { redirect_uri })}`, { redirect: 'manual' });
+        expect([redirect_uri, r.status]).toEqual([redirect_uri, 303]);
+        expect([redirect_uri, r.headers.get('location')!.startsWith('http://localhost:3001/authorize/error?')]).toEqual([redirect_uri, true]);
+      }
+    });
+
+    it('porta em host que não é loopback continua exata (cliente https registrado)', async () => {
+      const { client_id } = (await (await post('/register', { redirect_uris: ['https://app.exemplo.com/cb'] })).json()) as any;
+      const r = await fetch(`${base}/authorize?${authorizeQuery(client_id, { redirect_uri: 'https://app.exemplo.com:8443/cb' })}`, { redirect: 'manual' });
+      expect(r.headers.get('location')!.startsWith('http://localhost:3001/authorize/error?')).toBe(true);
+    });
+  });
+
   it('registro recusa redirect_uri insegura', async () => {
     const res = await post('/register', { redirect_uris: ['http://evil.example/cb'] });
     expect(res.status).toBe(400);
