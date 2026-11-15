@@ -1,6 +1,6 @@
 # Currículo como grafo (desenho)
 
-**Estado:** desenho fechado em conversa com o André, pendente de revisão dele. Nada de código de produção, migração ou PR. Nenhuma requisição ao SIGAA foi feita; tudo vem da leitura do código desta API e do repositório público do ai-memory.
+**Estado:** desenho em conversa com o André. **Primeira fatia implementada** na branch `feat/curriculo-grafo-cache` (a pedido do André): construtor do grafo com arestas tipadas (`src/domain/academic/curriculum-graph.ts`) e cache (`src/application/academic/curriculum-graph-cache.ts`). Ainda sem rota, sem contrato e sem ligar ao `app.module`; o resto do desenho (caminho, cadeia, simulação) depende das perguntas da seção 9. Sem migração e sem PR. Nenhuma requisição ao SIGAA foi feita; tudo vem da leitura do código desta API e do repositório público do ai-memory.
 
 ## 1. Decisão
 
@@ -31,7 +31,7 @@ Novo arquivo de domínio (nome sugerido: `src/domain/academic/curriculum-graph.t
 - `REQUIRED` (linha contínua): o código é exigido em toda forma de satisfazer a expressão. Vem de `E`, ou de um `OU` com uma só alternativa.
 - `ALTERNATIVE` (tracejada): o código está em um `OU`; basta uma das alternativas.
 
-Regra: aresta `REQUIRED` = o código aparece em **todas** as alternativas do `OU` de nível mais alto. Qualquer outro caso é `ALTERNATIVE`. Dentro de alternativa aninhada, o grupo mantém o `alt_group` para a tela dizer "uma destas".
+Regra (implementada): `REQUIRED` = código exigido em toda forma de satisfazer a expressão (`E` une os conjuntos, `OU` interseciona, recursivo, então vale também para `OU` aninhado). Qualquer outro é `ALTERNATIVE`. Co-requisito e equivalência usam a mesma regra, em relações próprias. O `alt_group` (para a tela dizer "uma destas") **não foi implementado** nesta fatia: entra junto com o contrato.
 
 **Consultas** (todas em memória sobre o currículo carregado):
 
@@ -55,7 +55,7 @@ Regra: aresta `REQUIRED` = o código aparece em **todas** as alternativas do `OU
 
 - Chave: id do currículo; versão: `fetchedAt` do `Curriculum`.
 - Guarda o grafo montado (matérias, arestas tipadas, índices de entrada e saída), **sem dado de pessoa**. O histórico do aluno entra só no cálculo, nunca no cache.
-- Renovação: ao ler, compara `fetchedAt`; se mudou, remonta. Mais um prazo curto (alguns minutos) para instâncias que não perceberam a importação.
+- Renovação (implementada): dentro do prazo (5 min) não toca no banco; passado o prazo, lê só a linha do currículo e compara a versão (`sigaaId:fetchedAt`): igual renova o prazo, diferente lê os componentes e remonta. Montagens simultâneas do mesmo curso viram uma só; erro do banco não fica guardado; `invalidate()` força remontar. Limite conhecido: a importação pode trocar o currículo entre a leitura da linha e a dos componentes; a versão fica atrás por até um prazo e se corrige na conferência seguinte.
 - Cada instância na Railway tem o seu cache; o dado é pequeno e igual em todas.
 - **Não foi medido sob carga.** Antes de contar com ele, teste de carga. Os gargalos prováveis estão fora do grafo (leitura ao vivo do SIGAA, leitura do histórico pela IA).
 

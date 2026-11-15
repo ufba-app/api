@@ -10,7 +10,7 @@ const TOKEN_PATTERN = /\(|\)|\bOU\b|\bE\b|[A-Z]{1,6}\d{1,4}[A-Z]?/g;
 
 type Token = { kind: 'OPEN' } | { kind: 'CLOSE' } | { kind: 'AND' } | { kind: 'OR' } | { kind: 'CODE'; code: string };
 
-type Expr =
+export type Expr =
   | { kind: 'CODE'; code: string }
   | { kind: 'AND'; left: Expr; right: Expr }
   | { kind: 'OR'; left: Expr; right: Expr };
@@ -80,6 +80,21 @@ function evaluate(expr: Expr, done: ReadonlySet<string>): boolean {
   if (expr.kind === 'CODE') return done.has(expr.code);
   if (expr.kind === 'AND') return evaluate(expr.left, done) && evaluate(expr.right, done);
   return evaluate(expr.left, done) || evaluate(expr.right, done);
+}
+
+/**
+ * A árvore da expressão, ou `null` quando não há o que interpretar: vazia, sem nenhum código (por exemplo uma carga
+ * horária mínima) ou malformada. Mesma regra de `checkExpression` para o que é `UNKNOWN`.
+ */
+export function parseExpression(text: string | null): Expr | null {
+  if (!text || text.trim() === '') return null;
+  const tokens = tokenize(text);
+  if (!tokens.some((t) => t.kind === 'CODE')) return null;
+  try {
+    return new Parser(tokens).parse();
+  } catch {
+    return null;
+  }
 }
 
 /** Todos os códigos citados na expressão, sem repetição e na ordem em que aparecem. */
