@@ -112,7 +112,7 @@ Em `src/application/siasb/progress.ts`:
 | `PROGRESS_MAX_DAYS` | 190 | maior período aceito |
 | `SIASB_AGENDA_DAYS` | 59 | o site do SIASB carrega ~59 dias de agenda; acima disso a resposta traz o aviso de **dado parcial** ("O SIASB pode devolver só parte do período pedido; confira os números.") |
 
-Uma só consulta de sessões cobre do início do período até o maior entre o fim e agora + 45 dias (para contar as marcadas adiante). A lista de atendimentos não traz data de conclusão: "concluídos no período" = concluído com alguma sessão no período; "no histórico" = todos os concluídos.
+Uma só consulta de sessões cobre do início do período até o maior entre o fim e agora + 45 dias (para contar as marcadas adiante), estendida só quando o fim está ao alcance dessa janela. Nenhuma chamada ao SIASB passa de 190 dias (`clinica_sessoes` puxa o início para 190 dias antes do fim) e `de` depois de `ate` é recusado antes de consultar. A lista de atendimentos não traz data de conclusão: "concluídos no período" = concluído com alguma sessão no período; "no histórico" = todos os concluídos.
 
 **Ritmo (semântica).** Calculado só sobre a parte **decorrida** do período, `[início, min(fim, agora)]`. As semanas são **blocos de 7 dias a partir do início do período** (não semanas de calendário). Só blocos completos podem ser "semana sem sessão": o último bloco, parcial, e blocos que começam depois de agora nunca contam. `sessoesPorSemana` = sessões atendidas ou marcadas ÷ semanas decorridas, e é `null` com menos de 1 dia decorrido. Período que ainda não começou: ritmo não calculado e aviso próprio. `horariosHabituais` vêm dos horários deduzidos do histórico.
 
@@ -139,6 +139,7 @@ Erros da conexão:
 | 409 | `source_account_taken` | essa matrícula já está ligada a outra conta do ufba.app |
 | 422 | `siasb_credentials_rejected` | o SIASB recusou a matrícula ou a senha |
 | 422 | `siasb_password_migration_required` | a pessoa precisa entrar uma vez no SIASB para atualizar a senha |
+| 429 | `too_many_attempts` | mais de 5 tentativas de conectar em 10 minutos (por pessoa) |
 | 503 | `siasb_unavailable` | o SIASB não respondeu (fora do ar, 429, página inesperada) |
 
 ## 10. O que NÃO está nesta fase

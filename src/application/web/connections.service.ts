@@ -28,6 +28,7 @@ export class ConnectionsService {
   /** `state` do Google para conectar o Classroom pelo web: aleatório, de uso único, preso à pessoa. */
   private readonly keyRate: RateWindow;
   private readonly unlockRate: RateWindow;
+  private readonly siasbRate: RateWindow;
   private readonly classroomStates = new Map<string, { userId: string; app: AppClassroom; expiresAt: number }>();
 
   constructor(
@@ -49,6 +50,8 @@ export class ConnectionsService {
     // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa).
     this.keyRate = new RateWindow(10, 60 * 60_000, this.now);
     this.unlockRate = new RateWindow(10, 60_000, this.now);
+    // Cada tentativa é um login real no SIASB: poucas por pessoa, para não virar tentativa de adivinhar senha.
+    this.siasbRate = new RateWindow(5, 10 * 60_000, this.now);
   }
 
   // ---- SIGAA ----
@@ -139,6 +142,7 @@ export class ConnectionsService {
 
   /** A senha chega como texto no corpo: vira Secret já na entrada e só é aberta no login do SIASB. */
   async connectSiasb(p: WebPrincipal, body: { password?: unknown }): Promise<void> {
+    if (!this.siasbRate.take(p.userId)) throw tooMany();
     const password = Secret.of(typeof body.password === 'string' ? body.password : '');
     await this.siasb.connect(p.userId, password);
   }

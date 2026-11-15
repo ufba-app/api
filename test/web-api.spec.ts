@@ -1328,6 +1328,17 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await send('DELETE', '/connections/siasb')).status).toBe(401);
     });
 
+    it('limita as tentativas de conectar: a 6ª em 10 minutos dá 429 too_many_attempts, sem falar com o SIASB', async () => {
+      const cookie = await aluno('siasb-limite');
+      siasbState.failure = new SiasbError('CREDENTIAL_REJECTED');
+      for (let i = 0; i < 5; i++) expect((await post(cookie)).status).toBe(422);
+      const calls = siasbState.courseCalls;
+      const sexta = await post(cookie);
+      expect(sexta.status).toBe(429);
+      expect(((await sexta.json()) as any).error).toBe('too_many_attempts');
+      expect(siasbState.courseCalls).toBe(calls);
+    });
+
     it('Origin de fora com X-UFBA válido: 403 csrf_rejected no POST e no DELETE', async () => {
       const cookie = await aluno('siasb-origem');
       // csrf:false derruba X-UFBA E Origin; aqui o X-UFBA vai certo e só a Origin é de fora.
