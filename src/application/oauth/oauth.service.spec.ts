@@ -163,7 +163,7 @@ describe('transação do /authorize (e state do Google): 15 min, uso único', ()
   function comRelogio() {
     let agora = 1_000_000;
     const { store } = montar();
-    const users = { findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })), findProfile: jest.fn(async () => null), deleteAccount: jest.fn(async () => undefined) };
+    const users = { findOrCreateByEmail: jest.fn(async () => ({ id: 'u1' })), findByEmail: jest.fn(async () => null), findProfile: jest.fn(async () => null), deleteAccount: jest.fn(async () => undefined) };
     const svc = new OAuthService(store, users, () => agora);
     return { svc, avancar: (ms: number) => (agora += ms) };
   }
