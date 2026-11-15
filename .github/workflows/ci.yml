@@ -40,6 +40,8 @@ jobs:
       - run: npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
       - run: npm run build
       - run: npm test
+        env:
+          RUN_DB_TESTS: '1'
       # O contrato versionado precisa bater com o código (schemas Zod em src/application/web/contract.ts).
       - run: node dist/src/openapi-cli.js
       - name: openapi.json atualizado

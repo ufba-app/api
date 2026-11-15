@@ -170,6 +170,8 @@ Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railw
 
 **Desconectar** (`DELETE /connections/siasb`) apaga a **conta SIASB primeiro** e **só depois** a cópia e o estado (`SiasbLink.disconnect`). Essa ordem evita cópia órfã: a gravação da cópia trava a linha da conta, então uma desconexão concorrente espera a gravação terminar e a limpeza seguinte apaga o que foi gravado. Se a limpeza falhar, o erro volta para a pessoa tentar de novo (desconectar é idempotente). `DELETE /me` apaga tudo em cascata.
 
+**Teste de integração:** o repositório da cópia tem um spec contra Postgres de verdade (`prisma-siasb-copy.repository.int.spec.ts`) que só roda no CI com `RUN_DB_TESTS=1`, no Postgres efêmero do workflow. Nunca o rode contra um banco compartilhado.
+
 ## 11. O que NÃO está nesta fase
 
 - **Alertas por push**, **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 2, 3 e 4 do spec (seções 5.4, 5.6 e 5.7). Nada aqui grava no SIASB.
