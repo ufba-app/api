@@ -1,9 +1,9 @@
 enum SourceProvider {
   SIGAA
   MOODLE
-  SIASB
   CLASSROOM
   CALENDAR
+  SIASB
 }
 
 enum SourceAccountStatus {
