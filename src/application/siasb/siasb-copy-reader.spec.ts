@@ -273,7 +273,7 @@ describe('SiasbCopyReader.situation', () => {
 
   it('cópia vazia e sem sincronização: syncedAt null, stale, nenhum item', async () => {
     const { reader } = await build({}, new FakeCalendar(), false);
-    expect(await reader.situation('u1')).toEqual({ syncedAt: null, stale: true, items: [] });
+    expect(await reader.situation('u1')).toEqual({ syncedAt: null, stale: true, items: [], previous: {} });
   });
 
   it('disciplinas sem sincronização continuam NO_PATIENT e stale', async () => {
@@ -282,6 +282,20 @@ describe('SiasbCopyReader.situation', () => {
     expect(r.stale).toBe(true);
     expect(r.syncedAt).toBeNull();
     expect(r.items.map((i) => i.state)).toEqual(['NO_PATIENT']);
+  });
+
+  it('previous: último horário com prazo vencido por disciplina, com covered pela sessão do dia', async () => {
+    const weekly = [sess('w1', 'a1', 'd1', iso(-14), 'Atendido'), sess('w2', 'a1', 'd1', iso(-7), 'Atendido')];
+    const a = await build({ disciplines: [DISCS[0], DISCS[1]], attendances: [att('a1', 'd1')], sessions: weekly });
+    const r = await a.reader.situation('u1');
+    expect(r.previous.d1).toMatchObject({ slot: new Date(iso(0)), covered: false });
+    expect(r.previous.d1!.deadline.getTime()).toBeLessThanOrEqual(NOW.getTime());
+    expect(r.previous.d2).toBeNull();
+    // a falta do paciente no dia do horário conta como marcada
+    const b = await build({ disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: [...weekly, sess('w3', 'a1', 'd1', iso(0, 14), 'Falta paciente')] });
+    expect((await b.reader.situation('u1')).previous.d1!.covered).toBe(true);
+    // e os itens continuam os mesmos
+    expect((await b.reader.situation('u1')).items[0].disciplineId).toBe('d1');
   });
 
   it('só enxerga a cópia da própria pessoa', async () => {

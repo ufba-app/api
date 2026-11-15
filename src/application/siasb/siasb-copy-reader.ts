@@ -4,7 +4,9 @@ import type { SecretCipher } from '../ports/secret-cipher';
 import type { SiasbCopyRepository, SyncState } from '../ports/siasb-copy';
 
 import { DAY_MS, MAX_AHEAD_DAYS } from './session-period';
-import { computeSituation, historyWindow, type DisciplineSituation } from './situation';
+import { computePreviousSlot, computeSituation, historyWindow, type DisciplineSituation } from './situation';
+
+export type PreviousSlot = { slot: Date; deadline: Date; covered: boolean };
 
 export const STALE_AFTER_MS = 3 * 60 * 60_000;
 
@@ -71,7 +73,13 @@ export class SiasbCopyReader {
   }
 
   /** Situação de cada disciplina a partir da cópia (mesma regra do leitor ao vivo; sessões de [agora − 60 d, agora + 45 d]). */
-  async situation(userId: string): Promise<{ syncedAt: Date | null; stale: boolean; items: DisciplineSituation[] }> {
+  async situation(userId: string): Promise<{
+    syncedAt: Date | null;
+    stale: boolean;
+    items: DisciplineSituation[];
+    /** Por disciplina: o último horário da clínica cujo prazo já passou (base do "Prazo perdido"). */
+    previous: Record<string, PreviousSlot | null>;
+  }> {
     const now = this.now();
     const [from, to] = historyWindow(now);
     const [state, disciplines, attendances, sessions, holidays] = await Promise.all([
@@ -109,7 +117,11 @@ export class SiasbCopyReader {
       now,
       holidays,
     });
-    return { ...this.freshness(state), items };
+    const previous: Record<string, PreviousSlot | null> = {};
+    for (const d of disciplines) {
+      previous[d.id] = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays });
+    }
+    return { ...this.freshness(state), items, previous };
   }
 
   private freshness(state: SyncState | null): { syncedAt: Date | null; stale: boolean } {

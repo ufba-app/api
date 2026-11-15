@@ -1,5 +1,5 @@
 import { bahiaDateKey, bahiaDayAndHour, bahiaWeekday } from '../../domain/siasb/alert-format';
-import { alertChain, chainSlotAtOrBefore, lastAlertAt, latestDue, unscheduledSlot, ALERT_GAP_MS } from '../../domain/siasb/alert-schedule';
+import { alertChain, chainSlotAtOrBefore, latestDue, unscheduledSlot, ALERT_GAP_MS } from '../../domain/siasb/alert-schedule';
 import { inQuietHours } from '../../domain/notifications/quiet-hours';
 import type { AlertResult } from '../notifications/alert-provider';
 import type { Notifier, NotifyResult } from '../notifications/notifier';
@@ -14,7 +14,8 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** A cópia só vale para avisar de prazo se o último sucesso tem até 24 h. */
 const COPY_MAX_AGE_MS = 24 * HOUR;
-const CLINIC_WEEK_MS = 7 * DAY;
+/** "Prazo perdido" só até 72 h depois do prazo (nunca um aviso velho depois de uma queda). */
+const MISSED_MAX_AGE_MS = 72 * HOUR;
 const RECONNECT_SUBJECT = 'connection';
 const RECONNECT_BEFORE_MS = [7 * DAY, 3 * DAY, 1 * DAY];
 
@@ -120,19 +121,16 @@ export class SiasbAlerts {
       if (item.state === 'SCHEDULED') continue;
       if (item.deadline) await this.deadlineItem(userId, item, item.deadline, now, r);
       else if (item.state === 'NO_PATIENT') await this.unscheduledItem(userId, item, now, r);
+      await this.missedDeadline(userId, item, situation.previous?.[item.disciplineId] ?? null, now, r);
     }
   }
 
   private async deadlineItem(userId: string, item: DisciplineSituation, deadline: Date, now: Date, r: AlertResult): Promise<void> {
     const subject = deadlineSubject(item.disciplineId, deadline);
-    if (now.getTime() > deadline.getTime()) {
-      await this.deliver(userId, r, subject, deadline, `Prazo perdido em ${item.disciplineName}.`);
-      return;
-    }
     const last = await this.notifier.lastSentAt(userId, KEY, subject);
     const body = this.deadlineBody(item, deadline);
     if (last === null) {
-      await this.deliver(userId, r, subject, chainSlotAtOrBefore(deadline, now) ?? lastAlertAt(deadline), body);
+      await this.deliver(userId, r, subject, chainSlotAtOrBefore(deadline, now) ?? new Date(Math.floor(now.getTime() / HOUR) * HOUR), body);
     } else {
       const { due, skipped } = latestDue(alertChain(deadline, last, now), now);
       if (due) {
@@ -140,24 +138,30 @@ export class SiasbAlerts {
         if (res === 'sent' || res === 'duplicate') await this.suppress(userId, r, subject, skipped);
       }
     }
-    await this.missedPrevious(userId, item, deadline, r);
   }
 
   /**
-   * O prazo anterior (uma semana antes) já passou e a pessoa tinha sido avisada dele: um único "Prazo perdido" com
-   * `slotAt = prazo anterior` e a próxima chance. Se um feriado deslocou o prazo, o dia do subject não bate e o aviso é omitido.
+   * "Prazo perdido": o horário anterior da clínica (vindo da leitura, função pura) teve o prazo vencido há até 72 h,
+   * a pessoa foi avisada naquele episódio, ainda está sem paciente/sessão (① ou ②) e não há sessão válida no dia do
+   * horário (marcou e atendeu não é perdido). slotAt = o prazo perdido; o texto cita a próxima chance, se houver.
    */
-  private async missedPrevious(userId: string, item: DisciplineSituation, deadline: Date, r: AlertResult): Promise<void> {
-    const previous = new Date(deadline.getTime() - CLINIC_WEEK_MS);
-    const subject = deadlineSubject(item.disciplineId, previous);
+  private async missedDeadline(
+    userId: string,
+    item: DisciplineSituation,
+    previous: { slot: Date; deadline: Date; covered: boolean } | null,
+    now: Date,
+    r: AlertResult,
+  ): Promise<void> {
+    if (!previous || previous.covered) return;
+    const age = now.getTime() - previous.deadline.getTime();
+    if (age <= 0 || age > MISSED_MAX_AGE_MS) return;
+    const subject = deadlineSubject(item.disciplineId, previous.deadline);
     if ((await this.notifier.lastSentAt(userId, KEY, subject)) === null) return;
-    await this.deliver(
-      userId,
-      r,
-      subject,
-      previous,
-      `Prazo perdido em ${item.disciplineName}. Próxima chance: ${bahiaDayAndHour(deadline)}.`,
-    );
+    const next =
+      item.deadline && item.deadline.getTime() > previous.deadline.getTime()
+        ? ` Próxima chance: ${bahiaDayAndHour(item.deadline)}.`
+        : '';
+    await this.deliver(userId, r, subject, previous.deadline, `Prazo perdido em ${item.disciplineName}.${next}`);
   }
 
   private deadlineBody(item: DisciplineSituation, deadline: Date): string {

@@ -1,6 +1,6 @@
 import { AadCipher, FakePushSender, InMemoryAlertLog, InMemoryNotificationSettings, InMemoryPushDevices } from '../../../test/support/notifications-fake';
 import { InMemorySiasbCopy } from '../../../test/support/siasb-copy-fake';
-import { alertChain, chainSlotAtOrBefore, lastAlertAt } from '../../domain/siasb/alert-schedule';
+import { alertChain, chainSlotAtOrBefore } from '../../domain/siasb/alert-schedule';
 import { AcademicCalendar } from '../ports/academic-calendar';
 import { SourceAccountRepository, type SourceAccountRecord } from '../ports/repositories';
 import type { SyncedAttendance, SyncedSession } from '../ports/siasb-copy';
@@ -89,6 +89,7 @@ async function setup() {
     copy,
     accounts,
     items: [item()] as DisciplineSituation[],
+    previous: {} as Record<string, { slot: Date; deadline: Date; covered: boolean } | null>,
     situationCalls: 0,
     syncOk: true,
     reader: null as unknown as SiasbCopyReader,
@@ -106,7 +107,7 @@ async function setup() {
     situation: async (userId: string) => {
       t.situationCalls++;
       const st = await copy.state(userId);
-      return { syncedAt: st?.lastSuccessAt ?? null, stale: false, items: t.items };
+      return { syncedAt: st?.lastSuccessAt ?? null, stale: false, items: t.items, previous: t.previous };
     },
   } as unknown as SiasbCopyReader;
   t.alerts = new SiasbAlerts(t.reader, copy, notifier, accounts);
@@ -158,11 +159,13 @@ describe('SiasbAlerts: aviso de prazo', () => {
     });
   });
 
-  it('cadeia ainda não começou: slotAt = último aviso (6 h acordado antes do prazo)', async () => {
+  it('cadeia ainda não começou: slotAt = agora truncado à hora (o instante futuro da cadeia continua livre)', async () => {
     const t = await setup();
     await t.run('2026-09-01T12:00:00-03:00');
-    expect(t.keys()).toEqual([`siasb.alerts|${SUBJECT}|${lastAlertAt(D).toISOString()}`]);
+    expect(t.keys()).toEqual([`siasb.alerts|${SUBJECT}|${at('2026-09-01T12:00:00-03:00').toISOString()}`]);
     expect(t.sender.sent).toHaveLength(1);
+    expect((await t.run('2026-11-19T19:30:00-03:00')).sent).toBe(1);
+    expect(t.keys()).toContain(`siasb.alerts|${SUBJECT}|${SLOT_LAST.toISOString()}`);
   });
 
   it('① com prazo tem o seu texto', async () => {
@@ -310,46 +313,74 @@ describe('SiasbAlerts: silêncio 22h-7h (decidido aqui)', () => {
   });
 });
 
-describe('SiasbAlerts: prazo perdido', () => {
-  it('deadline do item já passou: um único "Prazo perdido" (slotAt = prazo); as outras rodadas dão duplicata', async () => {
-    const t = await setup();
-    const r = await t.run('2026-11-20T11:00:00-03:00');
-    expect(r.sent).toBe(1);
-    expect(t.bodies()).toEqual(['Prazo perdido em Clínica Integrada I.']);
-    expect(t.keys()).toEqual([`siasb.alerts|${SUBJECT}|${D.toISOString()}`]);
-    const again = await t.run('2026-11-20T11:15:00-03:00');
-    expect(again).toEqual({ sent: 0, suppressed: 0, skipped: 1, failed: 0 });
-    expect(t.sender.sent).toHaveLength(1);
+describe('SiasbAlerts: prazo perdido (a partir do horário anterior da leitura)', () => {
+  const PREV = (over: Partial<{ slot: Date; deadline: Date; covered: boolean }> = {}) => ({
+    d1: { slot: at('2026-11-20T14:00:00-03:00'), deadline: D, covered: false, ...over },
   });
-
-  it('o prazo passou e a leitura já mostra o próximo horário: aviso do episódio novo e "Prazo perdido ... Próxima chance"', async () => {
-    const t = await setup();
-    await t.run('2026-11-19T19:30:00-03:00'); // avisou do prazo de 20/11
-    t.items = [item({ nextSlot: at('2026-11-27T14:00:00-03:00'), deadline: at('2026-11-27T10:00:00-03:00') })];
-    const r = await t.run('2026-11-20T11:00:00-03:00');
-    expect(r.sent).toBe(2);
-    expect(t.bodies()).toContain('Prazo perdido em Clínica Integrada I. Próxima chance: sexta, 27/11, às 10h.');
-    expect(t.keys()).toContain(`siasb.alerts|${SUBJECT}|${D.toISOString()}`);
-    expect(t.keys().some((k) => k.startsWith('siasb.alerts|disc:d1:2026-11-27|'))).toBe(true);
-    // idempotente
-    expect((await t.run('2026-11-20T11:15:00-03:00')).sent).toBe(0);
-    expect(t.sender.sent).toHaveLength(3);
-  });
-
-  it('sem aviso anterior do prazo que passou, não avisa de prazo perdido', async () => {
-    const t = await setup();
-    t.items = [item({ nextSlot: at('2026-11-27T14:00:00-03:00'), deadline: at('2026-11-27T10:00:00-03:00') })];
-    const r = await t.run('2026-11-20T11:00:00-03:00');
-    expect(r.sent).toBe(1);
-    expect(t.bodies().every((b) => !b.startsWith('Prazo perdido'))).toBe(true);
-  });
-
-  it('prazo perdido de disciplina que virou SCHEDULED: nada', async () => {
+  /** Avisou do prazo de 20/11 e agora a leitura já mostra o horário seguinte (prazo deslocado: quinta 26/11, 10h). */
+  async function missedSetup() {
     const t = await setup();
     await t.run('2026-11-19T19:30:00-03:00');
+    t.items = [item({ nextSlot: at('2026-11-26T14:00:00-03:00'), deadline: at('2026-11-26T10:00:00-03:00') })];
+    t.previous = PREV();
+    return t;
+  }
+  const perdido = (t: { bodies: () => string[] }) => t.bodies().filter((b) => b.startsWith('Prazo perdido'));
+
+  it('avisou, não marcou e o prazo passou: um "Prazo perdido" com a próxima chance (mesmo com prazo deslocado), uma só vez', async () => {
+    const t = await missedSetup();
+    const r = await t.run('2026-11-20T11:00:00-03:00');
+    expect(r.sent).toBe(2); // o perdido e o primeiro aviso do episódio novo
+    expect(perdido(t)).toEqual(['Prazo perdido em Clínica Integrada I. Próxima chance: quinta, 26/11, às 10h.']);
+    expect(t.keys()).toContain(`siasb.alerts|${SUBJECT}|${D.toISOString()}`);
+    expect((await t.run('2026-11-20T11:15:00-03:00')).sent).toBe(0);
+    expect(perdido(t)).toHaveLength(1);
+  });
+
+  it('marcou e atendeu (voltou a NO_SESSION): sessão no dia do horário -> sem "perdido"', async () => {
+    const t = await missedSetup();
+    t.previous = PREV({ covered: true });
+    await t.run('2026-11-20T15:00:00-03:00');
+    expect(perdido(t)).toEqual([]);
+  });
+
+  it('prazo perdido há mais de 72 h: não avisa (nunca um "perdido" velho depois de uma queda)', async () => {
+    const t = await missedSetup();
+    await t.run('2026-11-23T11:00:00-03:00'); // 73 h depois do prazo
+    expect(perdido(t)).toEqual([]);
+    const ok = await missedSetup();
+    await ok.run('2026-11-23T10:00:00-03:00'); // exatamente 72 h
+    expect(perdido(ok)).toHaveLength(1);
+  });
+
+  it('não foi avisada naquele episódio (lastSentAt nulo): não avisa de perdido', async () => {
+    const t = await setup();
+    t.items = [item({ nextSlot: at('2026-11-26T14:00:00-03:00'), deadline: at('2026-11-26T10:00:00-03:00') })];
+    t.previous = PREV();
+    const r = await t.run('2026-11-20T11:00:00-03:00');
+    expect(r.sent).toBe(1);
+    expect(perdido(t)).toEqual([]);
+  });
+
+  it('disciplina em SCHEDULED: nada, nem perdido', async () => {
+    const t = await missedSetup();
     t.items = [item({ state: 'SCHEDULED' })];
     await t.run('2026-11-20T11:00:00-03:00');
     expect(t.sender.sent).toHaveLength(1);
+  });
+
+  it('sem próximo horário: o texto vem sem a segunda frase', async () => {
+    const t = await missedSetup();
+    t.items = [item({ nextSlot: null, deadline: null })];
+    await t.run('2026-11-20T11:00:00-03:00');
+    expect(perdido(t)).toEqual(['Prazo perdido em Clínica Integrada I.']);
+  });
+
+  it('não é palpite de uma semana antes: prazo anterior qualquer (não 7 dias antes) também avisa', async () => {
+    const t = await missedSetup();
+    t.items = [item({ nextSlot: at('2026-12-03T14:00:00-03:00'), deadline: at('2026-12-03T10:00:00-03:00') })];
+    await t.run('2026-11-20T11:00:00-03:00');
+    expect(perdido(t)).toEqual(['Prazo perdido em Clínica Integrada I. Próxima chance: quinta, 03/12, às 10h.']);
   });
 });
 

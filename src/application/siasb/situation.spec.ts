@@ -1,5 +1,5 @@
 import type { ClinicalAttendance, ClinicalDiscipline, ClinicalSession } from '../../domain/siasb/types';
-import { computeSituation } from './situation';
+import { computePreviousSlot, computeSituation } from './situation';
 
 const NOW = new Date('2026-11-16T12:00:00Z'); // segunda
 const d = (iso: string) => new Date(iso);
@@ -100,5 +100,49 @@ describe('computeSituation (mesmos dados dos testes de SiasbReader.situation)', 
     expect(r.holidaysConsidered).toBe(true);
     expect(r.nextSlot).toEqual(d('2026-11-18T13:00:00Z'));
     expect(r.deadline).toEqual(d('2026-11-16T13:00:00Z'));
+  });
+});
+
+describe('computePreviousSlot', () => {
+  // sextas 14h da Bahia (17:00Z); 06/11 e 13/11 atendidas formam o horário.
+  const BASE = [sess('p1', '1', 'a1', '2026-11-06T17:00:00Z', 'Atendido'), sess('p2', '1', 'a1', '2026-11-13T17:00:00Z', 'Atendido')];
+  const prev = (now: string, extra: ClinicalSession[] = [], holidays = NO_HOLIDAYS) =>
+    computePreviousSlot({ disciplineId: '1', sessions: [...BASE, ...extra], now: d(now), holidays });
+
+  it('devolve o horário mais recente com prazo <= agora (prazo futuro nunca é devolvido)', () => {
+    const r = prev('2026-11-16T12:00:00Z'); // segunda: o prazo da sexta 20/11 (terça 17/11) ainda não passou
+    expect(r!.slot).toEqual(d('2026-11-13T17:00:00Z'));
+    expect(r!.deadline.getTime()).toBeLessThanOrEqual(d('2026-11-16T12:00:00Z').getTime());
+  });
+
+  it('o prazo do horário de 20/11 passou: ele é o mais recente (sem sessão no dia: covered false)', () => {
+    const r = prev('2026-11-17T18:00:00Z');
+    expect(r!.slot).toEqual(d('2026-11-20T17:00:00Z'));
+    expect(r!.deadline).toEqual(d('2026-11-17T17:00:00Z'));
+    expect(r!.covered).toBe(false);
+  });
+
+  it('com calendário conhecido (sem margem) o prazo é um dia útil mais tarde e o horário anterior muda (não é "7 dias antes")', () => {
+    const r = prev('2026-11-17T18:00:00Z', [], { known: true, dates: [] });
+    expect(r!.slot).toEqual(d('2026-11-13T17:00:00Z'));
+  });
+
+  it('nenhum horário conhecido: null', () => {
+    expect(computePreviousSlot({ disciplineId: '1', sessions: [], now: d('2026-11-17T18:00:00Z'), holidays: NO_HOLIDAYS })).toBeNull();
+  });
+
+  it('covered: sessão não cancelada no dia (atendida, falta do paciente) sim; cancelada ou não agendada não', () => {
+    const day = '2026-11-20T18:00:00Z';
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Atendido')])!.covered).toBe(true);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Falta paciente')])!.covered).toBe(true);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Confirmado')])!.covered).toBe(true);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Cancelada')])!.covered).toBe(false);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Não agendado')])!.covered).toBe(false);
+  });
+
+  it('covered usa o dia da Bahia: 23:30 do dia 20 conta, 00:30 do dia 21 não; outra disciplina não cobre', () => {
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', '2026-11-21T02:30:00Z', 'Atendido')])!.covered).toBe(true);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', '2026-11-21T03:30:00Z', 'Atendido')])!.covered).toBe(false);
+    expect(prev('2026-11-17T18:00:00Z', [sess('x', '2', 'a9', '2026-11-20T18:00:00Z', 'Atendido')])!.covered).toBe(false);
   });
 });
