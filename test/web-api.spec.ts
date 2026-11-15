@@ -1047,6 +1047,39 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await get('/me/academic', cookie)).headers.get('cache-control')).toBe('no-store');
     });
 
+    it('DELETE /me/academic/draft: descarta só o rascunho (204), sem rascunho é 404, exige sessão e X-UFBA', async () => {
+      const cookie = await conectado('acad6');
+      const nenhum = await send('DELETE', '/me/academic/draft', { cookie });
+      expect(nenhum.status).toBe(404);
+      expect(((await nenhum.json()) as any).error).toBe('import_not_found');
+
+      await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } });
+      expect((await send('POST', '/me/academic/import', { cookie, body: {} })).status).toBe(202);
+      await esperar(cookie, 'NEEDS_CONFIRMATION');
+      expect((await send('DELETE', '/me/academic/draft', { cookie, csrf: false })).status).toBe(403);
+      expect((await send('DELETE', '/me/academic/draft')).status).toBe(401);
+      expect((await send('DELETE', '/me/academic/draft', { cookie })).status).toBe(204);
+      expect(((await (await get('/me/academic', cookie)).json()) as any)).toMatchObject({ status: 'NONE', draft: null, summary: null });
+    });
+
+    it('com histórico gravado, o summary continua durante o Atualizar e descartar o rascunho volta a READY', async () => {
+      const cookie = await conectado('acad7');
+      await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } });
+      await send('POST', '/me/academic/import', { cookie, body: {} });
+      await esperar(cookie, 'NEEDS_CONFIRMATION');
+      expect((await send('POST', '/me/academic/confirm', { cookie, body: {} })).status).toBe(204);
+      const gravado = (await (await get('/me/academic', cookie)).json()) as any;
+      expect(gravado.summary).not.toBeNull();
+
+      await send('POST', '/me/academic/import', { cookie, body: {} });
+      const rascunho = await esperar(cookie, 'NEEDS_CONFIRMATION');
+      expect(rascunho.summary).toEqual(gravado.summary);
+      expect(rascunho.importedAt).toBe(gravado.importedAt);
+
+      expect((await send('DELETE', '/me/academic/draft', { cookie })).status).toBe(204);
+      expect(((await (await get('/me/academic', cookie)).json()) as any)).toMatchObject({ status: 'READY', draft: null, importedAt: gravado.importedAt });
+    });
+
     it('o histórico, as notas e a senha nunca aparecem em log ou erro', async () => {
       const log = saida.join('\n');
       expect(log).not.toContain('FÍSICA GERAL TEÓRICA I');

@@ -1833,6 +1833,49 @@
         }
       }
     },
+    "/me/academic/draft": {
+      "delete": {
+        "operationId": "discardAcademicDraft",
+        "summary": "Descarta só o rascunho (ou a falha) de um Atualizar; o histórico gravado fica (volta a READY, ou a NONE sem histórico)",
+        "tags": [
+          "academic"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/academic/curriculum": {
       "get": {
         "operationId": "getAcademicCurriculum",
@@ -1927,7 +1970,19 @@
                               "null"
                             ]
                           },
+                          "corequisiteExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "equivalenceExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "responsibleUnit": {
                             "type": [
                               "string",
                               "null"
@@ -1948,7 +2003,9 @@
                           "missingPrerequisites",
                           "prerequisiteUnverifiable",
                           "prerequisiteExpr",
+                          "corequisiteExpr",
                           "equivalenceExpr",
+                          "responsibleUnit",
                           "late"
                         ]
                       }
@@ -2012,7 +2069,19 @@
                               "null"
                             ]
                           },
+                          "corequisiteExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "equivalenceExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "responsibleUnit": {
                             "type": [
                               "string",
                               "null"
@@ -2033,7 +2102,9 @@
                           "missingPrerequisites",
                           "prerequisiteUnverifiable",
                           "prerequisiteExpr",
+                          "corequisiteExpr",
                           "equivalenceExpr",
+                          "responsibleUnit",
                           "late"
                         ]
                       }
@@ -2097,7 +2168,19 @@
                               "null"
                             ]
                           },
+                          "corequisiteExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "equivalenceExpr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "responsibleUnit": {
                             "type": [
                               "string",
                               "null"
@@ -2118,7 +2201,9 @@
                           "missingPrerequisites",
                           "prerequisiteUnverifiable",
                           "prerequisiteExpr",
+                          "corequisiteExpr",
                           "equivalenceExpr",
+                          "responsibleUnit",
                           "late"
                         ]
                       }

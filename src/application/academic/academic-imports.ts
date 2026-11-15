@@ -83,6 +83,14 @@ export function toProgressInput(t: TranscriptContract): TranscriptInput {
  * segundo plano e a trava de "rodando" vivem em memória; um processo que morre no meio deixa uma importação "rodando" que
  * vence sozinha em 10 minutos).
  */
+/**
+ * Há histórico gravado? `READY` sim; nos outros estados (lendo, rascunho, falha de um Atualizar) o `importedAt` carrega a data do
+ * histórico que continua valendo (é nulo quando a pessoa nunca confirmou nada).
+ */
+function hasStoredHistory(imp: ImportState | null): boolean {
+  return imp?.status === 'READY' || (imp?.importedAt ?? null) !== null;
+}
+
 export class AcademicImports {
   private readonly log = new Logger('AcademicImports');
   private readonly inflight = new Map<string, Promise<void>>();
@@ -112,7 +120,8 @@ export class AcademicImports {
   async state(p: WebPrincipal): Promise<AcademicState> {
     const consent = await this.hasConsent(p.userId);
     const imp = await this.freshImport(p.userId);
-    const transcript = imp?.status === 'READY' ? await this.repo.findTranscript(p.userId) : null;
+    // O histórico gravado aparece em qualquer status (inclusive durante um Atualizar); `importedAt` é o dele.
+    const transcript = hasStoredHistory(imp) ? await this.repo.findTranscript(p.userId) : null;
     return {
       available: this.available(),
       consent,
@@ -155,11 +164,13 @@ export class AcademicImports {
     if (await this.overMonthlyCap()) throw unavailable();
 
     const startedAt = this.now();
+    // Atualizar com um histórico já gravado: ele continua valendo (data e curso) enquanto a nova leitura roda ou falha.
+    const carry = hasStoredHistory(current) ? { programId: current!.programId, importedAt: current!.importedAt } : null;
     await this.repo.saveImport({
       userId: p.userId,
       status: 'RUNNING',
       failure: null,
-      programId: null,
+      programId: carry?.programId ?? null,
       draft: null,
       profile: null,
       verified: null,
@@ -167,9 +178,9 @@ export class AcademicImports {
       componentsCount: null,
       startedAt,
       finishedAt: null,
-      importedAt: null,
+      importedAt: carry?.importedAt ?? null,
     });
-    const job = this.run(p.userId, cred.login, cred.senha, startedAt).finally(() => this.inflight.delete(p.userId));
+    const job = this.run(p.userId, cred.login, cred.senha, startedAt, carry).finally(() => this.inflight.delete(p.userId));
     this.inflight.set(p.userId, job);
   }
 
@@ -187,6 +198,43 @@ export class AcademicImports {
     await this.repo.replaceTranscript(p.userId, imp.draft);
     if (imp.profile) await this.repo.saveProfile(p.userId, imp.profile);
     await this.repo.saveImport({ ...imp, status: 'READY', draft: null, importedAt: this.now() });
+  }
+
+  /**
+   * Descarta SÓ o rascunho (ou a falha) de um Atualizar, sem mexer no histórico gravado: com histórico, o estado volta a
+   * `READY`; sem, a `NONE`. Durante a leitura não dá (409); sem rascunho nem falha, 404.
+   */
+  async discardDraft(p: WebPrincipal): Promise<void> {
+    const imp = await this.freshImport(p.userId);
+    if (imp?.status === 'RUNNING' || this.inflight.has(p.userId)) {
+      throw new ApiError(409, 'import_in_progress', 'Já existe uma importação em andamento.');
+    }
+    if (!imp || (imp.status !== 'NEEDS_CONFIRMATION' && imp.status !== 'FAILED')) {
+      throw new ApiError(404, 'import_not_found', 'Não há rascunho nem falha de importação para descartar.');
+    }
+    await this.dropDraft(imp);
+  }
+
+  /** Tira o rascunho/falha: volta ao histórico gravado (`READY`) se há, senão apaga o estado (`NONE`). */
+  private async dropDraft(imp: ImportState): Promise<ImportState | null> {
+    const stored = hasStoredHistory(imp) ? await this.repo.findTranscript(imp.userId) : null;
+    if (!stored) {
+      await this.repo.deleteImport(imp.userId);
+      return null;
+    }
+    const ready: ImportState = {
+      ...imp,
+      status: 'READY',
+      failure: null,
+      draft: null,
+      profile: null,
+      verified: stored.verification.verified,
+      reader: stored.verification.reader,
+      componentsCount: stored.components.length,
+      finishedAt: this.now(),
+    };
+    await this.repo.saveImport(ready);
+    return ready;
   }
 
   /** Apaga o histórico, o rascunho e o perfil importado. O aceite fica (a pessoa revoga à parte). */
@@ -208,7 +256,13 @@ export class AcademicImports {
 
   // ---- trabalho em segundo plano ----
 
-  private async run(userId: string, login: string, password: Secret, startedAt: Date): Promise<void> {
+  private async run(
+    userId: string,
+    login: string,
+    password: Secret,
+    startedAt: Date,
+    carry: { programId: string | null; importedAt: Date | null } | null,
+  ): Promise<void> {
     const began = Date.now();
     let result = 'OK';
     let usage: { inputTokens: number; outputTokens: number } | undefined;
@@ -250,7 +304,7 @@ export class AcademicImports {
         componentsCount,
         startedAt,
         finishedAt: this.now(),
-        importedAt: null,
+        importedAt: carry?.importedAt ?? null,
       });
     } catch (e) {
       const failure: ImportFailure = e instanceof StepFailure ? e.code : 'SIGAA_UNAVAILABLE';
@@ -261,7 +315,7 @@ export class AcademicImports {
         userId,
         status: 'FAILED',
         failure,
-        programId: null,
+        programId: carry?.programId ?? null,
         draft: null,
         profile: null,
         verified: null,
@@ -269,7 +323,7 @@ export class AcademicImports {
         componentsCount: null,
         startedAt,
         finishedAt: this.now(),
-        importedAt: null,
+        importedAt: carry?.importedAt ?? null,
       });
     } finally {
       const latencyMs = Date.now() - began;
@@ -333,14 +387,13 @@ export class AcademicImports {
       return failed;
     }
     if (imp.status === 'NEEDS_CONFIRMATION' && imp.finishedAt && this.now().getTime() - imp.finishedAt.getTime() > DRAFT_TTL_MS) {
-      await this.repo.deleteImport(userId);
-      return null;
+      return this.dropDraft(imp);
     }
     return imp;
   }
 
   private async curriculumStatus(imp: ImportState | null): Promise<CurriculumStatus> {
-    if (!imp || !imp.programId || (imp.status !== 'READY' && imp.status !== 'NEEDS_CONFIRMATION')) return 'NONE';
+    if (!imp || !imp.programId || (imp.status !== 'READY' && imp.status !== 'NEEDS_CONFIRMATION' && !hasStoredHistory(imp))) return 'NONE';
     if (await this.catalog.read(imp.programId)) return 'READY';
     if (this.catalog.importing(imp.programId)) return 'IMPORTING';
     // A grade não está lá e ninguém a está buscando: tenta de novo em segundo plano (com intervalo, sem martelar o SIGAA).

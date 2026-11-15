@@ -259,7 +259,7 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
   `available = false`: o servidor não tem chave do provedor de IA (esconder a oferta). `status`: `NONE` | `RUNNING` |
   `NEEDS_CONFIRMATION` | `READY` | `FAILED` (+ `failure`: `REDACTION_REFUSED`, `READER_FAILED`, `SIGAA_UNAVAILABLE`, `PDF_INVALID`,
   `SESSION_EXPIRED`, `TIMEOUT`). `draft` só em `NEEDS_CONFIRMATION` (o que foi lido: componentes, pendentes, horas, avisos);
-  `summary` só com o histórico gravado. `curriculumStatus` (a grade do curso): `NONE` | `READY` | `IMPORTING` | `UNAVAILABLE`.
+  `summary` vem **sempre que há histórico gravado, em qualquer status** (inclusive `RUNNING`, `NEEDS_CONFIRMATION` e `FAILED` de um Atualizar): `summary !== null` significa "tem histórico gravado". `importedAt` é a data desse histórico enquanto o Atualizar roda, espera confirmação ou falha. `curriculumStatus` (a grade do curso): `NONE` | `READY` | `IMPORTING` | `UNAVAILABLE`.
   A tela acompanha a importação consultando esta rota (a importação roda em segundo plano).
 - `PUT /me/academic/consent` `{ accepted }` → 204. Aceita (ou revoga) o envio das disciplinas e notas, **sem identidade**, ao
   provedor de IA. Revogar exige novo aceite para importar; não apaga o que já foi gravado.
@@ -270,9 +270,10 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
   `verified = false` a confirmação é obrigatória e a tela mostra `draft.verification.warnings`.** 404 `import_not_found` sem rascunho
   (o rascunho vale 7 dias).
 - `DELETE /me/academic` → 204. Apaga histórico, rascunho e perfil importado (o aceite fica).
+- `DELETE /me/academic/draft` → 204. Descarta **só** o rascunho (`NEEDS_CONFIRMATION`) ou a falha (`FAILED`) de um Atualizar, sem tocar no histórico gravado: com histórico o estado volta a `READY`; sem, a `NONE`. 409 `import_in_progress` durante a leitura (`RUNNING`); 404 `import_not_found` sem rascunho nem falha.
 - `GET /me/academic/curriculum` → a grade do curso (currículo Ativo) marcada com o que a pessoa já fez: componentes obrigatórios,
   optativas e complementares com `state` (`DONE`, `DONE_VIA_EQUIVALENCE`, `ENROLLED`, `AVAILABLE`, `BLOCKED` + o que falta de
-  pré-requisito), horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`. 404 `import_not_found`
+  pré-requisito), `corequisiteExpr` (texto do co-requisito como o SIGAA imprime; o cumprimento não é calculado) e `responsibleUnit` (unidade responsável) em cada componente, ambos `string | null`, horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`. 404 `import_not_found`
   sem histórico gravado; 409 `curriculum_unavailable` enquanto a grade do curso não está pronta.
 
 A fonte do PDF está ligada (fase 5): a importação baixa o "Histórico Escolar" pela sessão do SIGAA da pessoa (reaproveita o cookie guardado; a senha só é aberta se for preciso logar) em 2 requisições (portal e menu "Emitir Histórico"). A importação só existe com `ANTHROPIC_API_KEY` configurada (`available: false` sem ela). Falha da fonte vira `SIGAA_UNAVAILABLE` (SIGAA fora do ar, página inesperada) ou `SESSION_EXPIRED` (senha recusada).

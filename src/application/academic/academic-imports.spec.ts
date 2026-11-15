@@ -361,3 +361,148 @@ describe('AcademicImports: apagar e a grade do curso', () => {
     await expect(m.svc.progress(P)).rejects.toMatchObject({ status: 409, code: 'curriculum_unavailable' });
   });
 });
+
+describe('AcademicImports: Atualizar com histórico gravado e descartar o rascunho', () => {
+  async function comHistorico() {
+    const m = montar();
+    await importar(m);
+    await m.svc.confirm(P);
+    const antes = await m.svc.state(P);
+    return { m, antes };
+  }
+
+  it('primeira importação: sem histórico gravado o summary e o importedAt são nulos até confirmar', async () => {
+    const m = montar();
+    await importar(m);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'NEEDS_CONFIRMATION', summary: null, importedAt: null });
+  });
+
+  it('durante o Atualizar (rodando) o summary e o importedAt do histórico gravado continuam', async () => {
+    const { m, antes } = await comHistorico();
+    expect(antes.summary).not.toBeNull();
+    let liberar!: (v: Awaited<ReturnType<typeof m.source.fetch>>) => void;
+    const snapshot = m.source.snapshot;
+    m.source.fetch = () => new Promise((r) => (liberar = r));
+    m.avancar(60_000);
+    await m.svc.start(P);
+    const rodando = await m.svc.state(P);
+    expect(rodando).toMatchObject({ status: 'RUNNING', draft: null, importedAt: antes.importedAt, curriculumStatus: 'READY' });
+    expect(rodando.summary).toEqual(antes.summary);
+    liberar(snapshot);
+    await m.svc.idle(P.userId);
+  });
+
+  it('com o rascunho esperando confirmação o summary é o do histórico gravado, e a grade do curso continua', async () => {
+    const { m, antes } = await comHistorico();
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    const s = await m.svc.state(P);
+    expect(s).toMatchObject({ status: 'NEEDS_CONFIRMATION', importedAt: antes.importedAt });
+    expect(s.draft).not.toBeNull();
+    expect(s.summary).toEqual(antes.summary);
+    expect((await m.svc.progress(P)).estimate).toBe(true);
+  });
+
+  it('se o Atualizar falha, o histórico gravado segue com summary e importedAt', async () => {
+    const { m, antes } = await comHistorico();
+    m.reader.fail = true;
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    const s = await m.svc.state(P);
+    expect(s).toMatchObject({ status: 'FAILED', failure: 'READER_FAILED', importedAt: antes.importedAt, curriculumStatus: 'READY' });
+    expect(s.summary).toEqual(antes.summary);
+  });
+
+  it('descartar o rascunho com histórico gravado volta a READY e não mexe no histórico', async () => {
+    const { m, antes } = await comHistorico();
+    m.reader.document = { ...perfect(), notes: ['- nota nova'] };
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    const guardado = JSON.stringify(m.repo.transcripts.get('u1'));
+    await m.svc.discardDraft(P);
+    const s = await m.svc.state(P);
+    expect(s).toMatchObject({ status: 'READY', failure: null, draft: null, importedAt: antes.importedAt, verified: true });
+    expect(s.summary).toEqual(antes.summary);
+    expect(JSON.stringify(m.repo.transcripts.get('u1'))).toBe(guardado);
+    // E já dá para atualizar de novo.
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+  });
+
+  it('descartar a falha de um Atualizar volta a READY', async () => {
+    const { m } = await comHistorico();
+    m.reader.fail = true;
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    await m.svc.discardDraft(P);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'READY', failure: null });
+  });
+
+  it('descartar sem histórico gravado volta a NONE (primeira importação)', async () => {
+    const m = montar();
+    await importar(m);
+    await m.svc.discardDraft(P);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'NONE', summary: null, draft: null, importedAt: null });
+    expect(m.repo.imports.size).toBe(0);
+  });
+
+  it('descartar: 404 sem rascunho nem falha (NONE ou READY); 409 durante a leitura', async () => {
+    const m = montar();
+    await expect(m.svc.discardDraft(P)).rejects.toMatchObject({ status: 404, code: 'import_not_found' });
+    await importar(m);
+    await m.svc.confirm(P);
+    await expect(m.svc.discardDraft(P)).rejects.toMatchObject({ status: 404, code: 'import_not_found' });
+
+    let liberar!: (v: Awaited<ReturnType<typeof m.source.fetch>>) => void;
+    const snapshot = m.source.snapshot;
+    m.source.fetch = () => new Promise((r) => (liberar = r));
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await expect(m.svc.discardDraft(P)).rejects.toMatchObject({ status: 409, code: 'import_in_progress' });
+    liberar(snapshot);
+    await m.svc.idle(P.userId);
+  });
+
+  it('o rascunho de um Atualizar que passou de 7 dias some e volta ao histórico gravado (READY), não a NONE', async () => {
+    const { m, antes } = await comHistorico();
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    m.avancar(8 * 24 * 60 * 60_000);
+    const s = await m.svc.state(P);
+    expect(s).toMatchObject({ status: 'READY', draft: null, importedAt: antes.importedAt });
+    expect(s.summary).toEqual(antes.summary);
+  });
+
+  it('confirmar o Atualizar troca o histórico e a data', async () => {
+    const { m, antes } = await comHistorico();
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    await m.svc.confirm(P);
+    const s = await m.svc.state(P);
+    expect(s.status).toBe('READY');
+    expect(s.importedAt!.getTime()).toBeGreaterThan(antes.importedAt!.getTime());
+  });
+});
+
+describe('AcademicImports: co-requisito e unidade responsável na grade do curso', () => {
+  it('saem do catálogo importado em cada componente; nulos quando o SIGAA não imprime', async () => {
+    const m = montar();
+    const comps = curriculumOf(perfect());
+    comps[0] = { ...comps[0]!, corequisiteExpr: 'FISD37', responsibleUnit: 'INSTITUTO DE FISICA' };
+    m.catalogSource.components = comps;
+    await importar(m);
+    await m.svc.confirm(P);
+    const progress = await m.svc.progress(P);
+    const first = progress.required.find((c) => c.code === comps[0]!.code)!;
+    expect(first).toMatchObject({ corequisiteExpr: 'FISD37', responsibleUnit: 'INSTITUTO DE FISICA' });
+    const other = progress.required.find((c) => c.code === comps[1]!.code)!;
+    expect(other).toMatchObject({ corequisiteExpr: null, responsibleUnit: null });
+  });
+});

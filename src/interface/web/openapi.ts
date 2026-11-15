@@ -138,6 +138,15 @@ export const ROUTES: Route[] = [
     ok: [204, null],
   },
   {
+    id: "discardAcademicDraft",
+    method: "delete",
+    path: "/me/academic/draft",
+    tag: "academic",
+    auth: "session",
+    summary: "Descarta só o rascunho (ou a falha) de um Atualizar; o histórico gravado fica (volta a READY, ou a NONE sem histórico)",
+    ok: [204, null],
+  },
+  {
     id: "getAcademicCurriculum",
     method: "get",
     path: "/me/academic/curriculum",
