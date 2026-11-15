@@ -115,7 +115,9 @@ export class ClientDirectory implements ClientResolver {
 
   /** Domínio sempre do redirect_uri (ASCII/punycode); nome e logo da lista verificada, senão do documento. */
   describe(client: OAuthClient, redirectUri: string): ClientView {
-    const domain = new URL(redirectUri).hostname;
+    // Esquema privado sem host (`com.exemplo.app:/cb`): o esquema faz o papel de domínio.
+    const parsed = new URL(redirectUri);
+    const domain = parsed.hostname || parsed.protocol.replace(/:$/, '');
     const v = this.verified.match(domain);
     const fromDoc = client.fromMetadata === true;
     const name = v?.name ?? (fromDoc ? (client.clientName ?? null) : null);
