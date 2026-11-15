@@ -194,6 +194,12 @@ export class PrismaAcademicRepository extends AcademicRepository {
     await this.prisma.studentProfile.upsert({ where: { userId }, create: { userId, ...data }, update: data });
   }
 
+  async findProfile(userId: string) {
+    const r = await this.prisma.studentProfile.findUnique({ where: { userId } });
+    if (!r || (r.registration === null && r.programName === null && r.entryTerm === null)) return null;
+    return { registration: r.registration, program: r.programName, entryTerm: r.entryTerm };
+  }
+
   async clearProfile(userId: string) {
     await this.prisma.studentProfile.updateMany({ where: { userId }, data: { registration: null, programName: null, entryTerm: null } });
   }

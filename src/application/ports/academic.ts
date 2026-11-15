@@ -71,6 +71,8 @@ export abstract class AcademicRepository {
   abstract deleteTranscript(userId: string): Promise<void>;
 
   abstract saveProfile(userId: string, profile: PortalProfile): Promise<void>;
+  /** O perfil do portal gravado na confirmação (matrícula, curso, ingresso); `null` sem perfil. */
+  abstract findProfile(userId: string): Promise<PortalProfile | null>;
   abstract clearProfile(userId: string): Promise<void>;
 }
 

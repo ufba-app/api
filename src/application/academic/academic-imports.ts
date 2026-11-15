@@ -48,6 +48,8 @@ export interface AcademicState {
   reader: string | null;
   importedAt: Date | null;
   curriculumStatus: CurriculumStatus;
+  /** Matrícula do portal do SIGAA, gravada na confirmação. Só com o histórico gravado; nunca vai à IA. */
+  registration: string | null;
   summary: AcademicSummary | null;
   /** O que foi lido, à espera da confirmação. Só em `NEEDS_CONFIRMATION`. */
   draft: TranscriptContract | null;
@@ -131,6 +133,7 @@ export class AcademicImports {
       reader: imp?.reader ?? null,
       importedAt: imp?.importedAt ?? null,
       curriculumStatus: await this.curriculumStatus(imp),
+      registration: transcript ? ((await this.repo.findProfile(p.userId))?.registration ?? null) : null,
       summary: transcript
         ? {
             programName: transcript.program.name,

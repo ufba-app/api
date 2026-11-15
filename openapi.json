@@ -1247,6 +1247,12 @@
                         "UNAVAILABLE"
                       ]
                     },
+                    "registration": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": [
                         "object",
@@ -1705,6 +1711,7 @@
                     "reader",
                     "importedAt",
                     "curriculumStatus",
+                    "registration",
                     "summary",
                     "draft"
                   ]

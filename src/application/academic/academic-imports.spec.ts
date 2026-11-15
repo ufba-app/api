@@ -506,3 +506,49 @@ describe('AcademicImports: co-requisito e unidade responsável na grade do curso
     expect(other).toMatchObject({ corequisiteExpr: null, responsibleUnit: null });
   });
 });
+
+describe('AcademicImports: matrícula do portal em /me/academic', () => {
+  it('só aparece depois de confirmar (junto do histórico gravado); antes, nulo', async () => {
+    const m = montar();
+    await importar(m);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'NEEDS_CONFIRMATION', registration: null });
+    await m.svc.confirm(P);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'READY', registration: '123456789' });
+  });
+
+  it('continua durante o Atualizar (o histórico gravado segue valendo)', async () => {
+    const m = montar();
+    await importar(m);
+    await m.svc.confirm(P);
+    m.avancar(60_000);
+    await m.svc.start(P);
+    await m.svc.idle(P.userId);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'NEEDS_CONFIRMATION', registration: '123456789' });
+  });
+
+  it('nulo se o portal não trouxe a matrícula', async () => {
+    const m = montar();
+    m.source.snapshot = { ...m.source.snapshot, profile: { ...m.source.snapshot.profile, registration: null } };
+    await importar(m);
+    await m.svc.confirm(P);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'READY', registration: null });
+  });
+
+  it('apagar a vida acadêmica apaga a matrícula', async () => {
+    const m = montar();
+    await importar(m);
+    await m.svc.confirm(P);
+    await m.svc.remove(P);
+    expect(await m.svc.state(P)).toMatchObject({ status: 'NONE', registration: null });
+    expect(m.repo.profiles.size).toBe(0);
+  });
+
+  it('a matrícula nunca vai à IA (o texto que o leitor recebe não a contém) nem ao log', async () => {
+    const m = montar();
+    const lerSpy = jest.spyOn(m.reader, 'read');
+    await importar(m);
+    await m.svc.confirm(P);
+    expect(lerSpy.mock.calls.length).toBeGreaterThan(0);
+    for (const call of lerSpy.mock.calls) expect(String((call as unknown[])[0])).not.toContain('123456789');
+  });
+});

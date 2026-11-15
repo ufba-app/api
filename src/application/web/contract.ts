@@ -189,6 +189,8 @@ export const AcademicState = z.object({
   importedAt: z.string().datetime().nullable(),
   /** A grade do curso: `NONE` (sem histórico), `READY`, `IMPORTING` (sendo buscada) ou `UNAVAILABLE`. */
   curriculumStatus: z.enum(["NONE", "READY", "IMPORTING", "UNAVAILABLE"]),
+  /** Matrícula do portal do SIGAA, gravada na confirmação. Só com o histórico gravado (junto do `summary`); `null` se o portal não a trouxe. */
+  registration: z.string().nullable(),
   /** Só com o histórico gravado. */
   summary: AcademicSummary.nullable(),
   /** Só em `NEEDS_CONFIRMATION`: o que foi lido, para a tela de confirmação. */
