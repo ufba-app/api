@@ -33,15 +33,6 @@ class FakeRoles extends TeamRoleRepository {
   async listRoles() {
     return [
       {
-        key: 'dev',
-        description: 'Desenvolvimento',
-        grants: [
-          { projectId: this.ids.api, level: 'write' as const },
-          { projectId: this.ids.web, level: 'write' as const },
-          { projectId: this.ids.docs, level: 'read' as const },
-        ],
-      },
-      {
         key: 'maintainer',
         description: 'Mantenedor',
         grants: [
@@ -78,6 +69,10 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
   let cFulana: string;
   let cBeltrano: string;
   let roles: FakeRoles;
+  const people = () => [
+    { id: fulana, name: 'Fulana', email: 'fulana@ufba.br' },
+    { id: beltrano, name: 'Beltrano', email: 'beltrano@ufba.br' },
+  ];
 
   async function session(userId: string, token: string): Promise<string> {
     await store.saveToken({
@@ -138,10 +133,10 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
       .useValue(roles)
       .overrideProvider(UserLister)
       .useValue({
-        list: async () => [
-          { id: fulana, name: 'Fulana', email: 'fulana@ufba.br' },
-          { id: beltrano, name: 'Beltrano', email: 'beltrano@ufba.br' },
-        ],
+        list: async () => people(),
+        byIds: async (ids: string[]) => people().filter((u) => ids.includes(u.id)),
+        search: async (q: string) =>
+          people().filter((u) => (u.name + ' ' + u.email).toLowerCase().includes(q.toLowerCase())),
       })
       .overrideProvider(MemoryAdmin)
       .useValue(new MemoryAdminClient({ baseUrl: url, rootToken: Secret.of(ROOT) }))
@@ -178,8 +173,9 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
     for (const [m, p] of [
       ['GET', '/admin/team'],
       ['GET', '/admin/memory/sync'],
-      ['PUT', `/admin/team/members/${beltrano}/roles/dev`],
-      ['DELETE', `/admin/team/members/${beltrano}/roles/dev`],
+      ['GET', '/admin/team/people?q=be'],
+      ['PUT', `/admin/team/members/${beltrano}/roles/maintainer`],
+      ['DELETE', `/admin/team/members/${beltrano}/roles/maintainer`],
     ]) {
       const r = await web(m, p, cBeltrano);
       expect(r.status).toBe(403);
@@ -190,57 +186,61 @@ describe('memória: papéis do time e Administração (HTTP)', () => {
     expect(fake.users).toHaveLength(0); // recusas não criaram nada no memory
   });
 
-  it('tabela de papéis é somente leitura e lista as pessoas com seus papéis', async () => {
+  it('só existe o papel de mantenedor; a visão geral lista só quem o tem', async () => {
     const t = await json(await web('GET', '/admin/team', cFulana));
-    expect(t.roles.map((r: any) => r.key)).toEqual(['dev', 'maintainer']);
+    expect(t.roles.map((r: any) => r.key)).toEqual(['maintainer']);
     expect(t.roles[0].grants).toEqual([
       { workspace: 'ufba-app', project: 'api', title: 'API', level: 'write' },
       { workspace: 'ufba-app', project: 'web', title: 'WEB', level: 'write' },
-      { workspace: 'ufba-app', project: 'docs', title: 'DOCS', level: 'read' },
+      { workspace: 'ufba-app', project: 'docs', title: 'DOCS', level: 'write' },
     ]);
-    expect(t.members).toEqual([
-      { userId: fulana, name: 'Fulana', email: 'fulana@ufba.br', roles: [] },
-      { userId: beltrano, name: 'Beltrano', email: 'beltrano@ufba.br', roles: [] },
-    ]);
+    expect(t.members).toEqual([]); // ninguém é mantenedor ainda: a lista não traz todo mundo
     // não existe rota para editar papéis
-    expect((await web('PUT', '/admin/team/roles/dev', cFulana)).status).toBe(404);
+    expect((await web('PUT', '/admin/team/roles/maintainer', cFulana)).status).toBe(404);
   });
 
-  it('atribuir concede, trocar de papel ajusta e retirar revoga só o que ninguém mais sustenta', async () => {
-    expect((await web('PUT', `/admin/team/members/${beltrano}/roles/dev`, cFulana)).status).toBe(204);
-    expect(grantsOfBeltrano()).toEqual(['ufba-app/api:write', 'ufba-app/docs:read', 'ufba-app/web:write']);
-    expect([...fake.projects.keys()].sort()).toEqual(['ufba-app/api', 'ufba-app/docs', 'ufba-app/web']);
+  it('a busca de pessoas pede 2 letras, acha por nome ou e-mail e mostra quem já é mantenedor', async () => {
+    expect(await json(await web('GET', '/admin/team/people?q=b', cFulana))).toEqual({ people: [] });
+    expect(await json(await web('GET', '/admin/team/people', cFulana))).toEqual({ people: [] });
+    const r = await json(await web('GET', '/admin/team/people?q=BELTR', cFulana));
+    expect(r.people).toEqual([{ userId: beltrano, name: 'Beltrano', email: 'beltrano@ufba.br', roles: [] }]);
+    const byMail = await json(await web('GET', '/admin/team/people?q=fulana@', cFulana));
+    expect(byMail.people.map((x: any) => x.userId)).toEqual([fulana]);
+  });
 
+  it('atribuir dá escrita nos três; retirar volta para a base de todo estudante: ler a documentação', async () => {
     expect((await web('PUT', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana)).status).toBe(204);
     expect(grantsOfBeltrano()).toEqual(['ufba-app/api:write', 'ufba-app/docs:write', 'ufba-app/web:write']);
-    expect((await json(await web('GET', '/admin/team', cFulana))).members[1].roles).toEqual(['dev', 'maintainer']);
+    expect([...fake.projects.keys()].sort()).toEqual(['ufba-app/api', 'ufba-app/docs', 'ufba-app/web']);
+    const t = await json(await web('GET', '/admin/team', cFulana));
+    expect(t.members).toEqual([{ userId: beltrano, name: 'Beltrano', email: 'beltrano@ufba.br', roles: ['maintainer'] }]);
     const mine = (await json(await web('GET', '/memory/projects', cBeltrano))).projects;
     expect(mine).toHaveLength(3);
     expect(mine.every((p: any) => p.team && p.source === 'team')).toBe(true);
 
     await web('DELETE', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana);
-    expect(grantsOfBeltrano()).toEqual(['ufba-app/api:write', 'ufba-app/docs:read', 'ufba-app/web:write']); // dev sustenta
-    await web('DELETE', `/admin/team/members/${beltrano}/roles/dev`, cFulana);
-    expect(grantsOfBeltrano()).toEqual([]);
-    expect(await json(await web('GET', '/memory/projects', cBeltrano))).toEqual({ projects: [] });
+    expect(grantsOfBeltrano()).toEqual(['ufba-app/docs:read']); // a base de todo mundo
+    const after = (await json(await web('GET', '/memory/projects', cBeltrano))).projects;
+    expect(after.map((p: any) => `${p.workspace}/${p.project}:${p.role}`)).toEqual(['ufba-app/docs:read']);
+    expect((await json(await web('GET', '/admin/team', cFulana))).members).toEqual([]);
   });
 
   it('papel inexistente e pessoa inexistente dão 404; atribuir duas vezes é inofensivo', async () => {
     const r = await web('PUT', `/admin/team/members/${beltrano}/roles/chefe`, cFulana);
     expect(r.status).toBe(404);
     expect((await json(r)).error).toBe('role_not_found');
-    expect((await web('PUT', '/admin/team/members/ninguem/roles/dev', cFulana)).status).toBe(404);
-    await web('PUT', `/admin/team/members/${beltrano}/roles/dev`, cFulana);
-    expect((await web('PUT', `/admin/team/members/${beltrano}/roles/dev`, cFulana)).status).toBe(204);
+    expect((await web('PUT', '/admin/team/members/ninguem/roles/maintainer', cFulana)).status).toBe(404);
+    await web('PUT', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana);
+    expect((await web('PUT', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana)).status).toBe(204);
     expect(roles.assignments).toHaveLength(1);
-    await web('DELETE', `/admin/team/members/${beltrano}/roles/dev`, cFulana);
+    await web('DELETE', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana);
   });
 
   it('fila de sincronização: falhas (só código) e projetos desconhecidos no memory', async () => {
-    await web('PUT', `/admin/team/members/${beltrano}/roles/dev`, cFulana); // garante usuário no memory
+    await web('PUT', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana); // garante usuário no memory
     await fake.stop();
-    const down = await web('PUT', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana);
-    expect(down.status).toBe(204); // atribuído; a sincronização fica pendente
+    const down = await web('DELETE', `/admin/team/members/${beltrano}/roles/maintainer`, cFulana);
+    expect(down.status).toBe(204); // retirado; a revisão do acesso fica pendente
     fake = new FakeAiMemory(ROOT);
     const back = await fake.start();
     void back;

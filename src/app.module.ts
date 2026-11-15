@@ -148,8 +148,8 @@ export function buildLiveSources(
     // Papéis do time: configuração semeada por migração; a atribuição por pessoa é do admin.
     {
       provide: TeamGrantSource,
-      useFactory: (roles: TeamRoleRepository) => new DbTeamGrantSource(roles),
-      inject: [TeamRoleRepository],
+      useFactory: (roles: TeamRoleRepository, projects: MemoryProjectRepository) => new DbTeamGrantSource(roles, projects),
+      inject: [TeamRoleRepository, MemoryProjectRepository],
     },
     {
       provide: MemoryAdmins,

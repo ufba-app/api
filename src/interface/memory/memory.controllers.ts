@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Req, UseFilters, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Req, UseFilters, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { DeviceAuthorizations } from '../../application/memory/device-authorizations';
@@ -160,6 +160,12 @@ export class MemoryAdminController {
   @Header('Cache-Control', 'no-store')
   getTeam(@Principal() p: WebPrincipal | null) {
     return this.team.overview(must(p).userId);
+  }
+
+  @Get('team/people')
+  @Header('Cache-Control', 'no-store')
+  searchPeople(@Principal() p: WebPrincipal | null, @Query('q') q?: string) {
+    return this.team.searchPeople(must(p).userId, q);
   }
 
   @Put('team/members/:userId/roles/:roleKey')
