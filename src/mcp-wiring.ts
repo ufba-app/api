@@ -57,6 +57,7 @@ import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
 import { MCP_AUTH, MCP_CLINICA, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
 import { McpClinicaImpl } from './interface/mcp/mcp-clinica';
 import { SiasbReader } from './application/siasb/siasb-reader';
+import { SiasbSyncer } from './application/siasb/siasb-syncer';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
@@ -139,6 +140,7 @@ export const mcpProviders: Provider[] = [
       slots: SigaaMasterSlotRepository,
       siasb: SiasbLink,
       permissions: PermissionsService,
+      syncer: SiasbSyncer,
     ) =>
       new ConnectionsService(
         users,
@@ -154,6 +156,8 @@ export const mcpProviders: Provider[] = [
         { webOrigin: webEnv().webOrigin, institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br' },
         Date.now,
         (userId, source) => permissions.sourceDisconnected(userId, source),
+        async (userId) => void (await syncer.syncUser(userId)),
+        (userId) => syncer.syncUser(userId),
       ),
     inject: [
       USER_DIRECTORY,
@@ -167,6 +171,7 @@ export const mcpProviders: Provider[] = [
       SigaaMasterSlotRepository,
       SiasbLink,
       PermissionsService,
+      SiasbSyncer,
     ],
   },
   {

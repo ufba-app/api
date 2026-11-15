@@ -303,6 +303,16 @@ export const ROUTES: Route[] = [
     ok: [204, null],
   },
   {
+    id: "syncSiasb",
+    method: "post",
+    path: "/connections/siasb/sync",
+    tag: "connections",
+    auth: "session",
+    summary: "Sincronizar o SIASB agora (3 a cada 10 min por pessoa)",
+    body: z.object({}),
+    ok: [204, null],
+  },
+  {
     id: "disconnectSiasb",
     method: "delete",
     path: "/connections/siasb",

@@ -199,6 +199,13 @@ export class ConnectionsController {
     await this.web.connectSiasb(must(p), parseInput(ConnectSiasbBody, b, invalidRequest));
   }
 
+  @Post('siasb/sync')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async siasbSync(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.web.syncSiasb(must(p));
+  }
+
   @Delete('siasb')
   @HttpCode(204)
   @UseGuards(SessionGuard)

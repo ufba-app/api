@@ -24,6 +24,7 @@ export const API_ERROR_CODES = [
   "siasb_credentials_rejected",
   "siasb_password_migration_required",
   "siasb_unavailable",
+  "siasb_reconnect_required",
   "account_ambiguous",
   "not_supported",
   "device_code_invalid",
