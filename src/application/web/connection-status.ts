@@ -77,6 +77,7 @@ export class ConnectionStatus {
     if (source === 'sigaa') return (await this.cofre.cofre(userId)) !== null;
     if (source === 'moodle') return (await this.accountsOf(userId, 'MOODLE')).length > 0;
     if (source === 'classroom') return (await this.accountsOf(userId, 'CLASSROOM')).length > 0;
+    if (source === 'siasb') return (await this.siasbLink.status(userId)).state !== 'disconnected';
     return false;
   }
 

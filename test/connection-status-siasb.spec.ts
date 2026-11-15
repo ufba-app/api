@@ -48,3 +48,33 @@ describe('ConnectionStatus.siasb: teto de espera pelo SIASB no /me', () => {
     expect((await ok.siasb(principal)).offered).toBe(true);
   });
 });
+
+describe('ConnectionStatus.hasSource: siasb', () => {
+  const has = (state: string) => {
+    const link = { status: async () => ({ state, expiresAt: null }) };
+    return new ConnectionStatus({} as never, {} as never, {} as never, {} as never, link as never).hasSource('u1', 'siasb');
+  };
+
+  it('conectado e reconectar contam como conexão; desconectado não', async () => {
+    expect(await has('connected')).toBe(true);
+    expect(await has('reconnect_required')).toBe(true);
+    expect(await has('disconnected')).toBe(false);
+  });
+});
+
+describe('ConnectionsService.disconnectSiasb', () => {
+  it('desconecta e avisa que a fonte saiu, para as permissões dela serem apagadas', async () => {
+    const { ConnectionsService } = await import('../src/application/web/connections.service');
+    const calls: string[] = [];
+    const siasb = { disconnect: async (u: string) => void calls.push(`disconnect:${u}`) };
+    const svc = new ConnectionsService(
+      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+      siasb as never,
+      { webOrigin: 'https://meu.ufba.app', institutionalDomain: 'ufba.br' },
+      Date.now,
+      async (u, source) => void calls.push(`gone:${u}:${source}`),
+    );
+    await svc.disconnectSiasb({ userId: 'u1', clientId: 'c' } as never);
+    expect(calls).toEqual(['disconnect:u1', 'gone:u1:siasb']);
+  });
+});

@@ -149,6 +149,7 @@ export class ConnectionsService {
 
   async disconnectSiasb(p: WebPrincipal): Promise<void> {
     await this.siasb.disconnect(p.userId);
+    await this.onSourceDisconnected(p.userId, 'siasb');
   }
 
   // ---- Classroom ----
