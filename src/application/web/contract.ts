@@ -637,6 +637,9 @@ export const PermissionView = z.object({
 export const PermissionsResponse = z.object({ items: z.array(PermissionView) });
 export const PermissionBody = z.object({ enabled: z.boolean() });
 
+/** O botão "Abrir o SIGAA já logado": o painel abre `launchUrl` numa navegação de página inteira (token de uso único, 30 s). */
+export const SigaaLaunchResponse = z.object({ launchUrl: z.string().url() });
+
 export const MemorySyncResponse = z.object({
   failing: z.array(
     z.object({

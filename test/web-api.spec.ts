@@ -1,3 +1,4 @@
+import { request as httpRequest } from 'node:http';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -36,6 +37,7 @@ import { MemoryProjectRepository } from '../src/application/memory/project-ports
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
+import { SigaaLoginFormSource } from '../src/application/ports/sigaa-launch';
 import { UserPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
 import { AcademicRepository, TranscriptSource } from '../src/application/ports/academic';
@@ -80,6 +82,10 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const accounts: SourceAccountRecord[] = [];
   const slotsRepo = new InMemorySlots();
   const pairingsRepo = new InMemoryPairings();
+  // Formulário de login do SIGAA: falso (sem rede).
+  const loginFormSource = {
+    fetch: async () => ({ action: '/sigaa/logar.do?dispatch=logOn', fields: { token: 't0k', width: '1920' } }),
+  };
   const permissionsRepo = new InMemoryPermissions();
   // Vida acadêmica: tudo falso (sem rede, sem SIGAA, sem IA).
   const academicRepo = new InMemoryAcademic();
@@ -232,6 +238,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(slotsRepo)
       .overrideProvider(SigaaPairingRepository)
       .useValue(pairingsRepo)
+      .overrideProvider(SigaaLoginFormSource)
+      .useValue(loginFormSource)
       .overrideProvider(UserPermissionRepository)
       .useValue(permissionsRepo)
       .overrideProvider(AcademicRepository)
@@ -1174,6 +1182,96 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(log).not.toContain('FÍSICA GERAL TEÓRICA I');
       expect(log).not.toContain(SENHA);
       expect(log).not.toContain('MARIA DA SILVA SANTOS');
+    });
+  });
+
+  describe('Abrir o SIGAA já logado (botão)', () => {
+    const NAV = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+    // O fetch do Node sobrescreve Sec-Fetch-*; o http cru deixa simular a navegação do navegador.
+    const abrir = (url: string, headers: Record<string, string>, cookie?: string) =>
+      new Promise<{ status: number; headers: { get(k: string): string | null }; text(): Promise<string> }>((resolve, reject) => {
+        const req = httpRequest(url, { method: 'GET', headers: { ...headers, ...(cookie ? { cookie } : {}) } }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf8');
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: { get: (k: string) => (res.headers[k.toLowerCase()] as string | undefined) ?? null },
+              text: async () => body,
+            });
+          });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+
+    async function conectadoComToken(who: string) {
+      const cookie = await signIn(who);
+      expect((await send('POST', '/connections/sigaa', { cookie, body: { login: who, password: SENHA } })).status).toBe(204);
+      const r = await send('POST', '/connections/sigaa/launch', { cookie, body: {} });
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      const { launchUrl } = (await r.json()) as { launchUrl: string };
+      expect(launchUrl).toMatch(/\/sigaa\/launch\?t=[A-Za-z0-9_-]+$/);
+      return { cookie, launchUrl, path: launchUrl.slice(launchUrl.indexOf('/sigaa/launch')) };
+    }
+
+    it('POST devolve só a URL de uso único (sem senha); sem o SIGAA aberto, 409; exige sessão e X-UFBA', async () => {
+      const { launchUrl } = await conectadoComToken('launch1');
+      expect(launchUrl).not.toContain(SENHA);
+      const semSigaa = await signIn('launch2');
+      const r = await send('POST', '/connections/sigaa/launch', { cookie: semSigaa, body: {} });
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_not_connected');
+      expect((await send('POST', '/connections/sigaa/launch', { body: {} })).status).toBe(401);
+      expect((await send('POST', '/connections/sigaa/launch', { cookie: semSigaa, body: {}, csrf: false })).status).toBe(403);
+    });
+
+    it('a navegação recebe a página que envia o login ao SIGAA, com cabeçalhos fechados; o token vale uma vez', async () => {
+      const { cookie, path } = await conectadoComToken('launch3');
+      const r = await abrir(`${base}${path}`, NAV, cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('content-type')).toContain('text/html');
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      expect(r.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(r.headers.get('x-frame-options')).toBe('DENY');
+      const csp = r.headers.get('content-security-policy')!;
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain('form-action https://sigaa.ufba.br');
+      expect(csp).toContain("frame-ancestors 'none'");
+      const html = await r.text();
+      expect(html).toContain('action="https://sigaa.ufba.br/sigaa/logar.do?dispatch=logOn"');
+      expect(html).toContain('name="user.login" value="launch3"');
+      expect(html).toContain(`name="user.senha" value="${SENHA}"`);
+      expect(html).toContain('name="token" value="t0k"');
+
+      const segunda = await abrir(`${base}${path}`, NAV, cookie);
+      expect(segunda.status).toBe(410);
+      expect(await segunda.text()).not.toContain(SENHA);
+    });
+
+    it('só navegação de página inteira: fetch/XHR (ou sem os cabeçalhos Sec-Fetch) leva 403 e NÃO gasta o token', async () => {
+      const { cookie, path } = await conectadoComToken('launch4');
+      expect((await abrir(`${base}${path}`, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }, cookie)).status).toBe(403);
+      expect((await abrir(`${base}${path}`, {}, cookie)).status).toBe(403);
+      const r = await abrir(`${base}${path}`, NAV, cookie);
+      expect(r.status).toBe(200);
+      const corpo = await abrir(`${base}${path}`, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }, cookie);
+      expect(await corpo.text()).not.toContain(SENHA);
+    });
+
+    it('sem sessão: 401; sessão de outra pessoa: 403 (e o token se perde); token inválido: 400', async () => {
+      const { path } = await conectadoComToken('launch5');
+      expect((await abrir(`${base}${path}`, NAV)).status).toBe(401);
+      const outro = await signIn('launch6');
+      expect((await abrir(`${base}${path}`, NAV, outro)).status).toBe(403);
+      expect((await abrir(`${base}/sigaa/launch?t=curto`, NAV, outro)).status).toBe(400);
+    });
+
+    it('a senha nunca vai para o log', async () => {
+      const log = saida.join('\n');
+      expect(log).not.toContain(SENHA);
     });
   });
 
