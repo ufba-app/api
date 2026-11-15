@@ -278,12 +278,12 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
 A fonte do PDF está ligada (fase 5): a importação baixa o "Histórico Escolar" pela sessão do SIGAA da pessoa (reaproveita o cookie guardado; a senha só é aberta se for preciso logar) em 2 requisições (portal e menu "Emitir Histórico"). A importação só existe com `ANTHROPIC_API_KEY` configurada (`available: false` sem ela). Falha da fonte vira `SIGAA_UNAVAILABLE` (SIGAA fora do ar, página inesperada) ou `SESSION_EXPIRED` (senha recusada).
 ## 5.2 Calendário acadêmico (alertas para admin)
 
-Spec: `dev/ufba/handoffs/calendario-cron-e-alerta-admin.md`. Toda semana (e uma vez 2 min depois do boot) a API lê
+Spec: `dev/ufba/handoffs/calendario-cron-e-alerta-admin.md`. Toda semana um **cron do Railway** (serviço próprio, `node dist/src/calendar-job.js`; ver `docs/CALENDARIO-CRON.md`) lê
 `supac.ufba.br/calendario-academico`, acha os PDFs de calendário (o texto do link é o semestre) e, para arquivo novo ou
 alterado (SHA-256), lê o PDF com a IA (Haiku 5.5, ~US$ 0,01) e confere por aritmética (dias letivos, marcos, datas). Cada arquivo
 vira uma linha em `calendar_parse_logs`: `PUBLISHED` (verificado; é o calendário vigente do semestre), `NOT_VERIFIED` (não
 publica) ou `ERROR`. Antes de registrar NOT_VERIFIED ou ERROR a API relê uma vez. Na primeira execução lê só o calendário mais
-recente. Só existe com `ANTHROPIC_API_KEY`. `CALENDAR_SCHEDULER=off` desliga o agendador.
+recente. Só roda com `ANTHROPIC_API_KEY`. A API não tem agendador: ela só mostra os alertas, reprocessa e entrega o calendário.
 
 Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 403 `not_admin`.
 
@@ -291,6 +291,12 @@ Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 
   futuro (`ERROR` da página inteira, sem `term`, sempre aparece), com `warnings` (avisos da conferência ou o motivo do erro).
   `expired`: o último calendário publicado já terminou e nada novo apareceu (`{ term, termEnd }`).
 - `POST /admin/calendar/logs/{id}/seen` `{}` → 204. Marca "Visto" (guarda quem e quando); qualquer admin pode. 404 `not_found`.
+- `POST /admin/calendar/logs/{id}/reprocess` `{}` → **202**. Botão "Reprocessar" da linha do alerta: baixa de novo a `sourceUrl`, ignora a idempotência por hash (com a releitura única de sempre) e atualiza a MESMA linha, mantendo "Visto": `PUBLISHED` se verificar, senão continua `NOT_VERIFIED`/`ERROR` com os avisos novos. Roda em segundo plano (leva até alguns minutos): a tela acompanha refazendo `GET /admin/calendar/alerts`. Erros: 404 `not_found`; 409 `calendar_log_not_reprocessable` (linha `PUBLISHED`, alerta da página inteira que não é de um arquivo, ou já em reprocessamento); 503 `calendar_unavailable` (sem chave da IA). Roda no serviço da API.
+
+### Calendário publicado para o app
+
+`GET /calendar[?term=2026.2]` → 200, qualquer pessoa com sessão (`no-store`). Sem `term`: o semestre vigente (o que contém hoje; entre dois semestres, o próximo a começar; passados todos, o mais recente). Reedição do mesmo semestre: vale a mais recente. 404 `not_found` se não há calendário publicado; `term` inválido é 400.
+O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersion: "1", sourceUrl, publishedAt, document: { term, publishedOn }, keyDates: { termStart, progress25, progress50, progress75, termEnd, internship }, events[], teachingDays: { byMonth[], total }, nonTeachingDays[], otherEvents[] }`. Toda data é ISO (`YYYY-MM-DD`); `when` é uma união por `type` (`on`, `between`, `until`, `from`, `undetermined`). A projeção em intervalos de dia ainda não existe.
 
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 

@@ -27,7 +27,7 @@ import { CalendarWatcher } from './application/calendar/calendar-watcher';
 import { CalendarLogRepository, CalendarReader, CalendarSource, CalendarTextExtractor, CALENDAR_READER } from './application/ports/calendar';
 import { AnthropicCalendarReader } from './infrastructure/sources/supac/anthropic-calendar-reader';
 import { PdfParseCalendarText, SupacCalendarSource } from './infrastructure/sources/supac/supac-calendar-source';
-import { CalendarScheduler } from './infrastructure/calendar/calendar-scheduler';
+import { PublishedCalendar } from './application/calendar/published-calendar';
 import { webEnv } from './interface/web/web-auth';
 import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUserRepository } from './application/memory/memory-ports';
 import { MemoryUsers } from './application/memory/memory-users';
@@ -258,10 +258,11 @@ export function buildLiveSources(
     },
     {
       provide: CalendarAlertService,
-      useFactory: (logs: CalendarLogRepository, admins: MemoryAdmins) => new CalendarAlertService(logs, admins),
-      inject: [CalendarLogRepository, MemoryAdmins],
+      useFactory: (logs: CalendarLogRepository, admins: MemoryAdmins, watcher: CalendarWatcher) =>
+        new CalendarAlertService(logs, admins, undefined, watcher.available() ? watcher : null),
+      inject: [CalendarLogRepository, MemoryAdmins, CalendarWatcher],
     },
-    CalendarScheduler,
+    { provide: PublishedCalendar, useFactory: (logs: CalendarLogRepository) => new PublishedCalendar(logs), inject: [CalendarLogRepository] },
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
     {
       provide: MemoryProxy,
@@ -373,6 +374,8 @@ export function buildLiveSources(
     GrantReconciler,
     TeamRoles,
     CalendarAlertService,
+    PublishedCalendar,
+    CalendarWatcher,
     AccountDeparture,
     DownloadLinks,
     LiveSources,

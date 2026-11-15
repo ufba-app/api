@@ -163,4 +163,90 @@ describe('CalendarWatcher', () => {
     expect(source.downloads).toBe(0);
     expect(logs.rows).toHaveLength(0);
   });
+
+  describe('reprocessar (mesmo arquivo, mesma linha)', () => {
+    it('NOT_VERIFIED: lê de novo ignorando o hash e atualiza a MESMA linha, mantendo o "Visto"', async () => {
+      const reader = new FakeCalendarReader();
+      reader.queue = [brokenCalendar()];
+      const { logs, watcher, source } = make(reader);
+      await watcher.run();
+      const first = logs.rows[0]!;
+      expect(first.status).toBe('NOT_VERIFIED');
+      await logs.markSeen(first.id, 'u1', new Date());
+
+      reader.queue = [perfectCalendar()];
+      reader.calls = 0;
+      const downloads = source.downloads;
+      await watcher.startReprocess(first.id);
+      await watcher.idle(first.id);
+      expect(source.downloads).toBe(downloads + 1);
+      expect(reader.calls).toBe(1);
+      expect(logs.rows).toHaveLength(1);
+      expect(logs.rows[0]).toMatchObject({ id: first.id, status: 'PUBLISHED', verified: true, seen: true, seenBy: 'u1', term: '2026.2' });
+    });
+
+    it('continua NOT_VERIFIED com os avisos novos quando ainda não fecha', async () => {
+      const reader = new FakeCalendarReader();
+      reader.queue = [brokenCalendar()];
+      const { logs, watcher } = make(reader);
+      await watcher.run();
+      const id = logs.rows[0]!.id;
+      await watcher.startReprocess(id);
+      await watcher.idle(id);
+      expect(logs.rows).toHaveLength(1);
+      expect(logs.rows[0]).toMatchObject({ status: 'NOT_VERIFIED', verified: false });
+    });
+
+    it('ERROR de download: baixa de novo e, se der certo, publica na mesma linha', async () => {
+      const { logs, source, watcher } = make();
+      source.pdfs.set(URL_26_2, new Error('HTTP 404'));
+      await watcher.run();
+      const first = logs.rows[0]!;
+      expect(first).toMatchObject({ status: 'ERROR', sourceSha256: null });
+      source.pdfs.set(URL_26_2, pdf('a'));
+      await watcher.startReprocess(first.id);
+      await watcher.idle(first.id);
+      expect(logs.rows).toHaveLength(1);
+      expect(logs.rows[0]).toMatchObject({ id: first.id, status: 'PUBLISHED' });
+      expect(logs.rows[0]!.sourceSha256).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('download que falha de novo: continua ERROR com o aviso novo', async () => {
+      const { logs, source, watcher } = make();
+      source.pdfs.set(URL_26_2, new Error('HTTP 404'));
+      await watcher.run();
+      const id = logs.rows[0]!.id;
+      source.pdfs.set(URL_26_2, new Error('HTTP 500'));
+      await watcher.startReprocess(id);
+      await watcher.idle(id);
+      expect(logs.rows[0]).toMatchObject({ status: 'ERROR' });
+      expect(logs.rows[0]!.warnings[0]).toContain('HTTP 500');
+    });
+
+    it('recusa: PUBLISHED (409), alerta da página inteira (409), id desconhecido (404), já em andamento (409)', async () => {
+      const reader = new FakeCalendarReader();
+      reader.queue = [brokenCalendar()];
+      const { logs, source, watcher } = make(reader);
+      await watcher.run();
+      const nv = logs.rows[0]!;
+      const pub = await logs.create({ ...nv, sourceSha256: 'f'.repeat(64), status: 'PUBLISHED', verified: true });
+      await expect(watcher.startReprocess(pub.id)).rejects.toMatchObject({ status: 409, code: 'calendar_log_not_reprocessable' });
+
+      source.pageError = new Error('HTTP 503');
+      await watcher.run();
+      const page = logs.rows.find((r) => r.sourceUrl === source.pageUrl())!;
+      await expect(watcher.startReprocess(page.id)).rejects.toMatchObject({ status: 409, code: 'calendar_log_not_reprocessable' });
+
+      await expect(watcher.startReprocess('00000000-0000-4000-8000-0000000000ff')).rejects.toMatchObject({ status: 404 });
+
+      await watcher.startReprocess(nv.id);
+      await expect(watcher.startReprocess(nv.id)).rejects.toMatchObject({ status: 409, code: 'calendar_log_not_reprocessable' });
+      await watcher.idle(nv.id);
+    });
+
+    it('sem leitor da IA: 503 calendar_unavailable', async () => {
+      const { watcher } = make(null);
+      await expect(watcher.startReprocess('00000000-0000-4000-8000-000000000001')).rejects.toMatchObject({ status: 503, code: 'calendar_unavailable' });
+    });
+  });
 });

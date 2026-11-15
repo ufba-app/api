@@ -16,10 +16,10 @@ const published = (term: string, termStart: string, termEnd: string): NewCalenda
   return { ...base, sourceSha256: sha(), term, status: 'PUBLISHED', verified: true, warnings: [], contract: { ...c, contractVersion: '1', verification: { verified: true, warnings: [], reader: 'ai' } } };
 };
 
-function make(today = '2026-11-15') {
+function make(today = '2026-11-15', reprocessor: { startReprocess: (id: string) => Promise<void> } | null = null) {
   const logs = new InMemoryCalendarLogs();
   const admins = { require: jest.fn(async (id: string) => { if (id !== 'admin') throw new ApiError(403, 'not_admin', 'Só administradores podem fazer isso.'); }) };
-  const service = new CalendarAlertService(logs, admins, () => new Date(`${today}T15:00:00Z`));
+  const service = new CalendarAlertService(logs, admins, () => new Date(`${today}T15:00:00Z`), reprocessor);
   return { logs, service };
 }
 
@@ -86,5 +86,15 @@ describe('CalendarAlertService', () => {
     expect((await service.list('admin')).items).toHaveLength(0);
     await expect(service.markSeen('admin', '00000000-0000-4000-8000-0000000000ff')).rejects.toMatchObject({ status: 404 });
     await expect(service.markSeen('admin', 'não-é-uuid')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('"Reprocessar": só admin; id inválido é 404; sem leitor é 503; chama o verificador', async () => {
+    const startReprocess = jest.fn(async () => undefined);
+    const { service } = make('2026-11-15', { startReprocess });
+    await expect(service.reprocess('aluno', '00000000-0000-4000-8000-000000000001')).rejects.toMatchObject({ code: 'not_admin' });
+    await expect(service.reprocess('admin', 'xx')).rejects.toMatchObject({ status: 404 });
+    await service.reprocess('admin', '00000000-0000-4000-8000-000000000001');
+    expect(startReprocess).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001');
+    await expect(make().service.reprocess('admin', '00000000-0000-4000-8000-000000000001')).rejects.toMatchObject({ status: 503, code: 'calendar_unavailable' });
   });
 });

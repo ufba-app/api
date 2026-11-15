@@ -45,6 +45,11 @@ export class PrismaCalendarLogRepository extends CalendarLogRepository {
     super();
   }
 
+  async findById(id: string) {
+    const r = await this.prisma.calendarParseLog.findUnique({ where: { id } });
+    return r ? toRow(r) : null;
+  }
+
   async findBySha(sha256: string) {
     const r = await this.prisma.calendarParseLog.findUnique({ where: { sourceSha256: sha256 } });
     return r ? toRow(r) : null;

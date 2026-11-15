@@ -61,6 +61,7 @@ export interface CalendarLogRow {
 export type NewCalendarLog = Omit<CalendarLogRow, 'id' | 'createdAt' | 'updatedAt' | 'seen' | 'seenBy' | 'seenAt'>;
 
 export abstract class CalendarLogRepository {
+  abstract findById(id: string): Promise<CalendarLogRow | null>;
   abstract findBySha(sha256: string): Promise<CalendarLogRow | null>;
   /** O ERROR mais recente desta URL sem hash (download que falhou), para atualizar em vez de duplicar. */
   abstract findErrorByUrl(url: string): Promise<CalendarLogRow | null>;
