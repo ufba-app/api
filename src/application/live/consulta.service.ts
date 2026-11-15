@@ -11,6 +11,7 @@ import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
 const NOMES: Record<Provider, string> = {
   SIGAA: 'SIGAA',
   MOODLE: 'Moodle',
+  SIASB: 'SIASB',
   CLASSROOM: 'Google Classroom',
   CALENDAR: 'Google Calendar',
 };

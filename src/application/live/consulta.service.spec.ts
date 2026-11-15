@@ -25,6 +25,7 @@ function conta(accountKey: string, provider: Provider = 'CLASSROOM', secret = tr
     siteUrl: null,
     status: 'OK',
     lastSyncedAt: null,
+    expiresAt: null,
     secret: secret ? { ciphertext: `rt-${accountKey}`, iv: '', authTag: '' } : null,
   };
 }

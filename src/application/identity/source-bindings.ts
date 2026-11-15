@@ -2,7 +2,7 @@ import { decideBinding, type BoundSource, type SourceSubject } from '../../domai
 import { LinkError } from '../oauth/oauth-ports';
 import type { SourceBindingRepository, SubjectHasher } from '../ports/repositories';
 
-const NAME: Record<BoundSource, string> = { SIGAA: 'SIGAA', MOODLE: 'AVA (Moodle)' };
+const NAME: Record<BoundSource, string> = { SIGAA: 'SIGAA', MOODLE: 'AVA (Moodle)', SIASB: 'SIASB' };
 
 const mismatch = (s: BoundSource) =>
   new LinkError(

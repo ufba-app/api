@@ -1,4 +1,4 @@
-import { decideBinding, moodleBelongsTo, moodleSubject, sigaaSubject } from './source-binding';
+import { decideBinding, moodleBelongsTo, moodleSubject, sigaaSubject, siasbSubject } from './source-binding';
 
 describe('sigaaSubject', () => {
   it('CPF com ou sem máscara vira os mesmos 11 dígitos', () => {
@@ -46,5 +46,12 @@ describe('decideBinding', () => {
 
   it('titular de outra conta: taken', () => {
     expect(decideBinding('u2', 'h1', { mine: null, ownerOfSubject: 'u1' })).toBe('taken');
+  });
+});
+
+describe('siasbSubject', () => {
+  it('tira espaços e pontuação da matrícula', () => {
+    expect(siasbSubject(' 012345678 ')).toEqual({ source: 'SIASB', value: '012345678' });
+    expect(siasbSubject('0123.45678').value).toBe('012345678');
   });
 });

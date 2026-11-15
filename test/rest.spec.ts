@@ -43,6 +43,7 @@ describe('REST (sem banco, sem rede)', () => {
     siteUrl: 'https://ava.ufba.br',
     status: 'OK',
     lastSyncedAt: null,
+    expiresAt: null,
     secret: { ciphertext: 'WSTOKEN', iv: 'i', authTag: 't' },
   };
 

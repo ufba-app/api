@@ -1,6 +1,7 @@
 enum SourceProvider {
   SIGAA
   MOODLE
+  SIASB
   CLASSROOM
   CALENDAR
 }
@@ -38,6 +39,8 @@ model SourceAccount {
   secretIv         String? @map("secret_iv")
   secretAuthTag    String? @map("secret_auth_tag")
 
+  // Quando a conexão vence (ex.: token do SIASB); nulo = não vence.
+  expiresAt    DateTime? @map("expires_at")
   lastSyncedAt DateTime? @map("last_synced_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")

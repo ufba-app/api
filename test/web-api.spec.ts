@@ -228,6 +228,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
             siteUrl: i.siteUrl ?? null,
             status: 'OK',
             lastSyncedAt: null,
+            expiresAt: null,
             secret: i.secret ?? null,
           };
           const at = accounts.findIndex((a) => a.id === rec.id);

@@ -67,6 +67,7 @@ type AccountRow = {
   siteUrl: string | null;
   status: 'OK' | 'REAUTH_NEEDED' | 'BLOCKED';
   lastSyncedAt: Date | null;
+  expiresAt: Date | null;
   secretCiphertext: string | null;
   secretIv: string | null;
   secretAuthTag: string | null;
@@ -85,6 +86,7 @@ function toRecord(row: AccountRow): SourceAccountRecord {
     siteUrl: row.siteUrl,
     status: row.status,
     lastSyncedAt: row.lastSyncedAt,
+    expiresAt: row.expiresAt,
     secret,
   };
 }
@@ -116,9 +118,16 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
         provider: input.provider,
         accountKey: input.accountKey,
         siteUrl: input.siteUrl ?? null,
+        expiresAt: input.expiresAt ?? null,
         ...secret,
       },
-      update: { siteUrl: input.siteUrl ?? undefined, status: 'OK', statusReason: null, ...secret },
+      update: {
+        siteUrl: input.siteUrl ?? undefined,
+        status: 'OK',
+        statusReason: null,
+        expiresAt: input.expiresAt ?? undefined,
+        ...secret,
+      },
     });
     return toRecord(row);
   }
@@ -141,6 +150,18 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
     await this.prisma.sourceAccount.update({
       where: { id },
       data: { status, statusReason: reason ?? null },
+    });
+  }
+
+  async updateSecret(id: string, secret: EncryptedSecret, expiresAt?: Date): Promise<void> {
+    await this.prisma.sourceAccount.update({
+      where: { id },
+      data: {
+        secretCiphertext: secret.ciphertext,
+        secretIv: secret.iv,
+        secretAuthTag: secret.authTag,
+        expiresAt: expiresAt ?? undefined,
+      },
     });
   }
 

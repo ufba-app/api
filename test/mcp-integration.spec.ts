@@ -111,6 +111,7 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
             siteUrl: 'https://ava.test',
             status: 'OK',
             lastSyncedAt: null,
+            expiresAt: null,
             secret: { ciphertext: 'WSTOKEN', iv: 'i', authTag: 't' },
           },
         ]

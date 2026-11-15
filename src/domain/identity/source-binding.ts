@@ -5,7 +5,7 @@
  * O perfil do aluno se molda a essa conta, então ela não troca. Para trocar, a pessoa exclui a conta do ufba.app.
  */
 
-export type BoundSource = 'SIGAA' | 'MOODLE';
+export type BoundSource = 'SIGAA' | 'MOODLE' | 'SIASB';
 
 /** Quem é a pessoa na fonte, já normalizado (comparável). Nunca é guardado em claro: vira hash na infraestrutura. */
 export interface SourceSubject {
@@ -27,6 +27,11 @@ export function sigaaSubject(login: string): SourceSubject {
 /** Moodle: o id numérico do usuário no AVA (não editável), com o host do AVA. */
 export function moodleSubject(host: string, moodleUserId: number): SourceSubject {
   return { source: 'MOODLE', value: `${host.trim().toLowerCase()}:${moodleUserId}` };
+}
+
+/** SIASB: a matrícula, só com os dígitos (sem espaços nem pontuação). */
+export function siasbSubject(registration: string): SourceSubject {
+  return { source: 'SIASB', value: registration.replace(/[^0-9]/g, '') };
 }
 
 /** O que o AVA diz de quem é o token. */
