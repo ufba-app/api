@@ -1191,6 +1191,21 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(((await (await get('/me/academic', cookie)).json()) as any)).toMatchObject({ status: 'READY', draft: null, importedAt: gravado.importedAt });
     });
 
+    it('GET /me/academic traz a matrícula do portal só depois de confirmar, e DELETE a apaga', async () => {
+      const cookie = await conectado('acad8');
+      await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } });
+      await send('POST', '/me/academic/import', { cookie, body: {} });
+      const rascunho = await esperar(cookie, 'NEEDS_CONFIRMATION');
+      expect(rascunho.registration).toBeNull();
+      expect(JSON.stringify(rascunho.draft)).not.toContain('123456789');
+      expect((await send('POST', '/me/academic/confirm', { cookie, body: {} })).status).toBe(204);
+      const pronto = (await (await get('/me/academic', cookie)).json()) as any;
+      expect(pronto.registration).toBe('123456789');
+      expect(JSON.stringify(pronto.summary)).not.toContain('123456789');
+      expect((await send('DELETE', '/me/academic', { cookie })).status).toBe(204);
+      expect(((await (await get('/me/academic', cookie)).json()) as any).registration).toBeNull();
+    });
+
     it('o histórico, as notas e a senha nunca aparecem em log ou erro', async () => {
       const log = saida.join('\n');
       expect(log).not.toContain('FÍSICA GERAL TEÓRICA I');

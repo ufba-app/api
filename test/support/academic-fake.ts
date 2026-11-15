@@ -63,6 +63,9 @@ export class InMemoryAcademic extends AcademicRepository {
   async saveProfile(userId: string, profile: PortalProfile) {
     this.profiles.set(userId, profile);
   }
+  async findProfile(userId: string) {
+    return this.profiles.get(userId) ?? null;
+  }
   async clearProfile(userId: string) {
     this.profiles.delete(userId);
   }
