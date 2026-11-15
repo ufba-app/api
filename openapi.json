@@ -296,6 +296,9 @@
               "redirectUri": {
                 "type": "string"
               },
+              "local": {
+                "type": "boolean"
+              },
               "name": {
                 "type": [
                   "string",
@@ -322,6 +325,7 @@
             "required": [
               "domain",
               "redirectUri",
+              "local",
               "name",
               "logoUrl",
               "verified",
@@ -396,6 +400,9 @@
           "redirectUri": {
             "type": "string"
           },
+          "local": {
+            "type": "boolean"
+          },
           "name": {
             "type": [
               "string",
@@ -422,6 +429,7 @@
         "required": [
           "domain",
           "redirectUri",
+          "local",
           "name",
           "logoUrl",
           "verified",
@@ -433,6 +441,9 @@
         "properties": {
           "domain": {
             "type": "string"
+          },
+          "local": {
+            "type": "boolean"
           },
           "name": {
             "type": [
@@ -469,6 +480,7 @@
         },
         "required": [
           "domain",
+          "local",
           "name",
           "logoUrl",
           "verified",
@@ -3946,6 +3958,9 @@
                         "redirectUri": {
                           "type": "string"
                         },
+                        "local": {
+                          "type": "boolean"
+                        },
                         "name": {
                           "type": [
                             "string",
@@ -3972,6 +3987,7 @@
                       "required": [
                         "domain",
                         "redirectUri",
+                        "local",
                         "name",
                         "logoUrl",
                         "verified",
@@ -4213,6 +4229,9 @@
                           "domain": {
                             "type": "string"
                           },
+                          "local": {
+                            "type": "boolean"
+                          },
                           "name": {
                             "type": [
                               "string",
@@ -4248,6 +4267,7 @@
                         },
                         "required": [
                           "domain",
+                          "local",
                           "name",
                           "logoUrl",
                           "verified",

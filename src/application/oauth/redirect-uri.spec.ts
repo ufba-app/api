@@ -1,4 +1,4 @@
-import { redirectUriAllowed } from './redirect-uri';
+import { isLocalRedirect, redirectUriAllowed } from './redirect-uri';
 
 const CLAUDE_CODE = ['http://localhost/callback', 'http://127.0.0.1/callback'];
 
@@ -61,5 +61,22 @@ describe('redirectUriAllowed (RFC 8252: porta de loopback livre)', () => {
     expect(redirectUriAllowed([], 'http://localhost:5000/callback')).toBe(false);
     expect(redirectUriAllowed(['https://claude.ai/api/mcp/auth_callback'], 'http://localhost:5000/callback')).toBe(false);
     expect(redirectUriAllowed(['https://claude.ai/api/mcp/auth_callback'], 'https://claude.ai/api/mcp/auth_callback')).toBe(true);
+  });
+});
+
+describe('isLocalRedirect (para onde o código vai, não quem é o cliente)', () => {
+  it.each([
+    ['http://localhost:5000/cb', true],
+    ['http://127.0.0.1/cb', true],
+    ['http://[::1]:9/cb', true],
+    ['cursor://anysphere.cursor-retrieval/oauth/callback', true],
+    ['com.exemplo.app:/cb', true],
+    ['https://localhost/cb', false],
+    ['https://claude.ai/api/mcp/auth_callback', false],
+    ['http://evil.test/cb', false],
+    ['http://localhost.evil.test/cb', false],
+    ['não é url', false],
+  ])('%s -> %s', (uri, esperado) => {
+    expect(isLocalRedirect(uri)).toBe(esperado);
   });
 });

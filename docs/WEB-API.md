@@ -377,6 +377,8 @@ O que continua exposto: a senha fica na resposta HTTP (sob TLS) e no DOM dessa p
 - Funciona **sem sessão**: aí vem `signedIn: false` e `sources: null` (dá para mostrar "Claude quer acessar seus
   dados" antes do login). O web manda para `/sign-in?return=/authorize?request=<id>` e volta depois.
 - `domain`: host do `redirect_uri`, sempre em ASCII (punycode). Mostrar em destaque, exatamente como vem.
+- `local`: o `redirect_uri` volta para a **própria máquina** da pessoa (loopback `localhost`/`127.0.0.1`/`[::1]` ou esquema privado de app, como `cursor://`). **Não é verificação**: diz para onde o código vai, não quem é o cliente (qualquer programa local pode pedir `localhost` com o nome que quiser). A tela mostra algo como "Roda no seu computador", sem o selo de verificado.
+- `verified`: o domínio está em `config/verified-apps.json`. Para cliente por documento de metadados (`client_id` = URL https), conta o **host do documento** (ex.: `claude.ai/oauth/claude-code-client-metadata` é verificado como "Claude" mesmo com redirect em `localhost`); para os demais, o domínio do `redirect_uri`.
 - `name`/`logoUrl`: de `config/verified-apps.json` se o domínio for verificado e a entrada tiver; senão do
   documento de metadados do cliente (quando `client_id` é uma URL https); senão `null`. O `client_name` do
   `/register` é ignorado. Nome saneado (sem controle/bidi, até 60 caracteres). Logo servido pela própria API

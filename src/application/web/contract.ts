@@ -406,6 +406,8 @@ export const ClassroomStartQuery = z.object({ app: GuestApp.optional() });
 export const ClientView = z.object({
   domain: z.string(),
   redirectUri: z.string(),
+  /** O redirect volta para a própria máquina da pessoa (localhost ou esquema privado de app). NÃO é verificação: só diz para onde vai o código. */
+  local: z.boolean(),
   name: z.string().nullable(),
   logoUrl: z.string().nullable(),
   verified: z.boolean(),

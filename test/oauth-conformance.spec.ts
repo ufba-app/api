@@ -21,6 +21,8 @@ import { CLIENT_DIRECTORY } from '../src/interface/web/web-tokens';
 import { InMemoryComputerRepo, InMemoryDeviceRepo, InMemoryUserRepo } from './support/memory-fakes';
 import { UserPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
+import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
+import { SigaaCredentialRepository, SigaaVaultRepository } from '../src/application/ports/repositories';
 
 /**
  * CONFORMIDADE DO OAUTH DO MCP: um caso ponta a ponta (authorize → aprovação do painel → code → token → /mcp com Bearer) por
@@ -82,6 +84,10 @@ describe('conformidade do OAuth do MCP (HTTP, aplicação real)', () => {
       .useValue({ findActiveByHash: async () => null })
       .overrideProvider(UserPermissionRepository)
       .useValue(new InMemoryPermissions())
+      .overrideProvider(SigaaCredentialRepository)
+      .useValue(new InMemoryCredentials())
+      .overrideProvider(SigaaVaultRepository)
+      .useValue(new InMemoryVaults())
       .overrideProvider(MemoryUserRepository)
       .useValue(new InMemoryUserRepo())
       .overrideProvider(DeviceAuthorizationRepository)
@@ -302,6 +308,65 @@ describe('conformidade do OAuth do MCP (HTTP, aplicação real)', () => {
     it('cliente e escopo desconhecidos são recusados', async () => {
       expect(((await (await form('/oauth/device_authorization', { client_id: 'outro', scope: 'memory:connect' })).json()) as any).error).toBe('invalid_client');
       expect(((await (await form('/oauth/device_authorization', { client_id: 'ufba-installer', scope: 'openid' })).json()) as any).error).toBe('invalid_scope');
+    });
+  });
+
+  // ---- tela de consentimento: local e verificado ----
+
+  describe('tela de consentimento (RequestInfo): local não é verificado', () => {
+    async function info(client_id: string, redirect_uri: string) {
+      const q = new URLSearchParams({
+        response_type: 'code',
+        client_id,
+        redirect_uri,
+        code_challenge: CHALLENGE,
+        code_challenge_method: 'S256',
+      });
+      const r = await fetch(`${base}/authorize?${q}`, { redirect: 'manual' });
+      const id = new URL(r.headers.get('location')!).searchParams.get('request')!;
+      const res = await fetch(`${base}/authorize/requests/${id}`);
+      expect(res.status).toBe(200);
+      return ((await res.json()) as any).client as Record<string, unknown>;
+    }
+
+    it('Claude Code (CIMD em claude.ai, redirect em localhost): verificado como "Claude" e local', async () => {
+      expect(await info(CLAUDE_CODE_CIMD, 'http://localhost:51234/callback')).toMatchObject({
+        domain: 'localhost',
+        local: true,
+        verified: true,
+        name: 'Claude',
+        metadata: 'present',
+      });
+    });
+
+    it('cliente CIMD de OUTRO host que se diz "Claude Code": local, mas sem selo', async () => {
+      const url = 'https://falso-claude.exemplo.com/client.json';
+      CIMD_DOCS.set(url, { client_id: url, client_name: 'Claude Code', redirect_uris: ['http://localhost/callback'] });
+      expect(await info(url, 'http://localhost:51234/callback')).toMatchObject({ local: true, verified: false });
+    });
+
+    it('DCR em localhost e em esquema privado: local, sem selo e sem nome do cliente', async () => {
+      const a = await info(await dcr(['http://localhost/cb']), 'http://localhost:51234/cb');
+      expect(a).toMatchObject({ local: true, verified: false, name: null });
+      const b = await info(await dcr(['cursor://anysphere.cursor-retrieval/cb']), 'cursor://anysphere.cursor-retrieval/cb');
+      expect(b).toMatchObject({ local: true, verified: false });
+    });
+
+    it('https de terceiros: não é local; claude.ai por /register continua verificado pelo domínio', async () => {
+      expect(await info(await dcr(['https://app.exemplo.com/cb']), 'https://app.exemplo.com/cb')).toMatchObject({ local: false, verified: false });
+      expect(await info(await dcr(['https://claude.ai/api/mcp/auth_callback']), 'https://claude.ai/api/mcp/auth_callback')).toMatchObject({
+        local: false,
+        verified: true,
+        name: 'Claude',
+      });
+    });
+
+    it('apps autorizados: o Claude Code (dois hosts de loopback no documento) aparece como "Claude", verificado e local', async () => {
+      await endToEnd(CLAUDE_CODE_CIMD, 'http://localhost:51999/callback');
+      const res = await fetch(`${base}/authorized-apps`, { headers: { cookie } });
+      expect(res.status).toBe(200);
+      const app = ((await res.json()) as any).apps.find((a: any) => a.clientId === CLAUDE_CODE_CIMD);
+      expect(app).toMatchObject({ verified: true, name: 'Claude', local: true });
     });
   });
 

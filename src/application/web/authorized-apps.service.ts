@@ -1,4 +1,5 @@
 import type { ClientDirectory } from '../oauth/client-directory';
+import { isLocalRedirect } from '../oauth/redirect-uri';
 import type { OAuthStore } from '../oauth/oauth-ports';
 import type { CofreSigaa } from '../sigaa/cofre-sigaa';
 import { ApiError, WEB_CLIENT_ID, type AuthorizedApp, type WebPrincipal } from './web-api';
@@ -29,7 +30,10 @@ export class AuthorizedApps {
       // Cliente com redirect_uris em domínios diferentes (ex.: claude.ai + outro): não dá para saber por qual foi
       // aprovado, então não herda nome/selo de nenhum deles.
       const hosts = [...new Set(client.redirectUris.map((u) => new URL(u).hostname))];
-      if (hosts.length > 1) Object.assign(view, { domain: hosts.join(', '), name: null, logoUrl: null, verified: false });
+      // (Exceto cliente CIMD verificado pelo host do documento: a identidade vem do client_id, não dos redirects.)
+      const local = client.redirectUris.every(isLocalRedirect);
+      Object.assign(view, { local });
+      if (hosts.length > 1 && !this.clients.verifiedByClientId(client)) Object.assign(view, { domain: hosts.join(', '), name: null, logoUrl: null, verified: false });
       const sigaa = await this.cofre.situacao({ userId: p.userId, clientId });
       apps.push({
         clientId,
