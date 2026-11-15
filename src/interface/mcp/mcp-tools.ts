@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v4';
 import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memory/connect-guide';
-import { MEMORY_INSTRUCTIONS } from '../../application/memory/memory-proxy';
+import { memoryInstructionsFor } from '../../application/memory/memory-proxy';
+import { isWebChatClient } from '../../application/memory/connect-guide';
 import { registerClinicaTools } from './clinica-tools';
 import { McpClinica, McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 import { run } from './tool-result';
@@ -59,7 +60,7 @@ export function buildMcpServer(
   const withMemory = memory?.enabled() === true;
   const server = new McpServer(
     { name: 'platform', version: '0.1.0' },
-    withMemory ? { instructions: MEMORY_INSTRUCTIONS } : undefined,
+    withMemory ? { instructions: memoryInstructionsFor(p.clientName) } : undefined,
   );
 
   server.registerTool(
@@ -156,14 +157,17 @@ export function buildMcpServer(
 
   if (withMemory) {
     addMemoryTools(server, memory, p);
-    server.registerPrompt(
-      CONNECT_PROMPT_NAME,
-      {
-        title: 'Conectar computador',
-        description: 'Conecta este computador à memória compartilhada da ufba.app (pede a sua confirmação antes de instalar).',
-      },
-      () => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: CONNECT_PROMPT_TEXT } }] }),
-    );
+    // Chat web não tem terminal: o prompt de conectar computador não é exposto.
+    if (!isWebChatClient(p.clientName)) {
+      server.registerPrompt(
+        CONNECT_PROMPT_NAME,
+        {
+          title: 'Conectar computador',
+          description: 'Conecta este computador à memória compartilhada da ufba.app (pede a sua confirmação antes de instalar).',
+        },
+        () => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: CONNECT_PROMPT_TEXT } }] }),
+      );
+    }
   }
   return server;
 }
@@ -184,11 +188,11 @@ function addMemoryTools(server: McpServer, memory: McpMemory, p: McpPrincipal): 
 
   server.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
     const base = await houseList(req, extra);
-    const remote = await memory.listTools(p.userId);
+    const remote = await memory.listTools(p.userId, { name: p.clientName });
     return { ...base, tools: [...(base.tools ?? []), ...remote] } as never;
   });
   server.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
-    const result = await memory.call(p.userId, req.params.name, (req.params.arguments ?? {}) as Record<string, unknown>);
+    const result = await memory.call(p.userId, req.params.name, (req.params.arguments ?? {}) as Record<string, unknown>, { name: p.clientName });
     return (result ?? (await houseCall(req, extra))) as never;
   });
 }

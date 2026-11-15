@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { SeededProjectRegistry, OpenMemoryAccess } from '../src/application/memory/memory-defaults';
 import { MemoryAccess, MemoryUserRecord, MemoryUserRepository } from '../src/application/memory/memory-ports';
-import { MEMORY_INSTRUCTIONS, MemoryProxy, CATALOG_TTL_MS } from '../src/application/memory/memory-proxy';
+import { MEMORY_INSTRUCTIONS, MEMORY_INSTRUCTIONS_WEB, MemoryProxy, CATALOG_TTL_MS } from '../src/application/memory/memory-proxy';
 import { MEMORY_TOOL_CLASSES, classOf, unclassified } from '../src/application/memory/memory-tool-policy';
 import { MemoryUsers } from '../src/application/memory/memory-users';
 import type { EncryptedSecret } from '../src/application/ports/repositories';
@@ -295,7 +295,7 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       listarCursos: jest.fn(async () => ({ cursos: [{ id: '10' }] })),
     }) as unknown as McpUseCases;
 
-  async function connect(enabled: boolean): Promise<Client> {
+  async function connect(enabled: boolean, clientName?: string): Promise<Client> {
     fake = new FakeAiMemory(ROOT);
     const url = await fake.start();
     const admin = new MemoryAdminClient({ baseUrl: url, rootToken: enabled ? Secret.of(ROOT) : undefined });
@@ -308,7 +308,7 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       new OpenMemoryAccess(),
       new NoComputers(),
     );
-    const server = buildMcpServer(house(), { userId: UID }, proxy);
+    const server = buildMcpServer(house(), { userId: UID, ...(clientName ? { clientName } : {}) }, proxy);
     const [a, b] = InMemoryTransport.createLinkedPair();
     const c = new Client({ name: 'teste', version: '0' });
     await Promise.all([server.connect(a), c.connect(b)]);
@@ -362,5 +362,48 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(client.getInstructions()).toBeUndefined();
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     expect(fake.requests).toHaveLength(0);
+  });
+
+  describe('conectar computador depende de quem chama (clientInfo.name)', () => {
+    const tools = async (c: Client) => (await c.listTools()).tools.map((t) => t.name);
+    const hint = async (c: Client) =>
+      String((JSON.parse(((await c.callTool({ name: 'memory_status', arguments: {} })).content as { text: string }[])[0].text) as { hint: string }).hint);
+
+    it.each(['claude-ai', 'Claude Desktop', 'chatgpt', 'openai-mcp'])('chat web (%s): sem a ferramenta, sem o prompt, sem a oferta no texto e no hint', async (name) => {
+      client = await connect(true, name);
+      const names = await tools(client);
+      expect(names).toContain('memory_status');
+      expect(names).toContain('memory_query');
+      expect(names).not.toContain('memory_connect_computer');
+      expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS_WEB);
+      expect(client.getInstructions()).not.toContain('memory_connect_computer');
+      expect(await hint(client)).toBe('Nenhum computador conectado.');
+      // Chamar pelo nome mesmo assim também não funciona neste cliente.
+      const direct = await client.callTool({ name: 'memory_connect_computer', arguments: {} });
+      expect(direct.isError).toBe(true);
+    });
+
+    it.each(['claude-code', 'cursor-vscode', 'Visual Studio Code'])('terminal/editor (%s): ferramenta, prompt e oferta (condicional) como antes', async (name) => {
+      client = await connect(true, name);
+      expect(await tools(client)).toContain('memory_connect_computer');
+      expect((await client.listPrompts()).prompts.map((p) => p.name)).toEqual(['conectar-computador']);
+      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
+      const h = await hint(client);
+      expect(h).toContain('memory_connect_computer');
+      expect(h).toMatch(/terminal ou editor/);
+    });
+
+    it('cliente sem clientInfo (desconhecido): tudo exposto, mas o texto é condicional (só em terminal/editor, nada em chat web)', async () => {
+      client = await connect(true);
+      expect(await tools(client)).toContain('memory_connect_computer');
+      expect((await client.listPrompts()).prompts).toHaveLength(1);
+      const instructions = client.getInstructions()!;
+      expect(instructions).toContain('terminal ou editor');
+      expect(instructions).toContain('num chat web, não mencione');
+      const h = await hint(client);
+      expect(h).toContain('terminal ou editor');
+      expect(h).toContain('num chat web, não mencione');
+    });
   });
 });
