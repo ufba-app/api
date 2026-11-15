@@ -6,6 +6,7 @@ import {
   SigaaCredentialRecord,
   SigaaCredentialRepository,
   SourceBindingRepository,
+  StudentRegistrations,
   SourceAccountRecord,
   SourceAccountRepository,
   UpsertSourceAccountInput,
@@ -251,6 +252,18 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
       select: { id: true },
     });
     if (old.length) await this.prisma.sigaaCredential.deleteMany({ where: { id: { in: old.map((r) => r.id) } } });
+  }
+}
+
+@Injectable()
+export class PrismaStudentRegistrations extends StudentRegistrations {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async find(userId: string): Promise<string | null> {
+    const r = await this.prisma.studentProfile.findUnique({ where: { userId }, select: { registration: true } });
+    return r?.registration ?? null;
   }
 }
 

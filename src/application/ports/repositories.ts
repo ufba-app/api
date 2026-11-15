@@ -82,6 +82,11 @@ export abstract class SourceAccountRepository {
   abstract delete(id: string): Promise<void>;
 }
 
+/** Matrícula da pessoa (perfil de aluno), usada para oferecer e vincular o SIASB. */
+export abstract class StudentRegistrations {
+  abstract find(userId: string): Promise<string | null>;
+}
+
 // ── Cópia da DK por cliente OAuth / sessão do painel (a senha fica no cofre `SigaaVaultRepository`) ─────────────
 
 export interface SigaaCredentialRecord {
