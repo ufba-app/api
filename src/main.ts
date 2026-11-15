@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { WebSessionService } from './application/web/web-session.service';
 import { loadExtraCAs } from './infrastructure/tls/extra-ca';
 import { validateOriginConfig, webEnv } from './interface/web/web-auth';
+import { CORS_METHODS } from './interface/web/cors';
 
 async function bootstrap(): Promise<void> {
   // Intermediário que o AVA não envia (ver extra-ca.ts). Antes de qualquer conexão TLS.
@@ -27,7 +28,7 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: origins,
     credentials: true,
-    methods: ['GET', 'POST', 'DELETE'],
+    methods: [...CORS_METHODS],
     allowedHeaders: ['Content-Type', 'X-UFBA', 'Authorization'],
     maxAge: 600,
   });
