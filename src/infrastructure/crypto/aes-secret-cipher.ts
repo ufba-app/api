@@ -17,9 +17,10 @@ export class AesSecretCipher extends SecretCipher {
     this.key = parseSecretsKey(rawKey);
   }
 
-  encrypt(plain: string): EncryptedSecret {
+  encrypt(plain: string, aad?: string): EncryptedSecret {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.key, iv);
+    if (aad !== undefined) cipher.setAAD(Buffer.from(aad, 'utf8'));
     const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
     return {
       ciphertext: ciphertext.toString('base64'),
@@ -28,8 +29,9 @@ export class AesSecretCipher extends SecretCipher {
     };
   }
 
-  decrypt(secret: EncryptedSecret): string {
+  decrypt(secret: EncryptedSecret, aad?: string): string {
     const decipher = createDecipheriv('aes-256-gcm', this.key, Buffer.from(secret.iv, 'base64'));
+    if (aad !== undefined) decipher.setAAD(Buffer.from(aad, 'utf8'));
     decipher.setAuthTag(Buffer.from(secret.authTag, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(secret.ciphertext, 'base64')), decipher.final()]).toString(
       'utf8',

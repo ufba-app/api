@@ -3,7 +3,7 @@ import { OAuthError, type OAuthService } from '../oauth/oauth.service';
 import type { AccountDeparture } from '../memory/memory-departure';
 import type { CofreSigaa } from '../sigaa/cofre-sigaa';
 import type { ConnectionStatus } from './connection-status';
-import { ApiError, sessionExpired, WEB_CLIENT_ID, type Me, type WebPrincipal } from './web-api';
+import { ApiError, sessionExpired, webCopyOf, WEB_CLIENT_ID, type Me, type WebPrincipal } from './web-api';
 
 /** Sessão do app web: o cliente da casa, entrar, sair, quem está logado e excluir a conta. */
 export class WebSessionService {
@@ -50,9 +50,9 @@ export class WebSessionService {
     }
   }
 
-  /** Sair: apaga a sessão e a senha do SIGAA que só abria com a K dela. */
+  /** Sair: apaga a sessão e a cópia da DK que só abria com a K dela. As outras sessões (e o cofre) não são tocados. */
   async signOut(p: WebPrincipal, token: string): Promise<void> {
-    if (p.chave && (await this.status.sigaaOpens(p))) await this.cofre.apagar({ userId: p.userId, clientId: WEB_CLIENT_ID });
+    if (p.sessionKey) await this.cofre.apagar(webCopyOf(p));
     await this.oauth.revokeToken(token);
   }
 

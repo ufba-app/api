@@ -15,7 +15,16 @@ export class PrismaSigaaPairingRepository extends SigaaPairingRepository {
 
   async create(r: Omit<SigaaPairingRecord, 'packet'>) {
     await this.prisma.sigaaPairing.create({
-      data: { id: r.id, userId: r.userId, label: r.label, client: r.client, createdAt: r.createdAt, expiresAt: r.expiresAt },
+      data: {
+        id: r.id,
+        userId: r.userId,
+        label: r.label,
+        client: r.client,
+        seenBrowser: r.seenBrowser,
+        seenOs: r.seenOs,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+      },
     });
   }
 
@@ -27,6 +36,8 @@ export class PrismaSigaaPairingRepository extends SigaaPairingRepository {
       userId: r.userId,
       label: r.label,
       client: r.client,
+      seenBrowser: r.seenBrowser,
+      seenOs: r.seenOs,
       createdAt: r.createdAt,
       expiresAt: r.expiresAt,
       packet: r.pub && r.iv && r.ciphertext ? { pub: r.pub, iv: r.iv, ciphertext: r.ciphertext } : null,

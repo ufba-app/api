@@ -34,6 +34,12 @@ export class InMemoryCredentials extends SigaaCredentialRepository {
   async deleteAllOf(userId: string) {
     for (const [k, r] of this.rows) if (r.userId === userId) this.rows.delete(k);
   }
+  async pruneOldest(userId: string, clientIdPrefix: string, keep: number) {
+    const mine = [...this.rows.entries()]
+      .filter(([, r]) => r.userId === userId && r.clientId.startsWith(clientIdPrefix))
+      .sort((a, b) => b[1].createdAt.getTime() - a[1].createdAt.getTime());
+    for (const [k] of mine.slice(keep)) this.rows.delete(k);
+  }
 }
 
 /** Cofres da senha em memória. */
@@ -58,14 +64,16 @@ export class InMemoryVaults extends SigaaVaultRepository {
 
 /** AES-256-GCM equivalente ao AesSecretCipher (a camada application não importa infrastructure, nem em spec). */
 export const cifraDeTeste = (k: Buffer) => ({
-  encrypt(plain: string): EncryptedSecret {
+  encrypt(plain: string, aad?: string): EncryptedSecret {
     const iv = randomBytes(12);
     const c = createCipheriv('aes-256-gcm', k, iv);
+    if (aad !== undefined) c.setAAD(Buffer.from(aad, 'utf8'));
     const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
     return { ciphertext: ct.toString('base64'), iv: iv.toString('base64'), authTag: c.getAuthTag().toString('base64') };
   },
-  decrypt(e: EncryptedSecret): string {
+  decrypt(e: EncryptedSecret, aad?: string): string {
     const d = createDecipheriv('aes-256-gcm', k, Buffer.from(e.iv, 'base64'));
+    if (aad !== undefined) d.setAAD(Buffer.from(aad, 'utf8'));
     d.setAuthTag(Buffer.from(e.authTag, 'base64'));
     return Buffer.concat([d.update(Buffer.from(e.ciphertext, 'base64')), d.final()]).toString('utf8');
   },

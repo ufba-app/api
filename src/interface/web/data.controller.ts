@@ -11,7 +11,7 @@ import type {
 } from '../../application/ports/live-source';
 import type { Provider } from '../../application/ports/source-gateway';
 import { AccountQuery, AttachmentQuery, CoursesQuery, parseInput } from '../../application/web/contract';
-import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
+import { ApiError, invalidRequest, sessionExpired, webCopyOf, type WebPrincipal } from '../../application/web/web-api';
 import { contentDisposition } from '../rest/download.controller';
 import { ApiErrorFilter } from './api-error.filter';
 import { DataGuard, Principal } from './web-auth';
@@ -37,7 +37,11 @@ function provider(source: string): Provider {
 function quem(p: WebPrincipal | null): Quem {
   if (!p) throw sessionExpired();
   return p.clientId
-    ? { userId: p.userId, cliente: { clientId: p.clientId, ...(p.chave ? { chave: p.chave } : {}) } }
+    ? {
+        userId: p.userId,
+        // Sessão do painel (cookie): a cópia da DK é POR SESSÃO (`ufba-web:<sessão>`); cliente OAuth (Bearer): o próprio clientId.
+        cliente: { clientId: p.sessionKey ? webCopyOf(p).clientId : p.clientId, ...(p.chave ? { chave: p.chave } : {}) },
+      }
     : { userId: p.userId };
 }
 

@@ -1,14 +1,19 @@
 import { RateWindow } from '../memory/rate-window';
 import { randomToken } from '../oauth/pkce';
 import { SigaaPairingRepository, type SigaaPairingPacket } from '../ports/repositories';
+import type { SeenClient } from './user-agent';
 import { ApiError, type WebPrincipal } from './web-api';
 
 export const PAIRING_TTL_MS = 5 * 60_000;
 export const MAX_OPEN_PAIRINGS = 3;
 
 export interface PairingInfo {
+  /** O que o computador DIZ de si: não é confiável, a tela mostra como "o computador diz". */
   label: string | null;
   client: string | null;
+  /** O que a API VIU (User-Agent) ao receber o pedido: é o que o celular mostra antes de pedir a digital. */
+  seenBrowser: string | null;
+  seenOs: string | null;
   createdAt: Date;
   expiresAt: Date;
   delivered: boolean;
@@ -41,7 +46,11 @@ export class SigaaPairings {
     this.infos = new RateWindow(30, 60_000, this.now);
   }
 
-  async create(p: WebPrincipal, input: { label?: string; client?: string }): Promise<{ id: string; expiresAt: Date }> {
+  async create(
+    p: WebPrincipal,
+    input: { label?: string; client?: string },
+    seen: SeenClient = { browser: null, os: null },
+  ): Promise<{ id: string; expiresAt: Date }> {
     const at = new Date(this.now());
     await this.repo.deleteExpired(at);
     if ((await this.repo.countOpen(p.userId, at)) >= MAX_OPEN_PAIRINGS || !this.creates.take(p.userId)) {
@@ -54,6 +63,8 @@ export class SigaaPairings {
       userId: p.userId,
       label: input.label ?? null,
       client: input.client ?? null,
+      seenBrowser: seen.browser,
+      seenOs: seen.os,
       createdAt: at,
       expiresAt,
     });
@@ -65,7 +76,7 @@ export class SigaaPairings {
     if (!this.infos.take(p.userId)) throw tooMany();
     const r = await this.repo.find(id, p.userId, new Date(this.now()));
     if (!r) throw notFound();
-    return { label: r.label, client: r.client, createdAt: r.createdAt, expiresAt: r.expiresAt, delivered: r.packet !== null };
+    return { label: r.label, client: r.client, seenBrowser: r.seenBrowser, seenOs: r.seenOs, createdAt: r.createdAt, expiresAt: r.expiresAt, delivered: r.packet !== null };
   }
 
   /** O celular entrega o pacote lacrado. Uma vez só por pedido. */

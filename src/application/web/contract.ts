@@ -123,8 +123,12 @@ export const PairingCreated = z.object({
 });
 
 export const PairingInfo = z.object({
+  /** O que o COMPUTADOR diz de si ("Firefox no Windows"). NÃO é confiável: quem mostra um QR de golpe escreve o que quiser. */
   label: z.string().nullable(),
   client: z.string().nullable(),
+  /** O que a API VIU ao receber o pedido, pelo User-Agent ("Firefox 160", "Windows"). É o que o celular deve mostrar primeiro. */
+  seenBrowser: z.string().nullable(),
+  seenOs: z.string().nullable(),
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   delivered: z.boolean(),

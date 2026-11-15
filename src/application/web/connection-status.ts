@@ -1,7 +1,7 @@
 import type { ClassroomLinkPort } from '../oauth/oauth-ports';
 import type { SigaaMasterSlotRepository, SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
-import { WEB_CLIENT_ID, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
+import { webCopyOf, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
 
 export const accountStatus = (a: SourceAccountRecord): AccountStatus =>
   a.status === 'OK' ? 'connected' : 'reconnect_required';
@@ -37,9 +37,9 @@ export class ConnectionStatus {
 
   /** Abre a senha do SIGAA do web com a K da sessão (só em memória). `null` se não há ou se a K não abre. */
   async openSigaa(p: WebPrincipal) {
-    if (!p.chave) return null;
+    if (!p.chave || !p.sessionKey) return null;
     try {
-      return await this.cofre.abrir({ userId: p.userId, clientId: WEB_CLIENT_ID }, p.chave);
+      return await this.cofre.abrir(webCopyOf(p), p.chave);
     } catch (e) {
       if (e instanceof CredencialSigaaInvalidaError) return null;
       throw e;

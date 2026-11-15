@@ -559,7 +559,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(out.status).toBe(204);
     expect(out.headers.get('set-cookie')).toMatch(/Max-Age=0/);
     expect((await get('/me', cookie)).status).toBe(401);
-    expect(await cofre.situacao({ userId: me.id, clientId: WEB_CLIENT_ID })).toBeNull();
+    // A cópia da DK é por sessão: sair apaga a desta sessão e nenhuma sobra para a pessoa.
+    expect([...credsRepo.rows.values()].filter((r) => r.userId === me.id)).toHaveLength(0);
   });
 
   describe('chave mestra do SIGAA (passkey)', () => {
@@ -592,7 +593,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra1', passkey: { slots: 1 } });
 
       // Ao ativar, o navegador pediu a DK (e a cifrou com a passkey; aqui só guardamos para devolver no desbloqueio).
-      const chave = await get('/connections/sigaa/key', cookie);
+      const chave = await send('GET', '/connections/sigaa/key', { cookie });
       expect(chave.status).toBe(200);
       expect(chave.headers.get('cache-control')).toBe('no-store');
       const { dk } = (await chave.json()) as any;
@@ -699,10 +700,14 @@ describe('API do app web (docs/WEB-API.md)', () => {
       await send('DELETE', '/session', { cookie });
       const nova = await signIn('mestra12');
 
-      const semAbrir = await get('/connections/sigaa/key', nova); // locked: esta sessão não abre
+      const semAbrir = await send('GET', '/connections/sigaa/key', { cookie: nova }); // locked: esta sessão não abre
       expect(semAbrir.status).toBe(409);
       expect(((await semAbrir.json()) as any).error).toBe('source_not_connected');
-      expect((await get('/connections/sigaa/key')).status).toBe(401);
+      expect((await send('GET', '/connections/sigaa/key')).status).toBe(401);
+      // Sem X-UFBA (um <img> de outro subdomínio, por exemplo): recusado antes de gastar o limite.
+      const semHeader = await get('/connections/sigaa/key', nova);
+      expect(semHeader.status).toBe(403);
+      expect(((await semHeader.json()) as any).error).toBe('csrf_rejected');
 
       const errada = await send('POST', '/connections/sigaa/unlock', { cookie: nova, body: { dk: 'D'.repeat(43) } });
       expect(errada.status).toBe(422);
@@ -732,6 +737,37 @@ describe('API do app web (docs/WEB-API.md)', () => {
       ]);
       expect([a.status, b.status].sort()).toEqual([204, 409]);
       expect(((await (await get('/sigaa/passkey', cookie)).json()) as any).passkeys).toHaveLength(5);
+    });
+
+    it('uma cópia da DK por sessão do painel: desbloquear num aparelho não tranca o outro, e Sair num não tranca os demais', async () => {
+      const a = await conectado('multi1');
+      await send('POST', '/sigaa/passkey', { cookie: a, body: slot(1) });
+      const { dk } = (await (await send('GET', '/connections/sigaa/key', { cookie: a })).json()) as any;
+
+      // Segundo aparelho: a sessão dele ainda não abre (locked) e desbloqueia com a DK (QR ou passkey).
+      const b = await signIn('multi1');
+      expect(((await (await get('/me', b)).json()) as any).connections.sigaa.status).toBe('locked');
+      expect((await send('POST', '/connections/sigaa/unlock', { cookie: b, body: { dk } })).status).toBe(204);
+
+      // Os dois ficam abertos AO MESMO TEMPO (antes, um sobrescrevia a cópia do outro).
+      const meA = (await (await get('/me', a)).json()) as any;
+      const meB = (await (await get('/me', b)).json()) as any;
+      expect(meA.connections.sigaa.status).toBe('connected');
+      expect(meB.connections.sigaa.status).toBe('connected');
+      expect([...credsRepo.rows.values()].filter((r) => r.userId === meA.id && r.clientId.startsWith('ufba-web:'))).toHaveLength(2);
+
+      // Sair no aparelho A não tranca o B; uma sessão nova continua pedindo a passkey.
+      expect((await send('DELETE', '/session', { cookie: a })).status).toBe(204);
+      expect(((await (await get('/me', b)).json()) as any).connections.sigaa.status).toBe('connected');
+      const c = await signIn('multi1');
+      expect(((await (await get('/me', c)).json()) as any).connections.sigaa.status).toBe('locked');
+      expect([...credsRepo.rows.values()].filter((r) => r.userId === meA.id && r.clientId.startsWith('ufba-web:'))).toHaveLength(1);
+    });
+
+    it('as leituras ao vivo do painel usam a cópia da própria sessão', async () => {
+      const cookie = await conectado('multi2');
+      const r = (await (await get('/accounts', cookie)).json()) as any;
+      expect(r.accounts).toContainEqual({ source: 'sigaa', account: 'multi2', status: 'connected' });
     });
 
     it('entrada inválida: sal, iv, id e rótulo fora do formato dão 400 sem ecoar o valor; exige sessão e CSRF', async () => {
@@ -793,6 +829,43 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const depois = await get(`/pairings/${criado.id}`, pc);
       expect(depois.status).toBe(404);
       expect(((await depois.json()) as any).error).toBe('pairing_not_found');
+    });
+
+    it('o celular recebe o que a API VIU (User-Agent), não o que o computador escreveu (QR de golpe)', async () => {
+      const pc = await signIn('par6');
+      const celular = await signIn('par6');
+      // O computador (ou quem mostra um QR de golpe) escreve no corpo o que quiser...
+      const criado = await fetch(`${base}/pairings`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-ufba': '1',
+          origin: WEB,
+          cookie: pc,
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0',
+        },
+        body: JSON.stringify({ label: 'iPhone da sua mãe, no Banco do Brasil', client: 'Banco do Brasil' }),
+      });
+      expect(criado.status).toBe(201);
+      const { id } = (await criado.json()) as any;
+
+      // ...mas a API grava o que ela mesma viu e devolve isso no info, junto do que o computador "diz".
+      const info = (await (await get(`/pairings/${id}/info`, celular)).json()) as any;
+      expect(info).toMatchObject({ seenBrowser: 'Firefox 160', seenOs: 'Windows' });
+      expect(info.label).toBe('iPhone da sua mãe, no Banco do Brasil'); // continua ali, como "o computador diz"
+      expect(info.createdAt).toBeTruthy();
+    });
+
+    it('sem User-Agent reconhecível, seenBrowser e seenOs vêm nulos (a tela mostra só o horário)', async () => {
+      const cookie = await signIn('par7');
+      const criado = await fetch(`${base}/pairings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-ufba': '1', origin: WEB, cookie, 'user-agent': 'curl/8.5.0' },
+        body: '{}',
+      });
+      const { id } = (await criado.json()) as any;
+      const info = (await (await get(`/pairings/${id}/info`, cookie)).json()) as any;
+      expect(info).toMatchObject({ seenBrowser: null, seenOs: null });
     });
 
     it('outra conta não vê, não entrega e não lê (responde como "não encontrado")', async () => {

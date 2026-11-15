@@ -5,14 +5,21 @@ import type { EncryptedSecret } from '../ports/repositories';
 import { SigaaCredentialRepository, SigaaVaultRepository } from '../ports/repositories';
 
 export type CifraSigaa = {
-  encrypt(s: string): EncryptedSecret;
-  decrypt(e: EncryptedSecret): string;
+  encrypt(s: string, aad?: string): EncryptedSecret;
+  decrypt(e: EncryptedSecret, aad?: string): string;
 };
 export type FabricaCifra = (k: Buffer) => CifraSigaa;
 
 const TTL_TRANSACAO_MS = 15 * 60_000;
 const TTL_CODIGO_MS = 5 * 60_000;
 export const DK_BYTES = 32;
+
+/**
+ * Dado associado autenticado (AAD) de cada cifrado: amarra o texto ao dono e ao cliente, então uma linha copiada de outra
+ * pessoa ou de outro cliente (por erro ou por quem tem escrita no banco) não abre mesmo com a chave certa.
+ */
+const aadCofre = (userId: string) => `vault:${userId}`;
+const aadCopia = (quem: { userId: string; clientId: string }) => `copy:${quem.userId}:${quem.clientId}`;
 
 export class CredencialSigaaInvalidaError extends Error {
   constructor() {
@@ -80,7 +87,7 @@ export class CofreSigaa {
     if (!p) return null;
     this.porCodigo.delete(codeHash);
     const k = randomBytes(32);
-    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: p.login, secret: this.embrulhar(Buffer.from(p.dk.reveal(), 'base64url'), k) });
+    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: p.login, secret: this.embrulhar(Buffer.from(p.dk.reveal(), 'base64url'), k, quem) });
     return k;
   }
 
@@ -97,8 +104,8 @@ export class CofreSigaa {
     const cofre = await this.cofres.find(quem.userId);
     if (!cofre) return null;
     if (cofre.status === 'REAUTH_NEEDED') throw new CredencialSigaaInvalidaError();
-    const dk = this.desembrulhar(rec.secret, k);
-    const senha = this.abrirCofre(cofre.secret, dk);
+    const dk = this.desembrulhar(rec.secret, k, quem);
+    const senha = this.abrirCofre(cofre.secret, dk, quem.userId);
     return { login: cofre.login, senha, credencialId: rec.id, dk: Secret.of(dk.toString('base64url')) };
   }
 
@@ -131,9 +138,9 @@ export class CofreSigaa {
   ): Promise<{ novaDk: boolean }> {
     const dkDaSessao = await this.dkDaSessao(quem, k);
     const dk = dkDaSessao ?? randomBytes(DK_BYTES);
-    await this.cofres.upsert({ userId: quem.userId, login: cred.login, secret: this.cifra(dk).encrypt(cred.senha.reveal()) });
+    await this.cofres.upsert({ userId: quem.userId, login: cred.login, secret: this.cifra(dk).encrypt(cred.senha.reveal(), aadCofre(quem.userId)) });
     if (!dkDaSessao) await this.repo.deleteAllExcept(quem.userId, quem.clientId);
-    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cred.login, secret: this.embrulhar(dk, k) });
+    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cred.login, secret: this.embrulhar(dk, k, quem) });
     return { novaDk: !dkDaSessao };
   }
 
@@ -146,8 +153,8 @@ export class CofreSigaa {
     if (!cofre) throw new CredencialSigaaInvalidaError();
     const dk = Buffer.from(dkSecreta.reveal(), 'base64url');
     if (dk.length !== DK_BYTES) throw new CredencialSigaaInvalidaError();
-    this.abrirCofre(cofre.secret, dk); // lança se não abre
-    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cofre.login, secret: this.embrulhar(dk, k) });
+    this.abrirCofre(cofre.secret, dk, quem.userId); // lança se não abre
+    await this.repo.upsert({ userId: quem.userId, clientId: quem.clientId, login: cofre.login, secret: this.embrulhar(dk, k, quem) });
   }
 
   /** A DK do cofre, aberta com a K desta sessão (para o navegador cifrá-la com a passkey). `null` se não abre. */
@@ -167,6 +174,14 @@ export class CofreSigaa {
     await this.repo.deleteAllOf(userId);
   }
 
+  /**
+   * Cada sessão do painel guarda a sua própria cópia da DK (clientId `ufba-web:<sessão>`) e sessões que vencem sem "Sair"
+   * deixariam cópias órfãs: mantém só as `keep` mais novas com esse prefixo.
+   */
+  async podarCopias(userId: string, clientIdPrefix: string, keep: number): Promise<void> {
+    await this.repo.pruneOldest(userId, clientIdPrefix, keep);
+  }
+
   /** O SIGAA recusou esta senha: vale para todos os clientes até a pessoa digitar a nova. */
   async marcarInvalida(userId: string): Promise<void> {
     await this.cofres.setStatus(userId, 'REAUTH_NEEDED');
@@ -174,15 +189,15 @@ export class CofreSigaa {
 
   // ---- internos ----
 
-  private embrulhar(dk: Buffer, k: Buffer): EncryptedSecret {
-    return this.cifra(k).encrypt(dk.toString('base64url'));
+  private embrulhar(dk: Buffer, k: Buffer, quem: { userId: string; clientId: string }): EncryptedSecret {
+    return this.cifra(k).encrypt(dk.toString('base64url'), aadCopia(quem));
   }
 
   /** Abre a cópia da DK com a K. Qualquer falha vira "inválida", sem detalhe do erro. */
-  private desembrulhar(secret: EncryptedSecret, k: Buffer): Buffer {
+  private desembrulhar(secret: EncryptedSecret, k: Buffer, quem: { userId: string; clientId: string }): Buffer {
     let dk: Buffer;
     try {
-      dk = Buffer.from(this.cifra(k).decrypt(secret), 'base64url');
+      dk = Buffer.from(this.cifra(k).decrypt(secret, aadCopia(quem)), 'base64url');
     } catch {
       throw new CredencialSigaaInvalidaError();
     }
@@ -190,9 +205,9 @@ export class CofreSigaa {
     return dk;
   }
 
-  private abrirCofre(secret: EncryptedSecret, dk: Buffer): Secret {
+  private abrirCofre(secret: EncryptedSecret, dk: Buffer, userId: string): Secret {
     try {
-      return Secret.of(this.cifra(dk).decrypt(secret));
+      return Secret.of(this.cifra(dk).decrypt(secret, aadCofre(userId)));
     } catch {
       throw new CredencialSigaaInvalidaError();
     }
@@ -203,8 +218,8 @@ export class CofreSigaa {
     const [rec, cofre] = await Promise.all([this.repo.find(quem.userId, quem.clientId), this.cofres.find(quem.userId)]);
     if (!rec || !cofre) return null;
     try {
-      const dk = this.desembrulhar(rec.secret, k);
-      this.abrirCofre(cofre.secret, dk);
+      const dk = this.desembrulhar(rec.secret, k, quem);
+      this.abrirCofre(cofre.secret, dk, quem.userId);
       return dk;
     } catch {
       return null;

@@ -103,6 +103,8 @@ export abstract class SigaaCredentialRepository {
   abstract deleteAllExcept(userId: string, clientId: string): Promise<void>;
   /** Apaga todas as cópias da DK da pessoa. */
   abstract deleteAllOf(userId: string): Promise<void>;
+  /** Entre as cópias cujo `clientId` começa por `prefix`, mantém só as `keep` mais novas. */
+  abstract pruneOldest(userId: string, clientIdPrefix: string, keep: number): Promise<void>;
 }
 
 /** Cofre da senha do SIGAA, um por pessoa: a senha cifrada com a DK (que nunca é guardada em claro). */
@@ -200,8 +202,12 @@ export interface SigaaPairingPacket {
 export interface SigaaPairingRecord {
   id: string;
   userId: string;
+  /** O que o COMPUTADOR diz de si: não é confiável. */
   label: string | null;
   client: string | null;
+  /** O que a API VIU ao receber o pedido (User-Agent). */
+  seenBrowser: string | null;
+  seenOs: string | null;
   createdAt: Date;
   expiresAt: Date;
   packet: SigaaPairingPacket | null;

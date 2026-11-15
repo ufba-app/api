@@ -35,4 +35,20 @@ export interface WebPrincipal {
   chave?: Buffer;
   /** Quando a sessão vence (ms). Só vem do cookie de sessão. */
   sessionExpiresAt?: number;
+  /** Identifica ESTA sessão (derivada do hash do token; não revela o token). Só vem do cookie de sessão. */
+  sessionKey?: string;
 }
+
+/** Prefixo do `clientId` das cópias da DK das sessões do painel: `ufba-web:<sessão>`. */
+export const WEB_COPY_PREFIX = `${WEB_CLIENT_ID}:`;
+/** Quantas sessões do painel por pessoa mantêm cópia da DK (as mais novas): evita cópias órfãs de sessões que venceram. */
+export const MAX_WEB_COPIES = 20;
+
+/**
+ * Dono da cópia da DK desta sessão do painel. É POR SESSÃO: com uma cópia só para todas as sessões, desbloquear num aparelho
+ * (celular ou QR) sobrescreveria a dos outros e "Sair" num aparelho trancaria os demais.
+ */
+export const webCopyOf = (p: WebPrincipal): { userId: string; clientId: string } => {
+  if (!p.sessionKey) throw sessionExpired();
+  return { userId: p.userId, clientId: `${WEB_COPY_PREFIX}${p.sessionKey}` };
+};
