@@ -22,6 +22,7 @@ import { AuthorizedApps } from '../../application/web/authorized-apps.service';
 import { ConnectionsService } from '../../application/web/connections.service';
 import { SigaaPasskeys } from '../../application/web/sigaa-passkeys.service';
 import { SigaaPairings } from '../../application/web/sigaa-pairings.service';
+import { parseUserAgent } from '../../application/web/user-agent';
 import {
   ClassroomStartQuery,
   ConnectMoodleBody,
@@ -243,8 +244,9 @@ export class PairingsController {
   @Post()
   @HttpCode(201)
   @Header('Cache-Control', 'no-store')
-  async create(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
-    const r = await this.pairings.create(must(p), parseInput(CreatePairingBody, b ?? {}, invalidRequest));
+  async create(@Principal() p: WebPrincipal | null, @Body() b: unknown, @Req() req: Request) {
+    // O que a API VÊ (User-Agent) é gravado junto: o celular mostra isso, não o rótulo que o computador escreveu.
+    const r = await this.pairings.create(must(p), parseInput(CreatePairingBody, b ?? {}, invalidRequest), parseUserAgent(req.headers['user-agent']));
     return { id: r.id, expiresAt: r.expiresAt.toISOString() };
   }
 
@@ -255,6 +257,8 @@ export class PairingsController {
     return {
       label: i.label,
       client: i.client,
+      seenBrowser: i.seenBrowser,
+      seenOs: i.seenOs,
       createdAt: i.createdAt.toISOString(),
       expiresAt: i.expiresAt.toISOString(),
       delivered: i.delivered,

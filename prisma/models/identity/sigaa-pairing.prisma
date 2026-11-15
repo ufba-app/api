@@ -8,8 +8,12 @@ model SigaaPairing {
   userId String @map("user_id") @db.Uuid
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  label  String? // "Firefox no Windows" (mostrado no celular)
-  client String? // cliente que está sendo autorizado, se houver
+  // O que o COMPUTADOR diz de si: não é confiável (quem mostra um QR de golpe escreve o que quiser). Só como "o computador diz".
+  label  String?
+  client String?
+  // O que a API VIU ao receber o pedido (User-Agent): é o que o celular deve mostrar antes de pedir a digital.
+  seenBrowser String? @map("seen_browser") // "Firefox 160"
+  seenOs      String? @map("seen_os") // "Windows"
 
   createdAt DateTime @default(now()) @map("created_at")
   expiresAt DateTime @map("expires_at")

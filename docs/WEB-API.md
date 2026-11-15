@@ -71,8 +71,9 @@ segredo**:
 
 ### Sair
 
-`DELETE /session` → 204. Apaga a sessão no banco, limpa o cookie e apaga a senha do SIGAA guardada para o web
-(ela só abria com a K desta sessão).
+`DELETE /session` → 204. Apaga a sessão no banco, limpa o cookie e apaga **a cópia da DK desta sessão** (ela só abria com a
+K desta sessão). A cópia da DK é **por sessão** (`ufba-web:<sessão>`): sair num aparelho **não** tranca os outros, e desbloquear
+num aparelho não sobrescreve a cópia dos outros (o limite é de 20 sessões mais novas por pessoa).
 
 ### Excluir a conta
 
@@ -112,6 +113,8 @@ seguem valendo.
 
 - `GET /connections/sigaa/key` → `{ dk }` (32 bytes, base64url). Para **ativar**: o navegador cifra a DK com a passkey e a
   grava (`POST /sigaa/passkey`). Exige o SIGAA aberto **nesta** sessão (409 `source_not_connected`); `no-store`; 10 por hora.
+  **Exige o cabeçalho `X-UFBA: 1`** (403 `csrf_rejected` sem ele): é um GET que entrega a DK e gasta limite, e o cabeçalho
+  personalizado força o preflight de CORS, então outro subdomínio de `*.ufba.app` não o dispara com um `<img>`.
 - `POST /connections/sigaa/unlock` `{ dk }` → 204. Para **desbloquear**: o navegador abre a cópia da passkey (ou recebe a
   DK pelo QR) e manda a DK; o servidor abre o cofre e a sessão fica conectada, **sem a senha passar pelo navegador**. DK que
   não abre: 422 `invalid_credentials`. Sem cofre: 409. 10 por minuto.
@@ -136,8 +139,12 @@ Todas as rotas exigem sessão e CSRF e respondem `Cache-Control: no-store`.
 - `POST /pairings` `{ label?, client? }` → 201 `{ id, expiresAt }`. O **computador** abre o pedido (preso à conta dele;
   vale 5 min; no máximo 3 abertos por pessoa, 10 por hora). O QR leva `id` e, **no fragmento** (`#…`, que o navegador não
   manda ao servidor), a chave pública P-256 descartável do computador.
-- `GET /pairings/{id}/info` → `{ label, client, createdAt, expiresAt, delivered }`. O **celular** mostra "Liberar
-  *Firefox no Windows*?" antes de pedir a digital. Pedido de outra conta responde **404** `pairing_not_found` (não revela que existe).
+- `GET /pairings/{id}/info` → `{ seenBrowser, seenOs, label, client, createdAt, expiresAt, delivered }`. O **celular** mostra
+  "Liberar *Firefox 160 no Windows*, pedido às 14:03?" antes de pedir a digital. **`seenBrowser` e `seenOs` são o que a API VIU**
+  ao receber `POST /pairings` (User-Agent; nulos se não reconhecer): é o que a tela mostra primeiro. **`label` e `client` são o que
+  o COMPUTADOR escreveu e não são confiáveis** (quem mostra um QR de golpe escreve o que quiser): mostre-os, se quiser, como
+  "o computador diz", nunca como fato. A cidade aproximada não é gravada (exigiria um serviço de geolocalização por IP).
+  Pedido de outra conta responde **404** `pairing_not_found` (não revela que existe).
 - `POST /pairings/{id}` `{ pub, iv, ciphertext }` → 204. O **celular** entrega o pacote (`pub` = chave pública efêmera do
   celular, 65 bytes; `iv` 12 bytes; `ciphertext` AES-GCM, base64url). **Uma entrega por pedido**: a segunda dá 409
   `pairing_already_delivered`. 404 se vencido ou de outra conta.

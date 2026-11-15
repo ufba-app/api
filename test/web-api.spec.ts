@@ -831,6 +831,43 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(((await depois.json()) as any).error).toBe('pairing_not_found');
     });
 
+    it('o celular recebe o que a API VIU (User-Agent), não o que o computador escreveu (QR de golpe)', async () => {
+      const pc = await signIn('par6');
+      const celular = await signIn('par6');
+      // O computador (ou quem mostra um QR de golpe) escreve no corpo o que quiser...
+      const criado = await fetch(`${base}/pairings`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-ufba': '1',
+          origin: WEB,
+          cookie: pc,
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0',
+        },
+        body: JSON.stringify({ label: 'iPhone da sua mãe, no Banco do Brasil', client: 'Banco do Brasil' }),
+      });
+      expect(criado.status).toBe(201);
+      const { id } = (await criado.json()) as any;
+
+      // ...mas a API grava o que ela mesma viu e devolve isso no info, junto do que o computador "diz".
+      const info = (await (await get(`/pairings/${id}/info`, celular)).json()) as any;
+      expect(info).toMatchObject({ seenBrowser: 'Firefox 160', seenOs: 'Windows' });
+      expect(info.label).toBe('iPhone da sua mãe, no Banco do Brasil'); // continua ali, como "o computador diz"
+      expect(info.createdAt).toBeTruthy();
+    });
+
+    it('sem User-Agent reconhecível, seenBrowser e seenOs vêm nulos (a tela mostra só o horário)', async () => {
+      const cookie = await signIn('par7');
+      const criado = await fetch(`${base}/pairings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-ufba': '1', origin: WEB, cookie, 'user-agent': 'curl/8.5.0' },
+        body: '{}',
+      });
+      const { id } = (await criado.json()) as any;
+      const info = (await (await get(`/pairings/${id}/info`, cookie)).json()) as any;
+      expect(info).toMatchObject({ seenBrowser: null, seenOs: null });
+    });
+
     it('outra conta não vê, não entrega e não lê (responde como "não encontrado")', async () => {
       const dono = await signIn('par2');
       const intruso = await signIn('par2-intruso');

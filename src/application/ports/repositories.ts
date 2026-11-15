@@ -202,8 +202,12 @@ export interface SigaaPairingPacket {
 export interface SigaaPairingRecord {
   id: string;
   userId: string;
+  /** O que o COMPUTADOR diz de si: não é confiável. */
   label: string | null;
   client: string | null;
+  /** O que a API VIU ao receber o pedido (User-Agent). */
+  seenBrowser: string | null;
+  seenOs: string | null;
   createdAt: Date;
   expiresAt: Date;
   packet: SigaaPairingPacket | null;
