@@ -12,6 +12,9 @@ import { SecretCipher } from '../../application/ports/secret-cipher';
 import { SiasbError, SiasbSession, SiasbSource } from '../../application/ports/siasb-source';
 import { ReconectarError, SiasbReadError, SiasbReader } from '../../application/siasb/siasb-reader';
 import { FERRAMENTAS_CLINICA, resolveSiasbFlag, toBahiaIso } from './clinica-tools';
+import type { SiasbCopyReader } from '../../application/siasb/siasb-copy-reader';
+import type { SiasbLink } from '../../application/siasb/siasb-link';
+import { McpClinicaImpl } from './mcp-clinica';
 import { buildMcpServer } from './mcp-tools';
 import type { McpClinica, McpPrincipal, McpUseCases } from './mcp-ports';
 
@@ -140,21 +143,26 @@ class FakeCalendar extends AcademicCalendar {
   }
 }
 
-type CopyResult = Awaited<ReturnType<McpClinica['copySessions']>>;
+type CopyResult = NonNullable<Awaited<ReturnType<McpClinica['copySessions']>>>;
 const SEM_COPIA: CopyResult = { syncedAt: null, stale: true, items: [] };
 
 function setup(calendar = new FakeCalendar(), copy: CopyResult = SEM_COPIA) {
   const siasb = new FakeSiasb();
   const reader = new SiasbReader(siasb, new FakeAccounts(), new FakeCipher(), calendar, () => NOW);
   const copyRanges: { from: Date; to: Date }[] = [];
+  // O McpClinicaImpl real decide o período da cópia; só o leitor da cópia (banco) é substituído.
+  const copyReader = {
+    calendar: async (_u: string, from: Date, to: Date) => {
+      copyRanges.push({ from, to });
+      return copy;
+    },
+  } as unknown as SiasbCopyReader;
+  const impl = new McpClinicaImpl(reader, {} as SiasbLink, copyReader, () => NOW);
   const clinica: McpClinica = {
     hasConnection: async () => true,
     situation: (u) => reader.situation(u),
     sessions: (u, r) => reader.sessions(u, r),
-    copySessions: async (_u, r) => {
-      if (r) copyRanges.push(r);
-      return copy;
-    },
+    copySessions: (u, r) => impl.copySessions(u, r),
     bookingDeadline: (u, i) => reader.bookingDeadline(u, i),
     patients: (u) => reader.patients(u),
     vacancies: (u) => reader.vacancies(u),
@@ -412,6 +420,33 @@ describe('clinica_sessoes: cópia e ao vivo', () => {
     expect(res.isError).toBe(true);
     expect(texto(res)).not.toContain('2026-12-04');
     expect(copyRanges).toEqual([]);
+  });
+
+  it('de anterior à janela sincronizada (agora − 120 dias) lê ao vivo, não a lista vazia da cópia', async () => {
+    const { clinica, siasb, copyRanges } = setup(new FakeCalendar(), { syncedAt: SYNCED, stale: false, items: [] });
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-05-01', ate: '2026-05-10' } })));
+    expect(copyRanges).toEqual([]);
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+  });
+
+  it('de exatamente em agora − 120 dias ainda usa a cópia', async () => {
+    const { clinica, siasb, copyRanges } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const de = new Date(NOW.getTime() - 120 * 86_400_000).toISOString();
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de, ate: '2026-11-30' } })));
+    expect(siasb.calls).toEqual([]);
+    expect(copyRanges).toHaveLength(1);
+    expect(out.origem).toBe('copia');
+  });
+
+  it('período todo dentro da janela fica na cópia', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-09-01', ate: '2026-10-01' } })));
+    expect(siasb.calls).toEqual([]);
+    expect(out.origem).toBe('copia');
   });
 
   it('a descrição diz que lê da última sincronização e que aoVivo força a consulta ao vivo', async () => {

@@ -8,21 +8,18 @@ import type { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, type SiasbSession, type SiasbSource } from '../ports/siasb-source';
 import { decodeSession, encodeSession } from './session-codec';
 import { computeProgress, PROGRESS_DEFAULT_DAYS, type Progress } from './progress';
+import {
+  DAY_MS,
+  InvalidPeriodError,
+  MAX_AHEAD_DAYS,
+  MAX_CALL_DAYS,
+  resolveSessionPeriod,
+  SYNC_LOOKBACK_DAYS,
+} from './session-period';
 
-const DAY_MS = 86_400_000;
-const DEFAULT_RANGE_DAYS = 14;
-const MAX_AHEAD_DAYS = 45;
 const HISTORY_DAYS = 60;
-/** Teto de uma chamada de sessões ao SIASB (spec): nenhuma consulta cobre mais que isso. */
-const MAX_CALL_DAYS = 190;
 
-/** Período pedido fora de ordem (início depois do fim). Mensagem fixa, em pt-BR, sem ecoar a entrada. */
-export class InvalidPeriodError extends Error {
-  constructor() {
-    super('O início do período vem depois do fim.');
-    this.name = 'InvalidPeriodError';
-  }
-}
+export { InvalidPeriodError };
 
 export interface DisciplineSituation {
   disciplineId: string;
@@ -137,17 +134,11 @@ export class SiasbReader {
   }
 
   async sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]> {
-    const now = this.now();
-    const from = range?.from ?? now;
-    const limit = new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS);
-    const wanted = range?.to ?? new Date(from.getTime() + DEFAULT_RANGE_DAYS * DAY_MS);
-    if (from.getTime() > wanted.getTime()) throw new InvalidPeriodError();
-    const to = wanted.getTime() > limit.getTime() ? limit : wanted;
+    const period = resolveSessionPeriod(this.now(), range);
     await this.requireAccount(userId);
     // Período inteiro além do alcance (agora+45 dias): não há o que perguntar ao SIASB.
-    if (from.getTime() > to.getTime()) return [];
-    const start = new Date(Math.max(from.getTime(), to.getTime() - MAX_CALL_DAYS * DAY_MS));
-    return this.withSession(userId, (session) => this.siasb.sessions(session, start, to));
+    if (period.kind === 'empty') return [];
+    return this.withSession(userId, (session) => this.siasb.sessions(session, period.from, period.to));
   }
 
   async bookingDeadline(
@@ -262,7 +253,7 @@ export class SiasbReader {
   }> {
     const now = this.now();
     const window = {
-      from: new Date(now.getTime() - PROGRESS_DEFAULT_DAYS * DAY_MS),
+      from: new Date(now.getTime() - SYNC_LOOKBACK_DAYS * DAY_MS),
       to: new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS),
     };
     const { disciplines, active, inactive, sessions } = await this.withSession(userId, async (session) => ({

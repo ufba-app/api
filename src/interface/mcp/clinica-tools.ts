@@ -130,12 +130,9 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         const to = args.ate ? parseData(args.ate, true) : undefined;
         const range = from && to ? { from, to } : from ? { from, to: new Date(from.getTime() + 14 * 86_400_000) } : undefined;
         if (!from && to) throw new EntradaInvalida('Informe `de` junto com `ate`.');
-        if (from && to && from.getTime() > to.getTime()) {
-          throw new EntradaInvalida('O início do período (`de`) vem depois do fim (`ate`).');
-        }
         if (args.aoVivo !== true) {
           const copia = await clinica.copySessions(p.userId, range);
-          if (copia.syncedAt || copia.items.length > 0) {
+          if (copia && (copia.syncedAt || copia.items.length > 0)) {
             return {
               origem: 'copia' as const,
               atualizadoEm: iso(copia.syncedAt),
