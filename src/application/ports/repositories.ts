@@ -48,6 +48,8 @@ export interface SourceAccountRecord {
   siteUrl: string | null;
   status: 'OK' | 'REAUTH_NEEDED' | 'BLOCKED';
   lastSyncedAt: Date | null;
+  /** Quando a conexão vence; nulo = não vence. */
+  expiresAt: Date | null;
   /** Presente só para contas com token guardado. */
   secret: EncryptedSecret | null;
 }
@@ -59,6 +61,8 @@ export interface UpsertSourceAccountInput {
   siteUrl?: string;
   /** Proibido para SIGAA: o caso de uso rejeita antes de chegar aqui. */
   secret?: EncryptedSecret;
+  /** `undefined` mantém o valor atual; `null` limpa (uma reconexão não pode herdar o fim da sessão anterior). */
+  expiresAt?: Date | null;
 }
 
 export abstract class SourceAccountRepository {
@@ -73,8 +77,15 @@ export abstract class SourceAccountRepository {
     status: SourceAccountRecord['status'],
     reason?: string,
   ): Promise<void>;
+  /** Troca o token guardado (renovação) e, se vier, o vencimento. */
+  abstract updateSecret(id: string, secret: EncryptedSecret, expiresAt?: Date): Promise<void>;
   /** Desconectar: apaga a conta e o token guardado. */
   abstract delete(id: string): Promise<void>;
+}
+
+/** Matrícula da pessoa (perfil de aluno), usada para oferecer e vincular o SIASB. */
+export abstract class StudentRegistrations {
+  abstract find(userId: string): Promise<string | null>;
 }
 
 // ── Cópia da DK por cliente OAuth / sessão do painel (a senha fica no cofre `SigaaVaultRepository`) ─────────────

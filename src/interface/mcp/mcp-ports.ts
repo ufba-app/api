@@ -3,9 +3,35 @@
  * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte.
  */
 
+import type {
+  BookingDeadline,
+  DisciplineSituation,
+  PatientsByDiscipline,
+  SchedulingContext,
+} from '../../application/siasb/siasb-reader';
+import type { Progress } from '../../application/siasb/progress';
+import type { ClinicalSession } from '../../domain/siasb/types';
+
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
 export const MCP_AUTH = Symbol('MCP_AUTH');
 export const MCP_MEMORY = Symbol('MCP_MEMORY');
+export const MCP_CLINICA = Symbol('MCP_CLINICA');
+
+/**
+ * Clínicas do SIASB (`clinica_*`). Opcional: sem ele o /mcp não oferece essas ferramentas. Tudo é leitura AO VIVO
+ * com a conexão da pessoa; nada é gravado.
+ */
+export interface McpClinica {
+  /** A pessoa tem conexão SIASB em qualquer estado (conectada ou a reconectar). */
+  hasConnection(userId: string): Promise<boolean>;
+  situation(userId: string): Promise<DisciplineSituation[]>;
+  sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]>;
+  bookingDeadline(userId: string, input: { disciplineId: string } | { sessionStart: Date }): Promise<BookingDeadline>;
+  patients(userId: string): Promise<PatientsByDiscipline[]>;
+  vacancies(userId: string): Promise<{ disciplineId: string; disciplineName: string; count: number }[]>;
+  schedulingContext(userId: string, attendanceId: string, term?: string): Promise<SchedulingContext>;
+  progress(userId: string, range?: { from: Date; to: Date }): Promise<Progress>;
+}
 
 /** Ferramentas `memory_*` (proxy do ai-memory + `memory_status`). Opcional: sem ele o /mcp só tem as ferramentas da casa. */
 export interface McpMemory {
@@ -26,6 +52,8 @@ export interface McpPrincipal {
   cliente?: { clientId: string; chave?: Buffer };
   /** Chaves de permissão LIGADAS pela pessoa (`user_permissions`); sem a chave, a ferramenta de escrita nem é registrada. */
   permissions?: ReadonlySet<string>;
+  /** A pessoa tem conexão SIASB (qualquer estado), decidido por requisição. Liga as ferramentas `clinica_*`. */
+  siasb?: boolean;
 }
 
 /** Autenticação do /mcp: os mesmos autenticadores do REST (chave de API `plt_` e token OAuth do serviço). */

@@ -15,6 +15,7 @@ import {
 } from '../src/application/ports/repositories';
 import { Secret } from '../src/application/shared/secret';
 import { SecretCipher } from '../src/application/ports/secret-cipher';
+import { FERRAMENTAS_CLINICA } from '../src/interface/mcp/clinica-tools';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
@@ -38,6 +39,8 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
   const keys = new Map<string, { id: string; userId: string }>();
   let userSeq = 0;
   const moodleUsers = new Set<string>();
+  /** Usuário -> estado da conta SIASB (só para a visibilidade das ferramentas clinica_*). */
+  const siasbUsers = new Map<string, 'OK' | 'REAUTH_NEEDED'>();
   const moodleCalls: string[] = [];
   /** SIGAA falso: só conta o que chegaria a ele (login incluído). Nenhum teste aqui deve tocá-lo. */
   const sigaaCalls: string[] = [];
@@ -111,6 +114,7 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
             siteUrl: 'https://ava.test',
             status: 'OK',
             lastSyncedAt: null,
+            expiresAt: null,
             secret: { ciphertext: 'WSTOKEN', iv: 'i', authTag: 't' },
           },
         ]
@@ -162,7 +166,11 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
       .overrideProvider(SourceAccountRepository)
       .useValue({
         findByUserAndProvider: async (userId: string, provider: string): Promise<SourceAccountRecord[]> =>
-          provider === 'MOODLE' ? contasMoodle(userId) : [],
+          provider === 'MOODLE'
+            ? contasMoodle(userId)
+            : provider === 'SIASB' && siasbUsers.has(userId)
+              ? ([{ id: `siasb-${userId}`, userId, provider: 'SIASB', accountKey: 'siasb', siteUrl: null, status: siasbUsers.get(userId), lastSyncedAt: null, expiresAt: null, secret: null }] as unknown as SourceAccountRecord[])
+              : [],
         listByUser: async (userId: string) => contasMoodle(userId),
         setStatus: async () => undefined,
       })
@@ -366,6 +374,25 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
       }
       expect(sigaaCalls).toEqual([]);
       expect(moodleCalls).toEqual([]);
+    });
+
+    it('clinica_*: só aparecem com conexão SIASB (conectada ou a reconectar)', async () => {
+      const aluno = async (estado?: 'OK' | 'REAUTH_NEEDED') => {
+        const { apiKey, userId } = (await identity.criarUsuario({})) as { apiKey: string; userId: string };
+        moodleUsers.add(userId);
+        if (estado) siasbUsers.set(userId, estado);
+        return apiKey;
+      };
+      const clinicas = async (key: string) => {
+        const client = await clientWith(key);
+        const nomes = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith('clinica_'));
+        await client.close();
+        return nomes.sort();
+      };
+      expect(await clinicas(await aluno())).toEqual([]);
+      for (const estado of ['OK', 'REAUTH_NEEDED'] as const) {
+        expect(await clinicas(await aluno(estado))).toEqual([...FERRAMENTAS_CLINICA].sort());
+      }
     });
 
     it('não existe ferramenta de sincronização nem de leitura de banco', async () => {

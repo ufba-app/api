@@ -90,6 +90,12 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 - `sigaa.status = locked`: não há senha utilizável nesta sessão, mas existe cópia mestra (passkey). A tela oferece
   "Desbloquear" (um toque). `sigaa.passkey.slots` diz quantas cópias existem.
 - `classroom.available = false`: o servidor não tem Google configurado (esconder o bloco).
+- `siasb.offered`: o SIASB é oferecido (a pessoa confirmou a importação da vida acadêmica, que grava a matrícula, e o SIASB lista ao menos um curso
+  dela). Quem já tem conexão só precisa da matrícula importada, sem consultar o SIASB: se a importação for apagada
+  (`DELETE /me/academic`), `offered` vira `false` e o `status` não muda. Falha ao consultar vale `false`, nunca derruba o `/me`.
+- `siasb.status`: `connected`, `reconnect_required` ou `disconnected`. `reconnect_required` vem de uma conta marcada
+  (o SIASB recusou o cookie) **ou** de `expiresAt` já no passado (cookie de 30 dias vencido).
+- `siasb.expiresAt`: fim do cookie (ISO 8601); `null` se desconectado ou sem estimativa.
 
 ### Chave mestra do SIGAA com passkey
 
@@ -190,6 +196,9 @@ Todas as rotas desta API (exceto `/authorize`, `/token`, `/register`, que seguem
 | 409 | `source_account_mismatch` | esta conta já está ligada a outro SIGAA/AVA (para trocar: excluir a conta) |
 | 409 | `source_account_taken` | este SIGAA/AVA já está ligado a outra conta do ufba.app |
 | 403 | `source_account_not_owned` | a conta do AVA não é da pessoa logada (não é o login institucional dela) |
+| 422 | `siasb_credentials_rejected` | o SIASB recusou a matrícula ou a senha |
+| 422 | `siasb_password_migration_required` | a pessoa precisa entrar uma vez no SIASB para atualizar a senha |
+| 503 | `siasb_unavailable` | o SIASB não respondeu agora (fora do ar ou página inesperada) |
 | 501 | `not_supported` | a fonte não oferece essa leitura |
 | 502 | `source_unavailable` | a fonte falhou ou respondeu algo inesperado |
 | 500 | `internal_error` | erro nosso |
@@ -233,6 +242,25 @@ DELETE /connections/moodle   → 204
   (`luiz.a` ↔ `luiz.a@ufba.br`). Senão, `403 source_account_not_owned`.
 - Erros: `422 invalid_credentials` (link incompleto, de outro pedido, recusado pelo Moodle), `502 source_unavailable`,
   `403 source_account_not_owned`, `409 source_account_mismatch`, `409 source_account_taken`.
+
+### SIASB (clínicas)
+
+```
+POST /connections/siasb   { "password": "string" }   → 204
+DELETE /connections/siasb                            → 204
+```
+
+- A **matrícula não vai no corpo**: vem do perfil acadêmico da pessoa (gravado ao confirmar a importação da vida acadêmica). O web só oferece "Conectar SIASB" quando
+  `connections.siasb.offered = true` e nunca pede a matrícula à mão.
+- Faz 1 login real; o SIASB devolve o `username` da sessão, que precisa ser a matrícula da pessoa. A senha **não é
+  guardada**: fica só o cookie do SIASB, cifrado, com a data de expiração (validade de 30 dias, fixa).
+- Erros: `400 invalid_request` (sem matrícula: a vida acadêmica precisa estar importada), `409 source_account_mismatch` (a conta do SIASB não é da
+  matrícula, ou a conta já está ligada a outra matrícula; recusado antes de falar com o SIASB quando o vínculo já
+  existe), `409 source_account_taken` (matrícula de outra conta), `422 siasb_credentials_rejected`,
+  `422 siasb_password_migration_required` (entrar uma vez no site do SIASB para atualizar a senha) e
+  `503 siasb_unavailable`.
+- `DELETE` apaga o cookie e **mantém o vínculo** com a matrícula (para trocar, `DELETE /me`).
+- Detalhes da integração: `docs/SIASB.md`.
 
 ### Classroom (pode haver várias contas)
 

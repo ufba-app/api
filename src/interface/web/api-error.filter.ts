@@ -18,6 +18,9 @@ const LINK_STATUS: Record<LinkError['code'], number> = {
   source_account_taken: 409,
   source_account_mismatch: 409,
   source_account_not_owned: 403,
+  siasb_credentials_rejected: 422,
+  siasb_password_migration_required: 422,
+  siasb_unavailable: 503,
 };
 
 /** Traduz qualquer erro para `{ error, message }`. Mensagens internas (500) nunca vão para fora. */

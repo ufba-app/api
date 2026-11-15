@@ -1,0 +1,4 @@
+[
+  {"disciplineId":11,"disciplineName":"Clínica Integrada I","allowsFreeDemand":true,"allowsPatientRequest":false,"allowsPlanning":true,"allowsRegisteredPatient":true,"allowsTriage":true},
+  {"disciplineId":12,"disciplineName":"Clínica Integrada II","allowsFreeDemand":false,"allowsPatientRequest":true,"allowsPlanning":true,"allowsRegisteredPatient":true,"allowsTriage":false}
+]

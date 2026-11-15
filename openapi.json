@@ -44,6 +44,9 @@
               "source_account_taken",
               "source_account_mismatch",
               "source_account_not_owned",
+              "siasb_credentials_rejected",
+              "siasb_password_migration_required",
+              "siasb_unavailable",
               "account_ambiguous",
               "not_supported",
               "device_code_invalid",
@@ -215,12 +218,50 @@
                   "apps",
                   "accounts"
                 ]
+              },
+              "siasb": {
+                "type": "object",
+                "properties": {
+                  "offered": {
+                    "type": "boolean"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "connected",
+                          "reconnect_required"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "disconnected"
+                        ]
+                      }
+                    ]
+                  },
+                  "expiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "offered",
+                  "status",
+                  "expiresAt"
+                ]
               }
             },
             "required": [
               "sigaa",
               "moodle",
-              "classroom"
+              "classroom",
+              "siasb"
             ]
           }
         },
@@ -909,12 +950,50 @@
                             "apps",
                             "accounts"
                           ]
+                        },
+                        "siasb": {
+                          "type": "object",
+                          "properties": {
+                            "offered": {
+                              "type": "boolean"
+                            },
+                            "status": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "connected",
+                                    "reconnect_required"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "disconnected"
+                                  ]
+                                }
+                              ]
+                            },
+                            "expiresAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "offered",
+                            "status",
+                            "expiresAt"
+                          ]
                         }
                       },
                       "required": [
                         "sigaa",
                         "moodle",
-                        "classroom"
+                        "classroom",
+                        "siasb"
                       ]
                     }
                   },
@@ -3311,6 +3390,109 @@
       "delete": {
         "operationId": "disconnectMoodle",
         "summary": "Desconectar o Moodle (o vínculo fica)",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connections/siasb": {
+      "post": {
+        "operationId": "connectSiasb",
+        "summary": "Conectar o SIASB (senha; a matrícula vem do perfil)",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "disconnectSiasb",
+        "summary": "Desconectar o SIASB (o vínculo com a matrícula fica)",
         "tags": [
           "connections"
         ],

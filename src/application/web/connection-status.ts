@@ -1,5 +1,6 @@
 import type { ClassroomLinkPort } from '../oauth/oauth-ports';
 import type { SigaaMasterSlotRepository, SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
+import type { SiasbLink } from '../siasb/siasb-link';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
 import { webCopyOf, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
 
@@ -17,7 +18,47 @@ export class ConnectionStatus {
     private readonly accounts: SourceAccountRepository,
     private readonly classroom: ClassroomLinkPort,
     private readonly slots: SigaaMasterSlotRepository,
+    private readonly siasbLink: SiasbLink,
+    private readonly now: () => number = Date.now,
+    /** Teto de espera pelo SIASB no /me; estourou, vale `offered: false` (nada é guardado). */
+    private readonly offerTimeoutMs: number = 2500,
   ) {}
+
+  private async offered(userId: string): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.offerTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.siasbLink.offer(userId).then((o) => o.offered, () => false), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * SIASB: já conectado, "oferecido" depende só de a matrícula estar importada (sem consultar o SIASB). Sessão com fim estimado já passado vale como
+   * reconnect_required. Falha ao consultar nunca derruba o /me.
+   */
+  async siasb(p: WebPrincipal): Promise<Me['connections']['siasb']> {
+    try {
+      const s = await this.siasbLink.status(p.userId);
+      if (s.state === 'disconnected') {
+        const offered = await this.offered(p.userId);
+        return { offered, status: 'disconnected', expiresAt: null };
+      }
+      const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
+      // Já conectado: só o banco decide a oferta (matrícula importada); matrícula apagada não vira erro nem consulta o SIASB.
+      const offered = await this.siasbLink.hasRegistration(p.userId).catch(() => false);
+      return {
+        offered,
+        status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
+        expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
+      };
+    } catch {
+      return { offered: false, status: 'disconnected', expiresAt: null };
+    }
+  }
 
   async sigaa(p: WebPrincipal): Promise<Me['connections']['sigaa']> {
     const slots = await this.slots.count(p.userId);
@@ -36,6 +77,7 @@ export class ConnectionStatus {
     if (source === 'sigaa') return (await this.cofre.cofre(userId)) !== null;
     if (source === 'moodle') return (await this.accountsOf(userId, 'MOODLE')).length > 0;
     if (source === 'classroom') return (await this.accountsOf(userId, 'CLASSROOM')).length > 0;
+    if (source === 'siasb') return (await this.siasbLink.status(userId)).state !== 'disconnected';
     return false;
   }
 
@@ -60,14 +102,16 @@ export class ConnectionStatus {
   }
 
   async connections(p: WebPrincipal): Promise<Me['connections']> {
-    const [sigaa, moodle, classroom] = await Promise.all([
+    const [sigaa, moodle, classroom, siasb] = await Promise.all([
       this.sigaa(p),
       this.accountsOf(p.userId, 'MOODLE'),
       this.accountsOf(p.userId, 'CLASSROOM'),
+      this.siasb(p),
     ]);
     const m = moodle[0];
     return {
       sigaa,
+      siasb,
       moodle: m ? { status: accountStatus(m), account: m.accountKey } : { status: 'disconnected', account: null },
       classroom: {
         available: this.classroom.enabled(),

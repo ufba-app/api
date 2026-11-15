@@ -15,6 +15,7 @@ import { Secret } from '../shared/secret';
 import { CredencialSigaaInvalidaError, type CofreSigaa } from '../sigaa/cofre-sigaa';
 import { RateWindow } from '../memory/rate-window';
 import { ApiError, sessionExpired, webCopyOf, MAX_WEB_COPIES, WEB_COPY_PREFIX, type GuestApp, type WebPrincipal } from './web-api';
+import type { SiasbLink } from '../siasb/siasb-link';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const toApp = (a: GuestApp): AppClassroom => (a === 'guest' ? 'convidado' : 'ufba');
@@ -27,6 +28,7 @@ export class ConnectionsService {
   /** `state` do Google para conectar o Classroom pelo web: aleatório, de uso único, preso à pessoa. */
   private readonly keyRate: RateWindow;
   private readonly unlockRate: RateWindow;
+  private readonly siasbRate: RateWindow;
   private readonly classroomStates = new Map<string, { userId: string; app: AppClassroom; expiresAt: number }>();
 
   constructor(
@@ -39,6 +41,7 @@ export class ConnectionsService {
     private readonly identity: IdentityService,
     private readonly bindings: SourceBindings,
     private readonly slots: SigaaMasterSlotRepository,
+    private readonly siasb: SiasbLink,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
     /** Chamado depois de desconectar uma fonte inteira (as permissões dela somem). */
@@ -47,6 +50,8 @@ export class ConnectionsService {
     // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa).
     this.keyRate = new RateWindow(10, 60 * 60_000, this.now);
     this.unlockRate = new RateWindow(10, 60_000, this.now);
+    // Cada tentativa é um login real no SIASB: poucas por pessoa, para não virar tentativa de adivinhar senha.
+    this.siasbRate = new RateWindow(5, 10 * 60_000, this.now);
   }
 
   // ---- SIGAA ----
@@ -131,6 +136,20 @@ export class ConnectionsService {
   async disconnectMoodle(p: WebPrincipal): Promise<void> {
     for (const a of await this.accounts.findByUserAndProvider(p.userId, 'MOODLE')) await this.accounts.delete(a.id);
     await this.onSourceDisconnected(p.userId, 'moodle');
+  }
+
+  // ---- SIASB ----
+
+  /** A senha chega como texto no corpo: vira Secret já na entrada e só é aberta no login do SIASB. */
+  async connectSiasb(p: WebPrincipal, body: { password?: unknown }): Promise<void> {
+    if (!this.siasbRate.take(p.userId)) throw tooMany();
+    const password = Secret.of(typeof body.password === 'string' ? body.password : '');
+    await this.siasb.connect(p.userId, password);
+  }
+
+  async disconnectSiasb(p: WebPrincipal): Promise<void> {
+    await this.siasb.disconnect(p.userId);
+    await this.onSourceDisconnected(p.userId, 'siasb');
   }
 
   // ---- Classroom ----

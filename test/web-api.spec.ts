@@ -30,6 +30,8 @@ import {
   UserRepository,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
+import { SiasbError, SiasbSession, SiasbSource, type SiasbCourse } from '../src/application/ports/siasb-source';
+import { StudentRegistrations } from '../src/application/ports/repositories';
 import { MemoryProjectRepository } from '../src/application/memory/project-ports';
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
@@ -58,6 +60,8 @@ const META_CB = 'https://app.example/callback';
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]);
 // Marca única: o teste "canário" no fim confere que ela nunca saiu em log, erro ou resposta.
 const SENHA = 'CANARIO-web-7d1e-senha';
+const SENHA_SIASB = 'senha-canario-siasb-123';
+const MATRICULA = '012345678';
 
 const pkce = () => {
   const verifier = 'v'.repeat(64);
@@ -85,6 +89,31 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const catalogRepo = new InMemoryCatalog();
   const catalogSource = new FakeCatalogSource();
   const sigaaValidations: string[] = [];
+  // SIASB falso: matrícula por pessoa e o que o "SIASB" responde (cada teste ajusta).
+  const registrations = new Map<string, string>();
+  const siasbCourses: SiasbCourse[] = [{ id: 7, name: 'Odontologia', abbreviation: 'ODO', isDefault: true }];
+  const siasbState: { failure: SiasbError | null; username: string; expiresAt: Date | null; courseCalls: number } = {
+    failure: null,
+    username: MATRICULA,
+    expiresAt: new Date('2099-01-01T00:00:00Z'),
+    courseCalls: 0,
+  };
+  const siasbSource = new (class extends SiasbSource {
+    async courseOptions() {
+      siasbState.courseCalls++;
+      if (siasbState.failure) throw siasbState.failure;
+      return siasbCourses;
+    }
+    async login() {
+      if (siasbState.failure) throw siasbState.failure;
+      return { session: new SiasbSession({ k: 'v' }, siasbState.expiresAt), username: siasbState.username };
+    }
+    disciplines = async () => [];
+    attendances = async () => [];
+    sessions = async () => [];
+    procedures = async () => [];
+    unassignedCount = async () => ({});
+  })();
   // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
   const users = new (class extends MemoryUserDirectory {
     override async deleteAccount(userId: string): Promise<void> {
@@ -187,6 +216,10 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(sigaa)
       .overrideProvider(MOODLE_LINK)
       .useValue(moodle)
+      .overrideProvider(SiasbSource)
+      .useValue(siasbSource)
+      .overrideProvider(StudentRegistrations)
+      .useValue({ find: async (u: string) => registrations.get(u) ?? null })
       .overrideProvider(MemoryProjectRepository)
       .useValue(new InMemoryProjectRepo())
       .overrideProvider(UserRepository)
@@ -228,6 +261,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
             siteUrl: i.siteUrl ?? null,
             status: 'OK',
             lastSyncedAt: null,
+            expiresAt: i.expiresAt ?? null,
             secret: i.secret ?? null,
           };
           const at = accounts.findIndex((a) => a.id === rec.id);
@@ -318,6 +352,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(me.email).toBe('fulano@ufba.br');
     expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
     expect(me.connections.moodle.status).toBe('disconnected');
+    expect(me.connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null });
   });
 
   it('cookie marcador: sai com a sessão, sem segredo, e some ao sair, ao excluir a conta e no 401', async () => {
@@ -1285,6 +1320,131 @@ describe('API do app web (docs/WEB-API.md)', () => {
     });
   });
 
+  describe('SIASB (conexão pelo painel)', () => {
+    const post = (cookie: string, password: string = SENHA_SIASB) =>
+      send('POST', '/connections/siasb', { cookie, body: { password } });
+    const meOf = async (cookie: string) => (await (await get('/me', cookie)).json()) as any;
+    /** Pessoa com matrícula (perfil de aluno) já logada. */
+    let seq = 0;
+    async function aluno(who: string): Promise<string> {
+      const cookie = await signIn(who);
+      // Matrícula única por pessoa (o vínculo fixo não deixa duas contas com a mesma).
+      const matricula = `01000000${++seq}`;
+      registrations.set((await meOf(cookie)).id, matricula);
+      siasbState.username = matricula;
+      return cookie;
+    }
+    beforeEach(() => {
+      siasbState.failure = null;
+      siasbState.expiresAt = new Date('2099-01-01T00:00:00Z');
+    });
+
+    it('sem matrícula: offered false; conectar dá 400 invalid_request', async () => {
+      const cookie = await signIn('siasb-sem-matricula');
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null });
+      const r = await post(cookie);
+      expect(r.status).toBe(400);
+      expect(((await r.json()) as any).error).toBe('invalid_request');
+    });
+
+    it('corpo inválido: 400 invalid_request sem ecoar o valor; sem X-UFBA 403; sem sessão 401', async () => {
+      const cookie = await aluno('siasb-entrada');
+      const vazio = await send('POST', '/connections/siasb', { cookie, body: {} });
+      expect(vazio.status).toBe(400);
+      expect(((await vazio.json()) as any).error).toBe('invalid_request');
+      const tipo = await send('POST', '/connections/siasb', { cookie, body: { password: 12345678901 } });
+      expect(tipo.status).toBe(400);
+      expect(JSON.stringify(await tipo.json())).not.toContain('12345678901');
+      expect((await send('POST', '/connections/siasb', { cookie, body: { password: SENHA_SIASB }, csrf: false })).status).toBe(403);
+      expect((await send('POST', '/connections/siasb', { body: { password: SENHA_SIASB } })).status).toBe(401);
+      expect((await send('DELETE', '/connections/siasb', { cookie, csrf: false })).status).toBe(403);
+      expect((await send('DELETE', '/connections/siasb')).status).toBe(401);
+    });
+
+    it('limita as tentativas de conectar: a 6ª em 10 minutos dá 429 too_many_attempts, sem falar com o SIASB', async () => {
+      const cookie = await aluno('siasb-limite');
+      siasbState.failure = new SiasbError('CREDENTIAL_REJECTED');
+      for (let i = 0; i < 5; i++) expect((await post(cookie)).status).toBe(422);
+      const calls = siasbState.courseCalls;
+      const sexta = await post(cookie);
+      expect(sexta.status).toBe(429);
+      expect(((await sexta.json()) as any).error).toBe('too_many_attempts');
+      expect(siasbState.courseCalls).toBe(calls);
+    });
+
+    it('Origin de fora com X-UFBA válido: 403 csrf_rejected no POST e no DELETE', async () => {
+      const cookie = await aluno('siasb-origem');
+      // csrf:false derruba X-UFBA E Origin; aqui o X-UFBA vai certo e só a Origin é de fora.
+      const headers = { 'x-ufba': '1', origin: 'https://evil.example', cookie };
+      const p = await fetch(`${base}/connections/siasb`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ password: SENHA_SIASB }),
+      });
+      expect(p.status).toBe(403);
+      expect(((await p.json()) as any).error).toBe('csrf_rejected');
+      const d = await fetch(`${base}/connections/siasb`, { method: 'DELETE', headers });
+      expect(d.status).toBe(403);
+      expect(((await d.json()) as any).error).toBe('csrf_rejected');
+      expect((await meOf(cookie)).connections.siasb.status).toBe('disconnected');
+    });
+
+    it('oferecido, conecta (connected + expiresAt), desconecta (disconnected)', async () => {
+      const cookie = await aluno('siasb-fluxo');
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null });
+      expect((await post(cookie)).status).toBe(204);
+      const chamadas = siasbState.courseCalls;
+      expect((await meOf(cookie)).connections.siasb).toEqual({
+        offered: true,
+        status: 'connected',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      });
+      // Conectado: /me não consulta o SIASB.
+      expect(siasbState.courseCalls).toBe(chamadas);
+      expect((await send('DELETE', '/connections/siasb', { cookie })).status).toBe(204);
+      const depois = (await meOf(cookie)).connections.siasb;
+      expect(depois.status).toBe('disconnected');
+      expect(depois.expiresAt).toBeNull();
+    });
+
+    it('expiresAt já passado: /me mostra reconnect_required', async () => {
+      const cookie = await aluno('siasb-vencida');
+      siasbState.expiresAt = new Date('2020-01-01T00:00:00Z');
+      expect((await post(cookie)).status).toBe(204);
+      const s = (await meOf(cookie)).connections.siasb;
+      expect(s.status).toBe('reconnect_required');
+      expect(s.expiresAt).toBe('2020-01-01T00:00:00.000Z');
+    });
+
+    it.each([
+      ['CREDENTIAL_REJECTED', 422, 'siasb_credentials_rejected'],
+      ['PASSWORD_MIGRATION_REQUIRED', 422, 'siasb_password_migration_required'],
+      ['UNAVAILABLE', 503, 'siasb_unavailable'],
+    ] as const)('falha %s: %i %s, nada conecta e a senha não volta', async (falha, status, codigo) => {
+      const cookie = await aluno(`siasb-erro-${falha.toLowerCase()}`);
+      // A lista de cursos fica em cache por 10 min: a falha tem de vir do login.
+      expect((await meOf(cookie)).connections.siasb.offered).toBe(true);
+      siasbState.failure = new SiasbError(falha);
+      const r = await post(cookie);
+      expect(r.status).toBe(status);
+      const corpo = (await r.json()) as any;
+      expect(corpo.error).toBe(codigo);
+      expect(corpo.message).toEqual(expect.any(String));
+      expect(JSON.stringify(corpo)).not.toContain(SENHA_SIASB);
+      siasbState.failure = null;
+      expect((await meOf(cookie)).connections.siasb.status).toBe('disconnected');
+    });
+
+    it('conta do SIASB de outra matrícula: 409 source_account_mismatch', async () => {
+      const cookie = await aluno('siasb-outra');
+      siasbState.username = '999999999';
+      const r = await post(cookie);
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_account_mismatch');
+      expect((await meOf(cookie)).connections.siasb.status).toBe('disconnected');
+    });
+  });
+
   // Fica por último: confere a saída da suíte inteira.
   it('canário: a senha nunca aparece em log, erro ou resposta (inclusive JSON malformado com a senha)', async () => {
     const cookie = await signIn();
@@ -1300,7 +1460,33 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const errada = await send('POST', '/connections/sigaa', { cookie, body: { login: 'a', password: `${SENHA}-x` } });
     respostas.push(await errada.text());
 
+    // SIASB: sucesso, cada falha, mismatch, sem matrícula e JSON malformado com a senha.
+    const sid = ((await (await get('/me', cookie)).json()) as any).id as string;
+    registrations.set(sid, MATRICULA);
+    siasbState.username = MATRICULA;
+    const siasbPost = () => send('POST', '/connections/siasb', { cookie, body: { password: SENHA_SIASB } });
+    respostas.push(await (await siasbPost()).text());
+    for (const falha of ['CREDENTIAL_REJECTED', 'PASSWORD_MIGRATION_REQUIRED', 'UNAVAILABLE'] as const) {
+      siasbState.failure = new SiasbError(falha);
+      respostas.push(await (await siasbPost()).text());
+    }
+    siasbState.failure = null;
+    siasbState.username = '999999999';
+    respostas.push(await (await siasbPost()).text());
+    siasbState.username = MATRICULA;
+    registrations.delete(sid);
+    respostas.push(await (await siasbPost()).text());
+    const quebrado = await fetch(`${base}/connections/siasb`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ufba': '1', origin: WEB, cookie },
+      body: `{"password":"${SENHA_SIASB}"`,
+    });
+    respostas.push(await quebrado.text());
+
     expect(respostas.join('\n')).not.toContain(SENHA);
+    expect(respostas.join('\n')).not.toContain(SENHA_SIASB);
     expect(saida.join('\n')).not.toContain(SENHA);
+    expect(saida.join('\n')).not.toContain(SENHA_SIASB);
+    expect(JSON.stringify(accounts)).not.toContain(SENHA_SIASB);
   });
 });

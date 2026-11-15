@@ -4,6 +4,10 @@ import { Secret } from '../src/application/shared/secret';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
 import { randomBytes } from 'node:crypto';
 import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
+import type { EncryptedSecret, SigaaCredentialRecord, UpsertSourceAccountInput } from '../src/application/ports/repositories';
+import { SiasbError, SiasbSession, SiasbSource } from '../src/application/ports/siasb-source';
+import { SiasbLink } from '../src/application/siasb/siasb-link';
+import { ConnectionsService } from '../src/application/web/connections.service';
 import { AesSecretCipher } from '../src/infrastructure/crypto/aes-secret-cipher';
 import { createSigaaHttpClient } from '../src/infrastructure/sources/sigaa/http-client';
 import { SigaaLink } from '../src/infrastructure/sources/sigaa/sigaa-link';
@@ -297,5 +301,94 @@ describe('canário: correio do QR (pairings)', () => {
     for (const visto of [out, ...respostas]) {
       for (const s of [PUB, IV, CT, id, 'CANARIO']) expect(visto).not.toContain(s);
     }
+  });
+});
+
+describe('canário: a senha do SIASB nunca aparece em log, erro nem resposta', () => {
+  const SENHA_SIASB = 'senha-canario-siasb-123';
+  const REG = '012345678';
+  type Falha = SiasbError | null;
+
+  function montar() {
+    const state: { failure: Falha; username: string } = { failure: null, username: REG };
+    const rows: UpsertSourceAccountInput[] = [];
+    const siasb = new (class extends SiasbSource {
+      async courseOptions() {
+        if (state.failure) throw state.failure;
+        return [{ id: 1, name: 'Odontologia', abbreviation: 'ODO', isDefault: true }];
+      }
+      async login(_r: string, p: Secret) {
+        // Descuido típico: logar o argumento. Mesmo assim, nada da senha.
+        console.log(p, { password: p });
+        if (state.failure) throw state.failure;
+        return { session: new SiasbSession({ k: 'v' }, null), username: state.username };
+      }
+      disciplines = async () => [];
+      attendances = async () => [];
+      sessions = async () => [];
+      procedures = async () => [];
+      unassignedCount = async () => ({});
+    })();
+    const accounts = {
+      upsert: async (i: UpsertSourceAccountInput) => void rows.push(i),
+      findByUserAndProvider: async () => [],
+      delete: async () => undefined,
+    };
+    const bindings = { assertCompatible: async () => undefined, bind: async () => undefined };
+    const cipher = { encrypt: (s: string) => ({ ciphertext: s.length }) };
+    const regs = { find: async () => REG };
+    const link = new SiasbLink(siasb, regs as never, bindings as never, accounts as never, cipher as never);
+    const service = new ConnectionsService(
+      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, link,
+      { webOrigin: 'https://meu.ufba.app', institutionalDomain: 'ufba.br' },
+    );
+    return { service, state, rows };
+  }
+
+  it('sucesso, cada falha e mismatch, pelo caso de uso e pelo filtro de erros', async () => {
+    const { service, state } = montar();
+    const filtro = new ApiErrorFilter();
+    const principal = { userId: 'u1', chave: null } as never;
+    const respostas: unknown[] = [];
+    const erros: unknown[] = [];
+    const resposta = () => {
+      const r: { body?: unknown; status: (n: number) => typeof r; setHeader: () => typeof r; json: (b: unknown) => void; headersSent: boolean } = {
+        headersSent: false,
+        status: () => r,
+        setHeader: () => r,
+        json: (b) => void (r.body = b),
+      };
+      return r;
+    };
+
+    const saida = await captureOutput(async () => {
+      const log = new Logger('Canario');
+      const casos: [Falha, string][] = [
+        [null, REG],
+        [new SiasbError('CREDENTIAL_REJECTED'), REG],
+        [new SiasbError('PASSWORD_MIGRATION_REQUIRED'), REG],
+        [new SiasbError('UNAVAILABLE'), REG],
+        [null, '999999999'],
+      ];
+      for (const [falha, username] of casos) {
+        state.failure = falha;
+        state.username = username;
+        const e = await service.connectSiasb(principal, { password: SENHA_SIASB }).then(() => null, (x: unknown) => x);
+        erros.push(e);
+        console.error(e);
+        log.error(e);
+        const r = resposta();
+        filtro.catch(e ?? new Error(`falhou com ${Secret.of(SENHA_SIASB)}`), { switchToHttp: () => ({ getResponse: () => r }) } as never);
+        respostas.push(r.body);
+      }
+    });
+
+    const tudo = [
+      saida,
+      ...erros.map((e) => (e instanceof Error ? `${e.message}\n${e.stack}\n${inspect(e)}` : String(e))),
+      JSON.stringify(respostas),
+    ].join('\n');
+    expect(tudo).not.toContain(SENHA_SIASB);
+    expect(saida).toContain('Secret([redacted])');
   });
 });

@@ -43,6 +43,7 @@ import {
 import { SourceBindings } from './application/identity/source-bindings';
 import { HmacSubjectHasher } from './infrastructure/crypto/hmac-subject-hasher';
 import { CofreSigaa } from './application/sigaa/cofre-sigaa';
+import { SiasbLink } from './application/siasb/siasb-link';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
@@ -50,7 +51,9 @@ import { SigaaLink } from './infrastructure/sources/sigaa/sigaa-link';
 import { MoodleLink } from './infrastructure/sources/moodle/moodle-link';
 import { AuthenticatorsMcpAuth } from './interface/mcp/mcp-auth';
 import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
-import { MCP_AUTH, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { MCP_AUTH, MCP_CLINICA, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { McpClinicaImpl } from './interface/mcp/mcp-clinica';
+import { SiasbReader } from './application/siasb/siasb-reader';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
@@ -88,9 +91,14 @@ export const mcpProviders: Provider[] = [
   // API do app web: um caso de uso por responsabilidade (sessão, conexões, autorização, apps autorizados).
   {
     provide: ConnectionStatus,
-    useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort, slots: SigaaMasterSlotRepository) =>
-      new ConnectionStatus(cofre, accounts, classroom, slots),
-    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository],
+    useFactory: (
+      cofre: CofreSigaa,
+      accounts: SourceAccountRepository,
+      classroom: ClassroomLinkPort,
+      slots: SigaaMasterSlotRepository,
+      siasb: SiasbLink,
+    ) => new ConnectionStatus(cofre, accounts, classroom, slots, siasb),
+    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository, SiasbLink],
   },
   {
     provide: SigaaPairings,
@@ -126,6 +134,7 @@ export const mcpProviders: Provider[] = [
       identity: IdentityService,
       bindings: SourceBindings,
       slots: SigaaMasterSlotRepository,
+      siasb: SiasbLink,
       permissions: PermissionsService,
     ) =>
       new ConnectionsService(
@@ -138,6 +147,7 @@ export const mcpProviders: Provider[] = [
         identity,
         bindings,
         slots,
+        siasb,
         { webOrigin: webEnv().webOrigin, institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br' },
         Date.now,
         (userId, source) => permissions.sourceDisconnected(userId, source),
@@ -152,6 +162,7 @@ export const mcpProviders: Provider[] = [
       IdentityService,
       SourceBindings,
       SigaaMasterSlotRepository,
+      SiasbLink,
       PermissionsService,
     ],
   },
@@ -210,6 +221,12 @@ export const mcpProviders: Provider[] = [
   },
   // Proxy de memória (memory_*): sem MEMORY_ROOT_TOKEN, `enabled()` é falso e o /mcp só tem as ferramentas da casa.
   { provide: MCP_MEMORY, useExisting: MemoryProxy },
+  // Ferramentas clinica_*: só aparecem para quem tem conexão SIASB (decidido por requisição no controller).
+  {
+    provide: MCP_CLINICA,
+    useFactory: (reader: SiasbReader, link: SiasbLink) => new McpClinicaImpl(reader, link),
+    inject: [SiasbReader, SiasbLink],
+  },
   {
     provide: MCP_AUTH,
     useFactory: (authenticators: Authenticator[], permissions: PermissionsService) =>
@@ -231,6 +248,7 @@ export const mcpExports = [
   MCP_USE_CASES,
   MCP_AUTH,
   MCP_MEMORY,
+  MCP_CLINICA,
   OAUTH_SERVICE,
   GOOGLE_LINK,
   MOODLE_LINK,

@@ -36,6 +36,27 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 **Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.
 
+## Ferramentas das clínicas (SIASB)
+
+As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
+
+**Visibilidade:** as 7 só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
+
+| Ferramenta | O que faz | Requisições: SIASB (máx.) |
+|---|---|---|
+| `clinica_situacao()` | Por disciplina: `estado` (`sem_paciente`, `sem_sessao`, `sessao_marcada`), `proximaClinica` e `prazoEstimado` | 3 |
+| `clinica_sessoes(de?, ate?)` | Sessões no intervalo (padrão: próximos 14 dias; até 45 dias à frente): horário, local, professor, iniciais, situação, `reagendamentoPara` | 1 |
+| `clinica_prazo_marcacao(disciplinaId \| inicioSessao)` | Prazo estimado para marcar paciente; passe exatamente um dos dois | 1 (`disciplinaId`) ou 0 (`inicioSessao`) |
+| `clinica_pacientes()` | Atendimentos ativos por disciplina: `atendimentoId`, `iniciais`, `tipo` | 2 |
+| `clinica_vagas()` | Quantos pacientes sem responsável há por disciplina (só números) | 2 |
+| `clinica_contexto_agendamento(atendimentoId, busca?)` | Duração da sessão, sessões já feitas (janela de 60 dias), procedimentos do catálogo (50 primeiros ou filtrados por `busca`) e até 3 próximos horários com prazo estimado | 4 |
+| `clinica_progresso(desde?, ate?)` | Por disciplina: ativos, concluídos no período e no histórico, sessões atendidas e marcadas adiante; ritmo semanal e avisos. `desde` e `ate` juntos (até 190 dias) ou nenhum (últimos 120 dias, aproximado) | 4 |
+
+- **Prazo estimado, não oficial:** 2 dias úteis antes da sessão, mais 1 dia útil de margem enquanto não houver calendário oficial (`feriadosConsiderados: false`, com aviso). Todo texto diz "prazo estimado".
+- **Horários** saem com offset da Bahia (`-03:00`, fixo). Datas sem hora valem a hora da Bahia.
+- **Privacidade:** só iniciais de paciente; nunca nome completo nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
+- **Segredos:** nenhuma ferramenta aceita senha ou cookie; a conexão é feita no painel (`POST /connections/siasb`).
+
 ## Autenticação
 
 `Authorization: Bearer <token>`. Sem token válido: `401`. O token é um destes:

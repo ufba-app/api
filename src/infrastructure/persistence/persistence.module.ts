@@ -9,9 +9,11 @@ import {
   SigaaVaultRepository,
   SourceBindingRepository,
   SourceAccountRepository,
+  StudentRegistrations,
   UserRepository,
 } from '../../application/ports/repositories';
 import {
+  PrismaStudentRegistrations,
   PrismaApiKeyRepository,
   PrismaSigaaCredentialRepository,
   PrismaSourceBindingRepository,
@@ -61,6 +63,7 @@ import { PrismaService } from './prisma.service';
     { provide: CalendarLogRepository, useClass: PrismaCalendarLogRepository },
     { provide: UserPermissionRepository, useClass: PrismaUserPermissionRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
+    { provide: StudentRegistrations, useClass: PrismaStudentRegistrations },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
     { provide: DeviceAuthorizationRepository, useClass: PrismaDeviceAuthorizationRepository },
     { provide: MemoryComputerRepository, useClass: PrismaMemoryComputerRepository },
@@ -86,6 +89,7 @@ import { PrismaService } from './prisma.service';
     CalendarLogRepository,
     UserPermissionRepository,
     SourceBindingRepository,
+    StudentRegistrations,
     MemoryUserRepository,
     DeviceAuthorizationRepository,
     MemoryComputerRepository,

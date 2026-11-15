@@ -6,6 +6,7 @@ import {
   SigaaCredentialRecord,
   SigaaCredentialRepository,
   SourceBindingRepository,
+  StudentRegistrations,
   SourceAccountRecord,
   SourceAccountRepository,
   UpsertSourceAccountInput,
@@ -67,6 +68,7 @@ type AccountRow = {
   siteUrl: string | null;
   status: 'OK' | 'REAUTH_NEEDED' | 'BLOCKED';
   lastSyncedAt: Date | null;
+  expiresAt: Date | null;
   secretCiphertext: string | null;
   secretIv: string | null;
   secretAuthTag: string | null;
@@ -85,6 +87,7 @@ function toRecord(row: AccountRow): SourceAccountRecord {
     siteUrl: row.siteUrl,
     status: row.status,
     lastSyncedAt: row.lastSyncedAt,
+    expiresAt: row.expiresAt,
     secret,
   };
 }
@@ -116,9 +119,16 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
         provider: input.provider,
         accountKey: input.accountKey,
         siteUrl: input.siteUrl ?? null,
+        expiresAt: input.expiresAt ?? null,
         ...secret,
       },
-      update: { siteUrl: input.siteUrl ?? undefined, status: 'OK', statusReason: null, ...secret },
+      update: {
+        siteUrl: input.siteUrl ?? undefined,
+        status: 'OK',
+        statusReason: null,
+        expiresAt: input.expiresAt,
+        ...secret,
+      },
     });
     return toRecord(row);
   }
@@ -141,6 +151,18 @@ export class PrismaSourceAccountRepository extends SourceAccountRepository {
     await this.prisma.sourceAccount.update({
       where: { id },
       data: { status, statusReason: reason ?? null },
+    });
+  }
+
+  async updateSecret(id: string, secret: EncryptedSecret, expiresAt?: Date): Promise<void> {
+    await this.prisma.sourceAccount.update({
+      where: { id },
+      data: {
+        secretCiphertext: secret.ciphertext,
+        secretIv: secret.iv,
+        secretAuthTag: secret.authTag,
+        expiresAt: expiresAt ?? undefined,
+      },
     });
   }
 
@@ -230,6 +252,18 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
       select: { id: true },
     });
     if (old.length) await this.prisma.sigaaCredential.deleteMany({ where: { id: { in: old.map((r) => r.id) } } });
+  }
+}
+
+@Injectable()
+export class PrismaStudentRegistrations extends StudentRegistrations {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async find(userId: string): Promise<string | null> {
+    const r = await this.prisma.studentProfile.findUnique({ where: { userId }, select: { registration: true } });
+    return r?.registration ?? null;
   }
 }
 

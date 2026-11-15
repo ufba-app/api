@@ -5,7 +5,7 @@ import type { Secret } from '../shared/secret';
  * `sincronizar`. Ver docs/ARQUITETURA.md §2.2 e §2.3.
  */
 
-export type Provider = 'SIGAA' | 'MOODLE' | 'CLASSROOM' | 'CALENDAR';
+export type Provider = 'SIGAA' | 'MOODLE' | 'SIASB' | 'CLASSROOM' | 'CALENDAR';
 
 export type ItemKind =
   | 'ANNOUNCEMENT'

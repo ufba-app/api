@@ -28,6 +28,7 @@ import { parseUserAgent } from '../../application/web/user-agent';
 import {
   ClassroomStartQuery,
   ConnectMoodleBody,
+  ConnectSiasbBody,
   ConnectSigaaBody,
   AcademicConsentBody,
   PERMISSION_KEYS,
@@ -174,6 +175,20 @@ export class ConnectionsController {
   @UseGuards(SessionGuard)
   async moodleOff(@Principal() p: WebPrincipal | null): Promise<void> {
     await this.web.disconnectMoodle(must(p));
+  }
+
+  @Post('siasb')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async siasb(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
+    await this.web.connectSiasb(must(p), parseInput(ConnectSiasbBody, b, invalidRequest));
+  }
+
+  @Delete('siasb')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async siasbOff(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.web.disconnectSiasb(must(p));
   }
 
   /** Navegação de página inteira (não fetch): redireciona para o Google. */
