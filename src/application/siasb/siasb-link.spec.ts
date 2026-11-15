@@ -243,9 +243,9 @@ describe('SiasbLink.connect', () => {
   });
 
   it.each([
-    ['CREDENTIAL_REJECTED', 'invalid_credentials', undefined],
-    ['PASSWORD_MIGRATION_REQUIRED', 'invalid_credentials', 'Entre uma vez no SIASB para atualizar sua senha e volte aqui.'],
-    ['UNAVAILABLE', 'source_unavailable', undefined],
+    ['CREDENTIAL_REJECTED', 'siasb_credentials_rejected', undefined],
+    ['PASSWORD_MIGRATION_REQUIRED', 'siasb_password_migration_required', 'Entre uma vez no SIASB para atualizar sua senha e volte aqui.'],
+    ['UNAVAILABLE', 'siasb_unavailable', undefined],
   ] as const)('falha %s: nada gravado, uma tentativa só, erro em pt-BR', async (code, linkCode, text) => {
     const { link, siasb, accounts, bindingRepo, cipher } = setup();
     siasb.failure = new SiasbError(code);

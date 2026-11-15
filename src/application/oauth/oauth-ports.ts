@@ -57,7 +57,11 @@ export type LinkErrorCode =
   // fonte que não é desta pessoa.
   | 'source_account_taken'
   | 'source_account_mismatch'
-  | 'source_account_not_owned';
+  | 'source_account_not_owned'
+  // SIASB: senha recusada, senha ainda no formato antigo (entrar uma vez no SIASB) e SIASB fora do ar.
+  | 'siasb_credentials_rejected'
+  | 'siasb_password_migration_required'
+  | 'siasb_unavailable';
 export class LinkError extends Error {
   constructor(
     message: string,

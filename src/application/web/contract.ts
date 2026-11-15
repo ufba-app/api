@@ -21,6 +21,9 @@ export const API_ERROR_CODES = [
   "source_account_taken",
   "source_account_mismatch",
   "source_account_not_owned",
+  "siasb_credentials_rejected",
+  "siasb_password_migration_required",
+  "siasb_unavailable",
   "account_ambiguous",
   "not_supported",
   "device_code_invalid",
@@ -325,6 +328,13 @@ export const Me = z.object({
       apps: z.array(GuestApp),
       accounts: z.array(z.object({ email: z.string(), status: AccountStatus })),
     }),
+    siasb: z.object({
+      /** O SIASB (clínicas) é oferecido a esta pessoa: tem matrícula e o SIASB lista o curso dela. */
+      offered: z.boolean(),
+      status: z.union([AccountStatus, z.literal("disconnected")]),
+      /** Fim estimado da sessão do SIASB (ISO 8601); null se desconectado ou sem estimativa. */
+      expiresAt: z.string().datetime().nullable(),
+    }),
   }),
 });
 
@@ -333,6 +343,11 @@ export const Me = z.object({
 export const ConnectSigaaBody = z.object({
   /** CPF, 11 dígitos. */
   login: z.string().min(1),
+  password: z.string().min(1),
+});
+
+export const ConnectSiasbBody = z.object({
+  /** Senha do SIASB; a matrícula vem do perfil da pessoa. */
   password: z.string().min(1),
 });
 

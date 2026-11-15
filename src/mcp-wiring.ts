@@ -43,6 +43,7 @@ import {
 import { SourceBindings } from './application/identity/source-bindings';
 import { HmacSubjectHasher } from './infrastructure/crypto/hmac-subject-hasher';
 import { CofreSigaa } from './application/sigaa/cofre-sigaa';
+import { SiasbLink } from './application/siasb/siasb-link';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
@@ -88,9 +89,14 @@ export const mcpProviders: Provider[] = [
   // API do app web: um caso de uso por responsabilidade (sessão, conexões, autorização, apps autorizados).
   {
     provide: ConnectionStatus,
-    useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort, slots: SigaaMasterSlotRepository) =>
-      new ConnectionStatus(cofre, accounts, classroom, slots),
-    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository],
+    useFactory: (
+      cofre: CofreSigaa,
+      accounts: SourceAccountRepository,
+      classroom: ClassroomLinkPort,
+      slots: SigaaMasterSlotRepository,
+      siasb: SiasbLink,
+    ) => new ConnectionStatus(cofre, accounts, classroom, slots, siasb),
+    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository, SiasbLink],
   },
   {
     provide: SigaaPairings,
@@ -126,6 +132,7 @@ export const mcpProviders: Provider[] = [
       identity: IdentityService,
       bindings: SourceBindings,
       slots: SigaaMasterSlotRepository,
+      siasb: SiasbLink,
       permissions: PermissionsService,
     ) =>
       new ConnectionsService(
@@ -138,6 +145,7 @@ export const mcpProviders: Provider[] = [
         identity,
         bindings,
         slots,
+        siasb,
         { webOrigin: webEnv().webOrigin, institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br' },
         Date.now,
         (userId, source) => permissions.sourceDisconnected(userId, source),
@@ -152,6 +160,7 @@ export const mcpProviders: Provider[] = [
       IdentityService,
       SourceBindings,
       SigaaMasterSlotRepository,
+      SiasbLink,
       PermissionsService,
     ],
   },

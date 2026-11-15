@@ -1,5 +1,6 @@
 import type { ClassroomLinkPort } from '../oauth/oauth-ports';
 import type { SigaaMasterSlotRepository, SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
+import type { SiasbLink } from '../siasb/siasb-link';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
 import { webCopyOf, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
 
@@ -17,7 +18,31 @@ export class ConnectionStatus {
     private readonly accounts: SourceAccountRepository,
     private readonly classroom: ClassroomLinkPort,
     private readonly slots: SigaaMasterSlotRepository,
+    private readonly siasbLink: SiasbLink,
+    private readonly now: () => number = Date.now,
   ) {}
+
+  /**
+   * SIASB: conectado dispensa consultar o SIASB ("oferecido" é verdade). Sessão com fim estimado já passado vale como
+   * reconnect_required. Falha ao consultar nunca derruba o /me.
+   */
+  async siasb(p: WebPrincipal): Promise<Me['connections']['siasb']> {
+    try {
+      const s = await this.siasbLink.status(p.userId);
+      if (s.state === 'disconnected') {
+        const offered = await this.siasbLink.offer(p.userId).then((o) => o.offered, () => false);
+        return { offered, status: 'disconnected', expiresAt: null };
+      }
+      const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
+      return {
+        offered: true,
+        status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
+        expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
+      };
+    } catch {
+      return { offered: false, status: 'disconnected', expiresAt: null };
+    }
+  }
 
   async sigaa(p: WebPrincipal): Promise<Me['connections']['sigaa']> {
     const slots = await this.slots.count(p.userId);
@@ -60,14 +85,16 @@ export class ConnectionStatus {
   }
 
   async connections(p: WebPrincipal): Promise<Me['connections']> {
-    const [sigaa, moodle, classroom] = await Promise.all([
+    const [sigaa, moodle, classroom, siasb] = await Promise.all([
       this.sigaa(p),
       this.accountsOf(p.userId, 'MOODLE'),
       this.accountsOf(p.userId, 'CLASSROOM'),
+      this.siasb(p),
     ]);
     const m = moodle[0];
     return {
       sigaa,
+      siasb,
       moodle: m ? { status: accountStatus(m), account: m.accountKey } : { status: 'disconnected', account: null },
       classroom: {
         available: this.classroom.enabled(),

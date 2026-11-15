@@ -18,13 +18,13 @@ function toLinkError(e: unknown): LinkError {
   if (e instanceof LinkError) return e;
   if (e instanceof SiasbError) {
     if (e.code === 'PASSWORD_MIGRATION_REQUIRED') {
-      return new LinkError('Entre uma vez no SIASB para atualizar sua senha e volte aqui.', 'invalid_credentials');
+      return new LinkError('Entre uma vez no SIASB para atualizar sua senha e volte aqui.', 'siasb_password_migration_required');
     }
     if (e.code === 'CREDENTIAL_REJECTED') {
-      return new LinkError('Matrícula ou senha do SIASB incorretas.', 'invalid_credentials');
+      return new LinkError('Matrícula ou senha do SIASB incorretas.', 'siasb_credentials_rejected');
     }
   }
-  return new LinkError('O SIASB não respondeu agora. Tente de novo em instantes.', 'source_unavailable');
+  return new LinkError('O SIASB não respondeu agora. Tente de novo em instantes.', 'siasb_unavailable');
 }
 
 /**

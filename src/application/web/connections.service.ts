@@ -15,6 +15,7 @@ import { Secret } from '../shared/secret';
 import { CredencialSigaaInvalidaError, type CofreSigaa } from '../sigaa/cofre-sigaa';
 import { RateWindow } from '../memory/rate-window';
 import { ApiError, sessionExpired, webCopyOf, MAX_WEB_COPIES, WEB_COPY_PREFIX, type GuestApp, type WebPrincipal } from './web-api';
+import type { SiasbLink } from '../siasb/siasb-link';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const toApp = (a: GuestApp): AppClassroom => (a === 'guest' ? 'convidado' : 'ufba');
@@ -39,6 +40,7 @@ export class ConnectionsService {
     private readonly identity: IdentityService,
     private readonly bindings: SourceBindings,
     private readonly slots: SigaaMasterSlotRepository,
+    private readonly siasb: SiasbLink,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
     /** Chamado depois de desconectar uma fonte inteira (as permissões dela somem). */
@@ -131,6 +133,18 @@ export class ConnectionsService {
   async disconnectMoodle(p: WebPrincipal): Promise<void> {
     for (const a of await this.accounts.findByUserAndProvider(p.userId, 'MOODLE')) await this.accounts.delete(a.id);
     await this.onSourceDisconnected(p.userId, 'moodle');
+  }
+
+  // ---- SIASB ----
+
+  /** A senha chega como texto no corpo: vira Secret já na entrada e só é aberta no login do SIASB. */
+  async connectSiasb(p: WebPrincipal, body: { password?: unknown }): Promise<void> {
+    const password = Secret.of(typeof body.password === 'string' ? body.password : '');
+    await this.siasb.connect(p.userId, password);
+  }
+
+  async disconnectSiasb(p: WebPrincipal): Promise<void> {
+    await this.siasb.disconnect(p.userId);
   }
 
   // ---- Classroom ----
