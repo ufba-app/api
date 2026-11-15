@@ -25,6 +25,13 @@ describe('initialsOf', () => {
 });
 
 describe('mapSessions', () => {
+  it('descarta sessões reservadas por outro aluno (nem as iniciais saem)', () => {
+    const out = mapSessions(fx('sessions'));
+    expect(out.map((s) => s.id)).toEqual(['9001', '9002']);
+    expect(JSON.stringify(out)).not.toContain('HVM');
+    expect(JSON.stringify(out)).not.toContain('Hortência');
+  });
+
   it('não deixa nome, prontuário nem id de paciente escapar', () => {
     const out = mapSessions(fx('sessions'));
     const text = JSON.stringify(out);

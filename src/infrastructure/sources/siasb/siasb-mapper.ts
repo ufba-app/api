@@ -62,12 +62,15 @@ const sessionSchema = z.array(
     endAt: dateTime,
     rescheduledStartAt: dateTime.nullish().transform((v) => v ?? null),
     statusLabel: nullableText,
+    reservedByAnotherStudent: z.boolean().nullish(),
   }),
 );
 
+/** Sessões sinalizadas como reservadas por outro aluno são descartadas por inteiro (nem as iniciais saem). */
 export function mapSessions(raw: unknown): ClinicalSession[] {
-  return parse(sessionSchema, raw).map(
-    (s): ClinicalSession => ({
+  return parse(sessionSchema, raw)
+    .filter((s) => s.reservedByAnotherStudent !== true)
+    .map((s): ClinicalSession => ({
       id: s.id,
       attendanceId: s.attendanceId,
       disciplineId: s.disciplineId,
@@ -79,8 +82,7 @@ export function mapSessions(raw: unknown): ClinicalSession[] {
       endAt: s.endAt,
       rescheduledStartAt: s.rescheduledStartAt,
       statusLabel: s.statusLabel,
-    }),
-  );
+    }));
 }
 
 const TREATMENT: Record<number, ClinicalAttendance['treatmentType']> = {
