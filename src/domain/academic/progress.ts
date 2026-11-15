@@ -69,6 +69,8 @@ export interface CurriculumComponentInput {
   prerequisiteExpr: string | null;
   corequisiteExpr: string | null;
   equivalenceExpr: string | null;
+  /** Unidade responsável pelo componente (departamento), quando o SIGAA a imprime. */
+  responsibleUnit?: string | null;
 }
 
 export interface CurriculumInput {
@@ -109,7 +111,10 @@ export interface ComponentProgress {
   /** O pré-requisito não é uma expressão de códigos que dê para verificar (ex.: carga mínima): confira no SIGAA. */
   prerequisiteUnverifiable: boolean;
   prerequisiteExpr: string | null;
+  /** Texto do co-requisito como o SIGAA imprime; só é mostrado, o estado de cumprimento dele não é calculado. */
+  corequisiteExpr: string | null;
   equivalenceExpr: string | null;
+  responsibleUnit: string | null;
   /** Obrigatório de semestre anterior ao atual que ainda falta. */
   late: boolean;
 }
@@ -202,7 +207,9 @@ export function buildProgress(transcript: TranscriptInput, curriculum: Curriculu
       nature: c.nature,
       term: c.term,
       prerequisiteExpr: c.prerequisiteExpr,
+      corequisiteExpr: c.corequisiteExpr,
       equivalenceExpr: c.equivalenceExpr,
+      responsibleUnit: c.responsibleUnit ?? null,
     };
     const make = (state: ComponentState, extra: Partial<ComponentProgress> = {}): ComponentProgress => ({
       ...base,

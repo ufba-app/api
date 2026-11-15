@@ -208,7 +208,11 @@ const ComponentProgressView = z.object({
   /** O pré-requisito não é uma expressão de códigos verificável (ex.: carga mínima): conferir no SIGAA. */
   prerequisiteUnverifiable: z.boolean(),
   prerequisiteExpr: z.string().nullable(),
+  /** Texto do co-requisito como o SIGAA imprime (só a expressão; o cumprimento não é calculado). */
+  corequisiteExpr: z.string().nullable(),
   equivalenceExpr: z.string().nullable(),
+  /** Unidade responsável (departamento), quando o SIGAA a imprime. */
+  responsibleUnit: z.string().nullable(),
   late: z.boolean(),
 });
 

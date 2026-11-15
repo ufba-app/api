@@ -306,6 +306,13 @@ export class AcademicController {
     await this.academic.remove(must(p));
   }
 
+  /** Descarta só o rascunho (ou a falha) de um Atualizar; o histórico gravado fica. */
+  @Delete('draft')
+  @HttpCode(204)
+  async discardDraft(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.academic.discardDraft(must(p));
+  }
+
   /** A grade do curso (currículo Ativo) marcada com o que a pessoa já fez. Sempre uma estimativa. */
   @Get('curriculum')
   @Header('Cache-Control', 'no-store')
