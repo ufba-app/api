@@ -48,6 +48,9 @@ import { MemorySigaaSessionStore } from './infrastructure/sources/sigaa/memory-s
 import { SessoesSigaa } from './infrastructure/sources/sigaa/sessoes-sigaa';
 import { SigaaSession } from './infrastructure/sources/sigaa/session';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
+import { SigaaPublicCatalogSource } from './infrastructure/sources/sigaa/catalog/sigaa-public-catalog';
+import { CatalogService } from './application/academic/catalog.service';
+import { CatalogRepository, CatalogSource } from './application/ports/catalog';
 import { SigaaLive } from './infrastructure/sources/sigaa/sigaa-live';
 import { McpModule } from './interface/mcp/mcp.module';
 import { WebModule } from './interface/web/web.module';
@@ -291,6 +294,14 @@ export function buildLiveSources(
       },
     },
     // MCP + OAuth do serviço, CofreSigaa (o ConsultaService depende dele) e AUTHENTICATORS: ver mcp-wiring.ts.
+    // Catálogo público do curso (currículo Ativo): importa só quando falta, sem login. Ainda não usado por rota; as
+    // próximas fases ligam ao histórico do aluno (docs/specs/2026-11-15-vida-academica.md).
+    { provide: CatalogSource, useFactory: () => new SigaaPublicCatalogSource() },
+    {
+      provide: CatalogService,
+      useFactory: (repo: CatalogRepository, source: CatalogSource) => new CatalogService(repo, source),
+      inject: [CatalogRepository, CatalogSource],
+    },
     ...mcpProviders,
   ],
   exports: [
