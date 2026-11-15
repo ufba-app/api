@@ -242,6 +242,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
 
+  let ultimosCookies: string[] = [];
+
   /** Login completo do web; devolve o cookie `nome=valor`. */
   async function signIn(who = 'fulano'): Promise<string> {
     const { verifier, challenge } = pkce();
@@ -268,6 +270,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       body: { code: back.searchParams.get('code'), codeVerifier: verifier, redirectUri: WEB_CB },
     });
     expect(s.status).toBe(204);
+    ultimosCookies = s.headers.getSetCookie();
     const setCookie = s.headers.get('set-cookie')!;
     expect(setCookie).toMatch(/^ufba_session=/);
     expect(setCookie).toMatch(/HttpOnly/);
@@ -281,6 +284,29 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(me.email).toBe('fulano@ufba.br');
     expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null });
     expect(me.connections.moodle.status).toBe('disconnected');
+  });
+
+  it('cookie marcador: sai com a sessão, sem segredo, e some ao sair, ao excluir a conta e no 401', async () => {
+    const cookie = await signIn('marcador');
+    expect(ultimosCookies).toHaveLength(2);
+    expect(ultimosCookies[0]).toMatch(/^ufba_session=/);
+    // Dev (http localhost): sem Secure e sem Domain.
+    expect(ultimosCookies[1]).toMatch(/^ufba_signed_in=1; Path=\/; HttpOnly; SameSite=Lax; Max-Age=\d+$/);
+
+    const out = await send('DELETE', '/session', { cookie });
+    const apagados = out.headers.getSetCookie();
+    expect(apagados).toHaveLength(2);
+    expect(apagados.some((c) => /^ufba_session=; .*Max-Age=0/.test(c))).toBe(true);
+    expect(apagados).toContain('ufba_signed_in=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+
+    const semSessao = await get('/me');
+    expect(semSessao.status).toBe(401);
+    expect(semSessao.headers.getSetCookie()).toEqual(['ufba_signed_in=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0']);
+
+    const c2 = await signIn('marcador2');
+    const del = await send('DELETE', '/me', { cookie: c2 });
+    expect(del.status).toBe(204);
+    expect(del.headers.getSetCookie().some((c) => c.startsWith('ufba_signed_in=; ') && c.includes('Max-Age=0'))).toBe(true);
   });
 
   it('conta fora do domínio volta ao web com a mensagem pronta (com o e-mail)', async () => {

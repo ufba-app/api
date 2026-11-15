@@ -88,18 +88,68 @@ export function sessionToken(req: Request): string | undefined {
   return readCookie(req, webEnv().cookieName);
 }
 
+/** Nome do cookie MARCADOR (ver `setSignedInMarker`). */
+export const SIGNED_IN_MARKER = 'ufba_signed_in';
+
+/**
+ * Domínio do marcador: o sufixo de rótulos que `WEB_ORIGIN`, `AUTH_ORIGIN` e `PUBLIC_URL` têm em comum (hoje
+ * `.ufba.app`, para `meu.`, `auth.` e `api.`). Sem sufixo comum de pelo menos 2 rótulos (localhost, IP, origens de
+ * sites diferentes), devolve `null` e o cookie fica sem `Domain` (só o host que o emitiu).
+ */
+export function markerDomain(env = webEnv()): string | null {
+  const hosts = [...env.webOrigins, env.authOrigin, env.publicUrl].map((o) => {
+    try {
+      return new URL(o).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
+  });
+  if (hosts.some((h) => !h || /^[\d.]+$/.test(h) || h.includes(':'))) return null;
+  const labels = hosts.map((h) => h.split('.').reverse());
+  const common: string[] = [];
+  for (let i = 0; labels.every((l) => l[i] !== undefined) && labels.every((l) => l[i] === labels[0][i]); i++) common.push(labels[0][i]);
+  return common.length >= 2 ? `.${common.reverse().join('.')}` : null;
+}
+
+/**
+ * Cookie MARCADOR `ufba_signed_in=1`: diz só "há uma sessão aberta" para quem fica na frente do painel decidir o
+ * redirect sem piscar a tela. NÃO é segredo e NÃO autentica nada: a API valida apenas o cookie de sessão. É HttpOnly
+ * (o JavaScript não precisa dele) e vive o mesmo tempo que a sessão. Domain compartilhado entre os subdomínios (ver
+ * `markerDomain`); em http de desenvolvimento, sem Secure e sem Domain.
+ */
+function markerCookie(value: string, maxAgeSeconds: number): string {
+  const { secure } = webEnv();
+  const domain = markerDomain();
+  return (
+    `${SIGNED_IN_MARKER}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}` +
+    (domain ? `; Domain=${domain}` : '') +
+    (secure ? '; Secure' : '')
+  );
+}
+
+export function setSignedInMarker(res: Response, maxAgeMs: number): void {
+  res.append('Set-Cookie', markerCookie('1', Math.floor(maxAgeMs / 1000)));
+}
+
+export function clearSignedInMarker(res: Response): void {
+  res.append('Set-Cookie', markerCookie('', 0));
+}
+
+/** Cookie de sessão (sem Domain: só o host da API) e o marcador junto. */
 export function setSessionCookie(res: Response, token: string, maxAgeMs: number): void {
   const { cookieName, secure } = webEnv();
-  res.setHeader(
+  res.append(
     'Set-Cookie',
     `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}` +
       (secure ? '; Secure' : ''),
   );
+  setSignedInMarker(res, maxAgeMs);
 }
 
 export function clearSessionCookie(res: Response): void {
   const { cookieName, secure } = webEnv();
-  res.setHeader('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` + (secure ? '; Secure' : ''));
+  res.append('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` + (secure ? '; Secure' : ''));
+  clearSignedInMarker(res);
 }
 
 type WebRequest = Request & { web?: WebPrincipal; webToken?: string };
