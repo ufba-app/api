@@ -29,14 +29,15 @@ const session = () =>
 describe('SiasbClient.login', () => {
   it('manda o corpo certo, junta os cookies e usa o maior Expires', async () => {
     const f = fake(
-      res(200, { username: '123456789' }, [
+      res(200, { username: 'outra-pessoa' }, [
         `OWEnsino.Modern.Auth=${COOKIE_VALUE}; expires=Tue, 15 Dec 2026 04:09:00 GMT; path=/; secure; httponly; samesite=lax`,
         'IdCursoDefault=1; expires=Mon, 14 Dec 2026 04:09:00 GMT; path=/',
         `${REG_COOKIE}=1; expires=Tue, 15 Dec 2026 04:09:01 GMT; path=/`,
       ]),
+      res(200, { username: '123456789' }),
     );
     const out = await client(f).login('123456789', Secret.of(PASSWORD), 1);
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2);
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.siasb.ufba.br/api/v1/auth/login');
     expect(init.method).toBe('POST');
@@ -52,14 +53,19 @@ describe('SiasbClient.login', () => {
     expect(out.username).toBe('123456789');
   });
 
-  it('sem username no corpo, consulta auth/session', async () => {
+  it('o username vem de auth/session, mesmo que o corpo do login traga outro', async () => {
     const f = fake(
-      res(200, {}, ['A=1; expires=Tue, 15 Dec 2026 04:09:00 GMT']),
+      res(200, { username: '111' }, ['A=1; expires=Tue, 15 Dec 2026 04:09:00 GMT']),
       res(200, { username: '987' }),
     );
     const out = await client(f).login('987', Secret.of(PASSWORD), 1);
     expect(f).toHaveBeenCalledTimes(2);
     expect(out.username).toBe('987');
+  });
+
+  it('auth/session sem username: UNEXPECTED_FORMAT, mesmo que o corpo do login traga um', async () => {
+    const f = fake(res(200, { username: '1' }, ['A=1; path=/']), res(200, {}));
+    await expect(client(f).login('1', Secret.of(PASSWORD), 1)).rejects.toMatchObject({ code: 'UNEXPECTED_FORMAT' });
   });
 
   it.each([
@@ -91,7 +97,7 @@ describe('SiasbClient.login', () => {
   });
 
   it('nunca segue redirect (redirect: error), no login e no GET', async () => {
-    const f = fake(res(200, { username: '1' }, ['A=1; path=/']), res(200, {}));
+    const f = fake(res(200, {}, ['A=1; path=/']), res(200, { username: '1' }), res(200, {}));
     const c = client(f);
     await c.login('1', Secret.of(PASSWORD), 1);
     await c.get(session(), '/auth/session');
@@ -109,7 +115,7 @@ describe('SiasbClient.login', () => {
   });
 
   it('Max-Age vence o Expires', async () => {
-    const f = fake(res(200, { username: '1' }, ['A=1; Max-Age=3600; expires=Tue, 15 Dec 2030 04:09:00 GMT']));
+    const f = fake(res(200, { username: '1' }, ['A=1; Max-Age=3600; expires=Tue, 15 Dec 2030 04:09:00 GMT']), res(200, { username: '1' }));
     const before = Date.now();
     const out = await client(f).login('1', Secret.of(PASSWORD), 1);
     const exp = out.session.expiresAt?.getTime() ?? 0;
@@ -124,6 +130,7 @@ describe('SiasbClient.login', () => {
         'B=; expires=Tue, 15 Dec 2040 04:09:00 GMT',
         'C=3; expires=Thu, 01 Jan 1970 00:00:00 GMT',
       ]),
+      res(200, { username: '1' }),
     );
     const out = await client(f).login('1', Secret.of(PASSWORD), 1);
     expect(Object.keys(out.session.cookies)).toEqual(['A']);

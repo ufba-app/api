@@ -232,12 +232,10 @@ export class SiasbClient extends SiasbSource {
       fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
     }
 
-    const loginBody = await this.tryJson(res);
-    let username = (loginBody as { username?: unknown } | null)?.username;
-    if (typeof username !== 'string' || username === '') {
-      const info = (await this.get(session, '/auth/session')) as { username?: unknown } | null;
-      username = info?.username;
-    }
+    // O titular vem da sessão aberta (auth/session), nunca do corpo do login: é ela que prova de quem é o cookie.
+    discard(res);
+    const info = (await this.get(session, '/auth/session')) as { username?: unknown } | null;
+    const username = info?.username;
     if (typeof username !== 'string' || username === '') {
       fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
     }
