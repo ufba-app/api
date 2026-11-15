@@ -20,11 +20,14 @@ import { AuthorizationRequests } from '../../application/web/authorization-reque
 import { AuthorizedApps } from '../../application/web/authorized-apps.service';
 import { ConnectionsService } from '../../application/web/connections.service';
 import { SigaaPasskeys } from '../../application/web/sigaa-passkeys.service';
+import { SigaaPairings } from '../../application/web/sigaa-pairings.service';
 import {
   ClassroomStartQuery,
   ConnectMoodleBody,
   ConnectSigaaBody,
+  CreatePairingBody,
   CreateSessionBody,
+  DeliverPairingBody,
   SaveSigaaPasskeyBody,
   SigaaPasskeySlotBody,
   parseInput,
@@ -204,6 +207,56 @@ export class SigaaPasskeyController {
     await this.passkeys.remove(must(p), credentialId);
   }
 }
+
+/**
+ * "Correio" do QR: o computador cria o pedido e lê o pacote uma vez; o celular da MESMA conta vê quem pede e entrega o
+ * pacote lacrado. O servidor só repassa bytes que não consegue abrir.
+ */
+@Controller('pairings')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class PairingsController {
+  constructor(private readonly pairings: SigaaPairings) {}
+
+  @Post()
+  @HttpCode(201)
+  @Header('Cache-Control', 'no-store')
+  async create(@Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    const r = await this.pairings.create(must(p), parseInput(CreatePairingBody, b ?? {}, invalidRequest));
+    return { id: r.id, expiresAt: r.expiresAt.toISOString() };
+  }
+
+  @Get(':id/info')
+  @Header('Cache-Control', 'no-store')
+  async info(@Principal() p: WebPrincipal | null, @Param('id') id: string) {
+    const i = await this.pairings.info(must(p), pairingId(id));
+    return {
+      label: i.label,
+      client: i.client,
+      createdAt: i.createdAt.toISOString(),
+      expiresAt: i.expiresAt.toISOString(),
+      delivered: i.delivered,
+    };
+  }
+
+  @Post(':id')
+  @HttpCode(204)
+  @Header('Cache-Control', 'no-store')
+  async deliver(@Principal() p: WebPrincipal | null, @Param('id') id: string, @Body() b: unknown): Promise<void> {
+    await this.pairings.deliver(must(p), pairingId(id), parseInput(DeliverPairingBody, b, invalidRequest));
+  }
+
+  @Get(':id')
+  @Header('Cache-Control', 'no-store')
+  read(@Principal() p: WebPrincipal | null, @Param('id') id: string) {
+    return this.pairings.read(must(p), pairingId(id));
+  }
+}
+
+const pairingId = (id: string): string => {
+  if (!/^[A-Za-z0-9_-]{22}$/.test(id)) throw invalidRequest();
+  return id;
+};
 
 @Controller('authorize/requests')
 @UseFilters(ApiErrorFilter)

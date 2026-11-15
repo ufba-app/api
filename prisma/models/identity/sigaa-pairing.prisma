@@ -1,0 +1,25 @@
+// "Correio" do QR de liberação (docs/specs/2026-11-14-chave-mestra-passkey.md §13): o computador cria o pedido (preso à
+// conta dele), o celular da MESMA conta entrega um pacote lacrado para a chave descartável do computador, e o
+// computador lê uma vez só (a linha some). Vive 5 minutos. O servidor só repassa bytes que não consegue abrir: a chave
+// pública do computador vem no fragmento do link (que o navegador nunca manda ao servidor) e a privada não sai dele.
+model SigaaPairing {
+  id String @id // 16 bytes aleatórios em base64url
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label  String? // "Firefox no Windows" (mostrado no celular)
+  client String? // cliente que está sendo autorizado, se houver
+
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+
+  // Pacote do celular: chave pública efêmera dele, iv e texto cifrado (AES-GCM). Nulos até a entrega.
+  pub         String?
+  iv          String?
+  ciphertext  String?
+  deliveredAt DateTime? @map("delivered_at")
+
+  @@index([expiresAt])
+  @@map("sigaa_pairings")
+}

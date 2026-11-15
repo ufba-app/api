@@ -166,3 +166,34 @@ export abstract class SigaaMasterSlotRepository {
   abstract delete(userId: string, credentialId: string): Promise<boolean>;
   abstract deleteAll(userId: string): Promise<void>;
 }
+
+/** Pacote do celular para o computador: chave pública efêmera, iv e texto cifrado (AES-GCM), todos base64url. */
+export interface SigaaPairingPacket {
+  pub: string;
+  iv: string;
+  ciphertext: string;
+}
+
+/** Pedido do "correio" do QR (ver `SigaaPairings`). O pacote só existe depois da entrega do celular. */
+export interface SigaaPairingRecord {
+  id: string;
+  userId: string;
+  label: string | null;
+  client: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  packet: SigaaPairingPacket | null;
+}
+
+export abstract class SigaaPairingRepository {
+  abstract create(rec: Omit<SigaaPairingRecord, 'packet'>): Promise<void>;
+  /** Pedido do dono que ainda não venceu; `null` se não existe, venceu ou é de outra pessoa. */
+  abstract find(id: string, userId: string, now: Date): Promise<SigaaPairingRecord | null>;
+  /** Grava o pacote uma única vez: `false` se já havia pacote, venceu, não existe ou é de outra pessoa. */
+  abstract deliver(id: string, userId: string, packet: SigaaPairingPacket, now: Date): Promise<boolean>;
+  /** Lê E apaga o pedido entregue (uma leitura só): `null` se não há pacote ou outra leitura chegou antes. */
+  abstract take(id: string, userId: string, now: Date): Promise<SigaaPairingPacket | null>;
+  /** Pedidos abertos (não vencidos) da pessoa. */
+  abstract countOpen(userId: string, now: Date): Promise<number>;
+  abstract deleteExpired(now: Date): Promise<void>;
+}

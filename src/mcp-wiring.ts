@@ -23,6 +23,7 @@ import { AuthorizedApps } from './application/web/authorized-apps.service';
 import { ConnectionStatus } from './application/web/connection-status';
 import { ConnectionsService } from './application/web/connections.service';
 import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
+import { SigaaPairings } from './application/web/sigaa-pairings.service';
 import { WebSessionService } from './application/web/web-session.service';
 import { FileVerifiedApps, HttpsClientMetadataFetcher } from './infrastructure/oauth/client-metadata';
 import { webEnv } from './interface/web/web-auth';
@@ -32,6 +33,7 @@ import { AUTHENTICATORS, type Authenticator } from './application/ports/authenti
 import {
   SigaaCredentialRepository,
   SigaaMasterSlotRepository,
+  SigaaPairingRepository,
   SourceAccountRepository,
   SourceBindingRepository,
 } from './application/ports/repositories';
@@ -86,6 +88,11 @@ export const mcpProviders: Provider[] = [
     useFactory: (cofre: CofreSigaa, accounts: SourceAccountRepository, classroom: ClassroomLinkPort, slots: SigaaMasterSlotRepository) =>
       new ConnectionStatus(cofre, accounts, classroom, slots),
     inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository],
+  },
+  {
+    provide: SigaaPairings,
+    useFactory: (repo: SigaaPairingRepository) => new SigaaPairings(repo),
+    inject: [SigaaPairingRepository],
   },
   {
     provide: SigaaPasskeys,
@@ -195,6 +202,7 @@ export const mcpExports = [
   WebSessionService,
   ConnectionsService,
   SigaaPasskeys,
+  SigaaPairings,
   AuthorizationRequests,
   AuthorizedApps,
   CLIENT_DIRECTORY,
