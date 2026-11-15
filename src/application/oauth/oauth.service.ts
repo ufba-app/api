@@ -8,6 +8,7 @@ import {
   UserDirectory,
 } from './oauth-ports';
 import { randomToken, sha256Base64Url, verifyPkceS256 } from './pkce';
+import { redirectUriAllowed } from './redirect-uri';
 import type { Authenticator } from '../ports/authenticator';
 
 export const ACCESS_TTL_S = 60 * 60;
@@ -134,7 +135,8 @@ export class OAuthService {
   async begin(p: AuthorizeParams): Promise<PendingAuthorization> {
     const client = p.client_id ? await this.getClient(p.client_id) : null;
     if (!client) throw new OAuthError('invalid_client', 'client_id desconhecido');
-    if (!p.redirect_uri || !client.redirectUris.includes(p.redirect_uri)) {
+    // Exato, exceto a porta de loopback http (RFC 8252 §7.3): o app nativo usa uma porta livre a cada autorização.
+    if (!p.redirect_uri || !redirectUriAllowed(client.redirectUris, p.redirect_uri)) {
       throw new OAuthError('invalid_request', 'redirect_uri não registrado');
     }
     if (p.response_type !== 'code') throw new OAuthError('unsupported_response_type', 'use response_type=code');
