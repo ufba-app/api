@@ -1,86 +1,99 @@
-# Currículo como grafo (rascunho para conversa)
+# Currículo como grafo (desenho)
 
-**Estado:** rascunho de desenho. Nada de código de produção, migração ou PR. Nenhuma requisição ao SIGAA foi feita; tudo abaixo vem da leitura do código desta API e do repositório público do ai-memory.
+**Estado:** desenho fechado em conversa com o André, pendente de revisão dele. Nada de código de produção, migração ou PR. Nenhuma requisição ao SIGAA foi feita; tudo vem da leitura do código desta API e do repositório público do ai-memory.
 
-## 1. Recomendação (resumo)
+## 1. Decisão
 
-Começar pela **opção C: tabela de arestas derivada** (`curriculum_edges`), reconstruível a partir das expressões que já guardamos. O texto continua sendo a fonte da verdade; o grafo é um índice, como o `links` do ai-memory. Nenhuma mudança no contrato do web. A lógica booleana (E/OU) continua no domínio em TypeScript. Se mais tarde fizer falta exatidão no banco, a opção A (nós de grupo) é uma evolução da C, não um recomeço.
+**Não remontar o modelo do banco.** O grafo vira um **módulo de domínio em TypeScript** que lê as expressões que já guardamos (`prerequisiteExpr`, `corequisiteExpr`, `equivalenceExpr`), mais um **cache do grafo por currículo** em memória. Sem tabela nova, sem migração. A tabela de arestas (opção C) fica **arquivada** até aparecer um dos gatilhos da seção 7.
 
-Motivos:
+Caso de uso que motiva: a tela "Linha de chegada" do painel (grade por semestre com linhas entre matérias; ao clicar numa matéria, o caminho **inteiro** antes e depois; "libera", "segura", "mais atrasa a conclusão"; "conclui em 2028.2"; plano do próximo semestre com "libera se passar em X").
 
-1. O ai-memory não tem banco de grafos: o "grafo" é uma tabela de arestas e junções (seção 2). O Postgres faz isso sem extensão.
-2. O SQL não avalia expressão booleana bem (CTE recursiva não aceita agregação no termo recursivo). A decisão "posso cursar" precisa de TS de qualquer jeito, então guardar a árvore booleana em tabelas não simplifica a leitura de hoje.
-3. O volume é pequeno: um currículo Ativo por curso, dezenas de componentes por currículo. Um currículo inteiro cabe em memória; o grafo no banco serve para consultas que cruzam currículos e para "o que destrava X" sem carregar tudo.
-4. Zero risco de divergência com o que o SIGAA imprime: o texto não muda e o avaliador atual (`prerequisite.ts`, `progress.ts`) segue valendo.
+## 2. Por que não banco
 
-## 2. Como o ai-memory faz (lido no código, `crates/ai-memory-store`)
+- **ai-memory** (lido em `crates/ai-memory-store`): o grafo é uma tabela `links` (`from_page_id`, `to_page_id`, `link_type`, escopo) consultada por `JOIN` em um passo, nos dois sentidos, sem extensão e sem CTE recursiva. O markdown é a fonte e o SQLite é índice reconstruível. `WITH RECURSIVE` só aparece nas cadeias de substituição de página.
+- **Volume pequeno:** um currículo Ativo por curso, dezenas de componentes. Cabe inteiro na memória, e a rota da grade já o carrega inteiro.
+- **O SQL não avalia E/OU aninhado.** A lógica booleana fica no domínio de qualquer jeito, então guardar a árvore em tabelas não simplifica a leitura.
+- **Sob carga**, uma consulta recursiva por clique pressiona o Postgres; um cache em memória tira o banco do caminho.
+- **Descartadas:** Apache AGE (extensão que a Railway gerenciada talvez não ofereça; a confirmar), `ltree` (modela árvore, currículo é DAG), banco de grafos à parte.
 
-- **Fonte da verdade são arquivos markdown**; o SQLite é índice que o `reindex` reconstrói dos arquivos.
-- **Arestas: uma tabela `links`** (`V01__init.sql`, ampliada em `V13__cross_project_links.sql`): `from_page_id`, `to_page_id` (nulo se não resolvido), `to_workspace`, `to_project`, `to_path`, `link_type` (padrão `references`; tipos como aresta tipada). Chave primária composta, índice parcial em `to_page_id`. Sem nós de aresta, sem tabela de propriedades.
-- **Nós: a tabela `pages`**; mais `entities` + `entity_page_links` (`V38__entities.sql`), descritas no próprio arquivo como "plain noun table, not a triple store".
-- **Consulta de vizinhos** (`reader.rs`, `graph_neighbors_for_project_explained`): um passo só, com `JOIN links` nos dois sentidos (saída e entrada) e `UNION ALL`, filtrando por projeto, sem extensão e **sem CTE recursiva**. Só há `WITH RECURSIVE` para cadeias de substituição de página (`ops.rs`, `reader.rs`), não para navegar o grafo. O mapa do projeto (`project_link_graph`) calcula grau por contagem de pontas.
-- **A busca funde fluxos** (FTS5, entidades, vizinhos de grafo, vetor opcional) por RRF; o grafo é um dos fluxos, não o motor.
-- Lição que vale para nós: grafo simples (arestas tipadas), reconstruível, consultado por junção; profundidade ficou fora do SQL.
+## 3. Modelo de hoje (não muda)
 
-## 3. Como o nosso modelo guarda hoje
+- `prisma/models/catalog/curriculum-component.prisma`: um componente por linha, único por `(curriculumId, code)`, com os três textos e `responsibleUnit`. Vêm das páginas públicas do SIGAA.
+- Formato: `( FISD36 E FISD42 ) OU ( ENGJ18 )`, parênteses aninhados e duplos, `E` antes de `OU`, códigos como `ENG295A` e `GENG0091`.
+- `src/domain/academic/prerequisite.ts`: `citedCodes`, `checkExpression` → `MET | NOT_MET | UNKNOWN` (falha fechado: texto sem código, como carga mínima, ou malformado, é `UNKNOWN`).
+- `src/domain/academic/progress.ts` (`buildProgress`): equivalência **direcional e do currículo Ativo** (`equivalenceExpr` de X: "X está cumprido se esta expressão for atendida"), aplicada em ponto fixo; mais as linhas "Cumpriu A através de B" do histórico (por aluno, fora do catálogo). Co-requisito só é exibido.
 
-- `prisma/models/catalog/curriculum-component.prisma`: um componente por linha, único por `(curriculumId, code)`, com **três textos**: `prerequisiteExpr`, `corequisiteExpr`, `equivalenceExpr`, mais `responsibleUnit`. O texto vem das páginas públicas do SIGAA (`sigaa-public-catalog.ts`).
-- Formato: `( FISD36 E FISD42 ) OU ( ENGJ18 )`, parênteses aninhados e duplos, `E` com precedência sobre `OU`, códigos como `ENG295A` e `GENG0091`.
-- `src/domain/academic/prerequisite.ts`: `citedCodes` (todos os códigos citados), `checkExpression` → `MET | NOT_MET | UNKNOWN`. `UNKNOWN` cobre texto sem código (ex.: carga horária mínima) ou malformado; **falha fechado**.
-- `src/domain/academic/progress.ts` (`buildProgress`):
-  - **Equivalência é direcional e vale no currículo Ativo**: `equivalenceExpr` de X diz "X está cumprido se esta expressão (em geral códigos antigos) for atendida". Roda em ponto fixo, porque uma equivalência cumprida pode satisfazer a expressão de outra.
-  - Existe ainda a equivalência **por aluno**, declarada no histórico ("Cumpriu A através de B"); essa **não é do catálogo** e não entra no grafo do catálogo.
-  - Pré-requisito é avaliado contra `done` (diretos + histórico + equivalências); `missingPrerequisites` usa `citedCodes`.
-  - **Co-requisito só é mostrado**, o cumprimento não é calculado.
-  - A leitura reversa de equivalência (`citedCodes(c.equivalenceExpr).includes(p.code)`) é uma varredura linear por pendente; no grafo vira uma consulta de entrada.
-- Contrato que consome (não deve mudar no passo 1): `GET /me/academic/curriculum` (`state`, `missingPrerequisites`, `prerequisiteExpr`, `corequisiteExpr`, `equivalenceExpr`, `responsibleUnit`; `docs/WEB-API.md` 5.1) e o resumo da vida acadêmica; o MCP lê pelo mesmo caminho.
+## 4. O módulo de grafo
 
-## 4. Opções para o Postgres
+Novo arquivo de domínio (nome sugerido: `src/domain/academic/curriculum-graph.ts`, com spec ao lado), puro, sem rede, no padrão de `progress.ts`. Reaproveita o parser de `prerequisite.ts` (o `Expr` hoje é interno: expor o AST é parte do trabalho).
 
-### A. Árvore booleana em tabelas (nós de grupo)
-`curriculum_nodes` (componente, ou grupo `AND`/`OR`) e `curriculum_edges` (`parent_node`, `child_node`, `kind` = PREREQ | COREQ | EQUIV, ordem). Cada expressão vira uma árvore: raiz = componente, filhos = grupos e referências por código.
-- **Prós:** semântica completa no banco (nada de reparsear); consultas exatas por estrutura; permite expandir para qualquer tipo de exigência no futuro.
-- **Contras:** o que o SQL não faz bem é justamente avaliar a árvore; todo consumo ainda precisa de TS que a percorre. Duas representações para manter sincronizadas (texto e árvore). Mais migração, mais testes.
+**Construção.** Para cada componente, o parser gera a árvore da expressão. A partir dela, cada código citado vira uma aresta `prerequisito → componente` com um **tipo**:
+- `REQUIRED` (linha contínua): o código é exigido em toda forma de satisfazer a expressão. Vem de `E`, ou de um `OU` com uma só alternativa.
+- `ALTERNATIVE` (tracejada): o código está em um `OU`; basta uma das alternativas.
 
-### B. Forma normal (grupos de alternativas)
-`requirement_groups` (um por alternativa de nível mais alto do `OU`) e `requirement_group_members`.
-- **Prós:** simples e boa para "o que falta"; consulta direta.
-- **Contras:** aninhamento real (o caso `FISD34 E ( QUIA27 OU ( FISD41 E QUI029 ) )` do ENG295) exige distribuir E sobre OU, o que pode explodir e **perde o formato original**. Pior fidelidade das três.
+Regra: aresta `REQUIRED` = o código aparece em **todas** as alternativas do `OU` de nível mais alto. Qualquer outro caso é `ALTERNATIVE`. Dentro de alternativa aninhada, o grupo mantém o `alt_group` para a tela dizer "uma destas".
 
-### C. Arestas derivadas do texto (recomendada)
-`curriculum_edges (curriculum_id, from_code, to_code, kind)` com `kind` PREREQ | COREQ | EQUIV, **uma linha por código citado** na expressão (o que `citedCodes` já extrai). Opcional: `group_ref` (texto curto, como o caminho da folha na árvore) para o futuro. Reconstruída por importação, na mesma transação que grava o componente. O texto segue como fonte.
-- **Prós:** nenhuma mudança de contrato; avaliador atual intacto; migração aditiva e reversível (apagar a tabela e reimportar); responde "o que destrava X" e "o que depende de X" com um `JOIN`; é o mesmo desenho do ai-memory.
-- **Contras:** a aresta é **superconjunto** quando há `OU` (citar não significa exigir); para "caminho crítico" e "impacto de reprovação" exato é preciso o avaliador em TS sobre o subgrafo carregado. Um terceiro armazenamento derivado para manter em dia com a importação.
+**Consultas** (todas em memória sobre o currículo carregado):
 
-### Descartadas
-- **Apache AGE:** extensão do Postgres que a Railway não oferece no gerenciado (a confirmar com o orquestrador), pesada para o volume, e aberta a Cypher onde o resto da API é Prisma.
-- **`ltree`:** modela **árvores**; currículo é DAG (um componente com vários pré-requisitos e vários dependentes).
-- **Banco de grafos à parte:** um segundo serviço para algumas milhares de linhas.
-
-## 5. O que fica mais fácil (com C, exatidão por TS)
-
-| Pergunta | Como |
+| Pergunta | Cálculo |
 |---|---|
-| O que posso cursar agora | Já existe (`AVAILABLE`). Não muda; o grafo só evita a leitura inteira. |
-| O que destrava X | `SELECT from_code FROM curriculum_edges WHERE to_code = :x AND kind='PREREQ'`, dedupe. Resposta é "candidatos"; exato com o avaliador. |
-| O que depende de X (impacto de reprovação) | Fecho transitivo por CTE recursiva (aqui ela cabe: poucos níveis, DAG) ou BFS em TS; marca os que deixam de estar `AVAILABLE`. |
-| Caminho crítico até formar | Maior cadeia entre obrigatórios faltantes; cada `OU` escolhe a alternativa mais curta. Em TS sobre o currículo inteiro carregado. |
-| Reverso de equivalência (hoje varredura linear) | `kind='EQUIV'` com índice em `to_code`. |
+| Libera X | Quem cita X no pré-requisito (um passo para frente) |
+| Caminho inteiro de X | Fecho transitivo para trás (antes) e para frente (depois), marcando cada nó cumprido ou não |
+| Segura | Descendentes alcançáveis por arestas `REQUIRED` |
+| Mais atrasa a conclusão | Maior cadeia até o fim entre os obrigatórios faltantes (cada `OU` escolhe a alternativa mais curta); quem fica em cadeias mais longas "atrasa mais" |
+| Libera se passar em X | `checkExpression` com `done ∪ {X}`, listando o que passa a `MET` |
+| Conclui em AAAA.S | Simulação semestre a semestre: a cada passo, os disponíveis entram até o teto de horas; repete até acabar |
 
-## 6. Migração e contrato
+**Ressalvas que a tela precisa mostrar** (já é estimativa, e continua):
+1. **Oferta.** Não sabemos em que semestres cada matéria é ofertada: a projeção assume que tudo é oferecido sempre. É a ressalva mais forte.
+2. **`OU`.** "Segura" só vale pelas arestas `REQUIRED`.
+3. **Pré-requisito sem código** (carga mínima): hoje `UNKNOWN`; na simulação, tratar como não bloqueante com aviso, ou bloqueante? **Decisão do André.**
+4. **Co-requisito:** hoje só exibido; para a simulação, ele entra no mesmo semestre. **Decisão do André** (muda o significado de `AVAILABLE`).
+5. **Ciclo** (expressão mal importada): o módulo detecta e ignora a aresta, com aviso, sem travar.
 
-- **Passo 1 (só C):** migração aditiva (tabela nova + índices em `(curriculum_id, to_code)` e `(curriculum_id, from_code)`), preenchimento no importador do catálogo, **backfill a partir do texto já gravado** (sem SIGAA). Contrato do web igual; nada a avisar ao Mosaico.
-- Rota nova só com pedido: p.ex. `GET /me/academic/curriculum/:code/unlocks`; ao entrar, `ROUTES` do `openapi.ts` e `npm run openapi`, e aviso ao Mosaico.
-- Rollback: apagar a tabela; o avaliador não depende dela.
+## 5. Cache
 
-## 7. Perguntas abertas (para o André)
+- Chave: id do currículo; versão: `fetchedAt` do `Curriculum`.
+- Guarda o grafo montado (matérias, arestas tipadas, índices de entrada e saída), **sem dado de pessoa**. O histórico do aluno entra só no cálculo, nunca no cache.
+- Renovação: ao ler, compara `fetchedAt`; se mudou, remonta. Mais um prazo curto (alguns minutos) para instâncias que não perceberam a importação.
+- Cada instância na Railway tem o seu cache; o dado é pequeno e igual em todas.
+- **Não foi medido sob carga.** Antes de contar com ele, teste de carga. Os gargalos prováveis estão fora do grafo (leitura ao vivo do SIGAA, leitura do histórico pela IA).
 
-1. Qual consulta vale primeiro: "o que destrava X", impacto de reprovação ou caminho crítico? Define se o passo 1 já precisa de rota ou só da tabela.
-2. Equivalências **entre currículos** (antigo → ativo) hoje só existem do lado do Ativo e são direcionais. Queremos guardar também currículos antigos como nós, ou o Ativo basta?
-3. Co-requisito: continuar só exibindo, ou passar a calcular (`MET` no mesmo semestre)? Muda o que "AVAILABLE" significa.
-4. O pré-requisito sem código (carga mínima) vira nó de um tipo próprio ou segue `UNKNOWN`?
-5. Quantos componentes existem hoje na base (contagem simples, sem ir ao SIGAA)? Define se a CTE recursiva pode rodar sempre ou se pré-calculamos fechos.
+## 6. Contrato
 
-## 8. Não-objetivos
+Campos novos em `GET /me/academic/curriculum` (nomes provisórios, em inglês; textos para pessoas em pt-BR):
+- Por componente: `unlocks` (códigos liberados diretamente), `blocks` (os que segura, pelas arestas `REQUIRED`), `criticality` (posição na maior cadeia).
+- Lista de arestas: `{ from, to, kind: REQUIRED | ALTERNATIVE, group }`, para as linhas da grade.
+- Caminho de uma matéria: ou campo por componente (`path.before`, `path.after`) ou rota própria `GET /me/academic/curriculum/:code/path`; preferir o campo, para evitar um round-trip por clique (o grafo cabe na resposta).
+- `projection`: `{ completionTerm, semestersLeft, hoursPerTerm, assumption: "OFFER_ALWAYS" }`, sempre com `estimate: true`.
+- Rota ou parâmetro para "libera se passar em X" (plano do semestre).
 
-Substituir o avaliador atual; trazer um banco de grafos; alterar o contrato do web no passo 1; guardar dado pessoal (equivalência por aluno fica no histórico, fora do grafo do catálogo).
+Cada campo novo entra em `contract.ts` (Zod) e na tabela `ROUTES` do gerador; `API_ERROR_CODES` só se houver código de erro novo. Depois: `npm run openapi`, commit do `openapi.json` e **aviso ao Mosaico**. Ajuste de docs: `docs/WEB-API.md` 5.1.
+
+## 7. Quando reabrir a tabela de arestas (opção C)
+
+Só se aparecer um destes casos:
+1. Pergunta que cruza cursos ou currículos ("em quais cursos X é pré-requisito de algo?").
+2. Consulta sem aluno nem grade (ferramenta do MCP, página pública) em volume que justifique não carregar o currículo.
+3. Desempenho medido ruim mesmo com o cache.
+4. Necessidade de auditar as expressões que viraram `UNKNOWN`.
+
+A migração seria aditiva e reversível, preenchida do texto já gravado, sem SIGAA.
+
+## 8. Mescla do histórico com o currículo novo
+
+Não muda. A ponte continua sendo `equivalenceExpr` do Ativo (direcional, em ponto fixo) mais as equivalências do próprio histórico. Dois ganhos possíveis, fora deste desenho, cada um com OK do André:
+- Importar também os currículos antigos do SIGAA público (exige OK antes de qualquer requisição).
+- Aprender pares de equivalência a partir de históricos confirmados, só com pares de códigos que apareçam em vários históricos, sem nada da pessoa.
+
+## 9. Perguntas abertas (para o André)
+
+1. Pré-requisito sem código (carga mínima): bloqueante ou não na simulação? (seção 4, ressalva 3)
+2. Co-requisito: passa a ser calculado (mesmo semestre)? (ressalva 4)
+3. A projeção "conclui em" pode sair sem saber a oferta por semestre, com o texto de estimativa? (ressalva 1)
+4. Campo de caminho por componente ou rota por matéria? (seção 6)
+5. Quantas matérias há hoje na base (contagem simples, sem ir ao SIGAA)? Só para dimensionar o tamanho da resposta com o caminho embutido.
+
+## 10. Não-objetivos
+
+Mudar o modelo do banco; trazer banco de grafos; substituir o avaliador atual; guardar dado pessoal no cache ou no grafo (equivalência por aluno fica no histórico).
