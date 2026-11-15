@@ -24,6 +24,7 @@ import { McpController } from "../src/interface/mcp/mcp.controller";
 import { OAuthController } from "../src/interface/mcp/oauth/oauth.controller";
 import { MemoryInstallerController } from "../src/interface/memory/memory.controllers";
 import { OpenApiController } from "../src/interface/web/openapi.controller";
+import { SigaaLaunchController } from "../src/interface/web/sigaa-launch.controller";
 import { buildOpenApi, openApiJson } from "../src/interface/web/openapi";
 
 /** Fora do contrato de propósito: MCP, protocolo OAuth, REST de chave de API, health e o próprio /openapi.json. */
@@ -36,6 +37,7 @@ const OUTSIDE_CONTRACT: Type[] = [
   DownloadController,
   OpenApiController,
   MemoryInstallerController,
+  SigaaLaunchController,
 ];
 
 function controllersOf(mod: Type, seen = new Set<Type>()): Type[] {

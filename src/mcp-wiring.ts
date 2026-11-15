@@ -22,6 +22,9 @@ import { AuthorizationRequests } from './application/web/authorization-requests.
 import { AuthorizedApps } from './application/web/authorized-apps.service';
 import { ConnectionStatus } from './application/web/connection-status';
 import { PermissionsService } from './application/permissions/permissions.service';
+import { SigaaLaunch } from './application/web/sigaa-launch.service';
+import { SigaaLoginFormSource } from './application/ports/sigaa-launch';
+import { HttpSigaaLoginFormSource } from './infrastructure/sources/sigaa/login-form-source';
 import { UserPermissionRepository } from './application/ports/permissions';
 import { ConnectionsService } from './application/web/connections.service';
 import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
@@ -167,6 +170,12 @@ export const mcpProviders: Provider[] = [
     ],
   },
   {
+    provide: SigaaLaunch,
+    useFactory: (status: ConnectionStatus, form: SigaaLoginFormSource) => new SigaaLaunch(status, form),
+    inject: [ConnectionStatus, SigaaLoginFormSource],
+  },
+  { provide: SigaaLoginFormSource, useFactory: () => new HttpSigaaLoginFormSource() },
+  {
     provide: PermissionsService,
     useFactory: (repo: UserPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
     inject: [UserPermissionRepository, ConnectionStatus],
@@ -238,6 +247,7 @@ export const mcpProviders: Provider[] = [
 /** O que o módulo global exporta para o `McpModule` e o `BearerGuard`. */
 export const mcpExports = [
   PermissionsService,
+  SigaaLaunch,
   WebSessionService,
   ConnectionsService,
   SigaaPasskeys,

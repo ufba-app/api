@@ -45,6 +45,8 @@ import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../
 import { WebSessionService } from '../../application/web/web-session.service';
 import { PermissionsService } from '../../application/permissions/permissions.service';
 import { z } from 'zod';
+import { SigaaLaunch } from '../../application/web/sigaa-launch.service';
+import { baseUrl } from '../mcp/oauth/base-url';
 import { ApiErrorFilter } from './api-error.filter';
 import {
   OptionalSessionGuard,
@@ -121,7 +123,10 @@ export class SessionController {
 @Controller('connections')
 @UseFilters(ApiErrorFilter)
 export class ConnectionsController {
-  constructor(private readonly web: ConnectionsService) {}
+  constructor(
+    private readonly web: ConnectionsService,
+    private readonly launch: SigaaLaunch,
+  ) {}
 
   @Post('sigaa')
   @HttpCode(204)
@@ -154,6 +159,16 @@ export class ConnectionsController {
   @UseGuards(SessionGuard)
   async sigaaUnlock(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
     await this.web.unlockSigaa(must(p), parseInput(UnlockSigaaBody, b, invalidRequest).dk);
+  }
+
+  /** Botão "Abrir o SIGAA já logado": só devolve o token de uso único (a senha não passa por aqui). */
+  @Post('sigaa/launch')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(SessionGuard)
+  async sigaaLaunch(@Principal() p: WebPrincipal | null, @Req() req: Request) {
+    const token = await this.launch.create(must(p));
+    return { launchUrl: `${baseUrl(req)}/sigaa/launch?t=${token}` };
   }
 
   @Post('moodle/start')

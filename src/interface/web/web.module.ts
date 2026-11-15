@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DataController } from './data.controller';
+import { SigaaLaunchController } from './sigaa-launch.controller';
 import { OpenApiController } from './openapi.controller';
 import {
   AuthorizedAppsController,
@@ -22,6 +23,7 @@ import { DataGuard, OptionalSessionGuard, SessionGuard } from './web-auth';
   controllers: [
     SessionController,
     ConnectionsController,
+    SigaaLaunchController,
     AcademicController,
     PermissionsController,
     SigaaPasskeyController,

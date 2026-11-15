@@ -175,6 +175,16 @@ export const ROUTES: Route[] = [
     ok: [204, null],
   },
   {
+    id: "createSigaaLaunch",
+    method: "post",
+    path: "/connections/sigaa/launch",
+    tag: "connections",
+    auth: "session",
+    summary: "Botão Abrir o SIGAA já logado: devolve a URL de uso único (30 s) que o painel abre numa navegação de página inteira",
+    body: z.object({}),
+    ok: [200, C.SigaaLaunchResponse],
+  },
+  {
     id: "listSigaaPasskeys",
     method: "get",
     path: "/sigaa/passkey",

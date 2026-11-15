@@ -342,6 +342,17 @@ Armazenamento: `user_permissions (user_id, key, enabled, updated_at)`, chave pri
 
 **MCP:** o `/mcp` resolve as permissões LIGADAS da pessoa a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave dela está ligada (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Ligar e desligar vale na próxima requisição. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
 
+## 5.4 Abrir o SIGAA já logado (botão)
+
+Origem: spike de 14/11/2026 (`dev/ufba/handoffs/spike-sigaa-resultado.md`). O id na URL (`;jsessionid=`) não sustenta a navegação, e o servidor não consegue gravar cookie do SIGAA no navegador. O que funciona é o **navegador enviar o login ao SIGAA** (POST de formulário em navegação de página inteira). **Decisão do André:** o aluno não digita a senha, e por isso ela passa pelo navegador, mas **nunca pelo JavaScript do painel**: ela existe só na resposta de uma navegação a uma página mínima da API.
+
+1. `POST /connections/sigaa/launch` `{}` → 200 `{ launchUrl }` (`no-store`). Exige sessão, `X-UFBA`, `Origin` da casa e o SIGAA aberto **nesta** sessão (409 `source_not_connected`); no máximo 6 por 10 minutos por pessoa (429 `too_many_attempts`). O token da URL é aleatório, vale **30 s**, é de **uso único** e preso à pessoa e à sessão do painel que o pediu. Não toca o SIGAA e não carrega a senha.
+2. O painel abre `launchUrl` numa **navegação de página inteira** (link com `target="_blank" rel="noopener"` ou `window.open`; **não** `fetch`).
+3. `GET /sigaa/launch?t=<token>` (fora do contrato JSON; devolve HTML): só atende navegação (`Sec-Fetch-Mode: navigate` e `Sec-Fetch-Dest: document`, senão 403, sem gastar o token), com o cookie da própria sessão. A API gasta o token, abre a senha com a K da sessão, lê o formulário de login do SIGAA (anônimo) e devolve uma página que o envia sozinho a `https://sigaa.ufba.br/sigaa/logar.do?dispatch=logOn` em ISO-8859-1. Erros viram uma página curta em português (401 sessão vencida, 403 sessão errada, 409 SIGAA fechado, 410 link vencido ou já usado, 503 SIGAA fora do ar).
+4. Cabeçalhos da página: `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, CSP `default-src 'none'; script-src 'nonce-…'; style-src 'nonce-…'; form-action https://sigaa.ufba.br; frame-ancestors 'none'; base-uri 'none'` (nem um script injetado conseguiria mandar a senha para outro lugar).
+
+O que continua exposto: a senha fica na resposta HTTP (sob TLS) e no DOM dessa página por milissegundos, visível a extensões do navegador com acesso à página. Auditoria: `sigaa-launch: user=<id> em=<ISO>`, nunca senha nem token. Cada clique cria uma sessão nova no SIGAA (por isso o limite); sair do SIGAA derruba só essa sessão, não a das consultas da API.
+
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 
 1. O cliente abre `GET {API}/authorize?…` (OAuth 2.1 + PKCE). A API valida cliente e `redirect_uri` e redireciona
