@@ -215,7 +215,7 @@ export class AcademicImports {
     let verified: boolean | null = null;
     let componentsCount: number | null = null;
     try {
-      const snapshot = await this.fetchSnapshot(login, password);
+      const snapshot = await this.fetchSnapshot(userId, login, password);
       let items;
       try {
         items = await this.extractor.extract(snapshot.pdf);
@@ -289,9 +289,9 @@ export class AcademicImports {
     }
   }
 
-  private async fetchSnapshot(login: string, password: Secret) {
+  private async fetchSnapshot(userId: string, login: string, password: Secret) {
     try {
-      return await this.source.fetch({ login, password });
+      return await this.source.fetch({ userId, login, password });
     } catch (e) {
       // A senha não vale (ou a sessão expirou): a pessoa precisa digitar de novo. Qualquer outra falha: SIGAA indisponível.
       if (e instanceof SourceError && (e.code === 'REAUTH_NEEDED' || e.code === 'CREDENTIAL_REJECTED')) throw new StepFailure('SESSION_EXPIRED');

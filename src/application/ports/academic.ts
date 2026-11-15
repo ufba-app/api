@@ -85,5 +85,5 @@ export interface TranscriptSnapshot {
  * `SourceError` (REAUTH_NEEDED/CREDENTIAL_REJECTED: a senha não vale; o resto: SIGAA indisponível).
  */
 export abstract class TranscriptSource {
-  abstract fetch(credentials: { login: string; password: Secret }): Promise<TranscriptSnapshot>;
+  abstract fetch(credentials: { userId: string; login: string; password: Secret }): Promise<TranscriptSnapshot>;
 }

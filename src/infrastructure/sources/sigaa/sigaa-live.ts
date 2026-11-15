@@ -123,7 +123,7 @@ function credenciais(ctx: SourceContext): { chave: SigaaSessionKey; obterCred: (
  * credencial como inválida); o resto é passageiro. Parser que não reconhece a página também é `UNAVAILABLE`: nunca
  * devolver lista vazia no lugar de "não deu para ler".
  */
-function erroDaFonte(e: unknown): SourceError {
+export function erroDaFonte(e: unknown): SourceError {
   if (e instanceof SourceError) return e;
   if (e instanceof SigaaInvalidCredentialsError) return new SourceError('REAUTH_NEEDED', MSG.recusou);
   if (e instanceof SigaaRateLimitedError) return new SourceError('UNAVAILABLE', MSG.limite);

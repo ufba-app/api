@@ -12,11 +12,7 @@ import {
   createSigaaHttpClient,
   type SigaaHttpClient,
 } from './http-client';
-import {
-  parseHistoryMenuPostback,
-  parseStudentProfile,
-  type StudentProfile,
-} from './parsers';
+import { parseStudentProfile, type StudentProfile } from './parsers';
 import {
   SigaaInvalidCredentialsError,
   SigaaLoginUnavailableError,
@@ -25,7 +21,7 @@ import {
   type SigaaCredentials,
 } from './session';
 
-const PORTAL_HOME_PATH = '/sigaa/portais/discente/discente.jsf';
+import { PORTAL_HOME_PATH, downloadTranscriptPdf } from './history/transcript-download';
 
 export interface SigaaSnapshot {
   profile: StudentProfile;
@@ -120,23 +116,7 @@ export class SigaaGateway implements SourceGateway {
     }
   }
 
-  private async downloadTranscript(
-    session: SigaaSession,
-    portalHtml: string,
-  ): Promise<Buffer> {
-    const { id, jscookAction } = parseHistoryMenuPostback(portalHtml);
-    const pdf = await session.postbackBinary(PORTAL_HOME_PATH, {
-      'menu:form_menu_discente': 'menu:form_menu_discente',
-      id,
-      jscook_action: jscookAction,
-    });
-    // Falhas (sessão perdida, sem vínculo) voltam como HTML 200: nunca entregar isso como documento.
-    if (!pdf.subarray(0, 5).toString('latin1').startsWith('%PDF')) {
-      throw new SourceError(
-        'UNAVAILABLE',
-        `Esperava um PDF do histórico, vieram ${pdf.length} bytes que não começam com %PDF`,
-      );
-    }
-    return pdf;
+  private downloadTranscript(session: SigaaSession, portalHtml: string): Promise<Buffer> {
+    return downloadTranscriptPdf(session, portalHtml);
   }
 }
