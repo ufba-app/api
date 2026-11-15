@@ -144,6 +144,8 @@ describe('AcademicImports: importar e confirmar', () => {
     expect(s).toMatchObject({ status: 'READY', draft: null, curriculumStatus: 'READY' });
     expect(s.importedAt).toBeInstanceOf(Date);
     expect(s.summary).toMatchObject({ programName: expect.any(String), currentTerm: expect.any(Number) });
+    // O curso do histórico vem separado em pedaços para a tela, e o texto original segue junto.
+    expect(s.summary?.programLabel).toMatchObject({ raw: s.summary?.programName, format: 'full', name: 'Engenharia da Computação', unit: 'EPOLI', campus: 'Salvador', degree: 'Bacharelado', modality: 'Presencial', shift: 'Noturno' });
     expect((await m.repo.getImport(P.userId))?.draft).toBeNull();
   });
 
