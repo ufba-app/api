@@ -45,7 +45,7 @@ As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome 
 | Ferramenta | O que faz | Requisições: SIASB (máx.) |
 |---|---|---|
 | `clinica_situacao()` | Por disciplina: `estado` (`sem_paciente`, `sem_sessao`, `sessao_marcada`), `proximaClinica` e `prazoEstimado` | 3 |
-| `clinica_sessoes(de?, ate?)` | Sessões no intervalo (padrão: próximos 14 dias; até 45 dias à frente): horário, local, professor, primeiro nome, situação, `reagendamentoPara` | 1 |
+| `clinica_sessoes(de?, ate?, aoVivo?)` | Sessões no intervalo (padrão: próximos 14 dias; até 45 dias à frente): horário, local, professor, primeiro nome, situação, `reagendamentoPara`. Por padrão lê a cópia da última sincronização, sem consultar o SIASB, e devolve `origem: 'copia'`, `atualizadoEm` (ISO ou `null`) e `desatualizado`. Com `aoVivo: true`, ou enquanto a pessoa não tiver nenhuma sincronização, consulta o SIASB na hora (`origem: 'ao_vivo'`) | 0 (cópia) ou 1 (ao vivo) |
 | `clinica_prazo_marcacao(disciplinaId \| inicioSessao)` | Prazo estimado para marcar paciente; passe exatamente um dos dois | 1 (`disciplinaId`) ou 0 (`inicioSessao`) |
 | `clinica_pacientes()` | Atendimentos ativos por disciplina: `atendimentoId`, `primeiroNome`, `tipo` | 2 |
 | `clinica_vagas()` | Quantos pacientes sem responsável há por disciplina (só números) | 2 |

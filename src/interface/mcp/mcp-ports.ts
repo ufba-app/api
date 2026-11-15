@@ -9,6 +9,7 @@ import type {
   PatientsByDiscipline,
   SchedulingContext,
 } from '../../application/siasb/siasb-reader';
+import type { CalendarItem } from '../../application/siasb/siasb-copy-reader';
 import type { Progress } from '../../application/siasb/progress';
 import type { ClinicalSession } from '../../domain/siasb/types';
 
@@ -26,6 +27,12 @@ export interface McpClinica {
   hasConnection(userId: string): Promise<boolean>;
   situation(userId: string): Promise<DisciplineSituation[]>;
   sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]>;
+  /**
+   * Sessões lidas da cópia da última sincronização (não consulta o SIASB). Mesmas regras de período de `sessions`
+   * (padrão de 14 dias, no máximo 45 dias à frente, `de` depois de `ate` lança `InvalidPeriodError`).
+   * `syncedAt` nulo e sem itens = nunca sincronizou.
+   */
+  copySessions(userId: string, range?: { from: Date; to: Date }): Promise<{ syncedAt: Date | null; stale: boolean; items: CalendarItem[] }>;
   bookingDeadline(userId: string, input: { disciplineId: string } | { sessionStart: Date }): Promise<BookingDeadline>;
   patients(userId: string): Promise<PatientsByDiscipline[]>;
   vacancies(userId: string): Promise<{ disciplineId: string; disciplineName: string; count: number }[]>;

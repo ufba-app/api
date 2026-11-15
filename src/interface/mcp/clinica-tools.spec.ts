@@ -140,20 +140,28 @@ class FakeCalendar extends AcademicCalendar {
   }
 }
 
-function setup(calendar = new FakeCalendar()) {
+type CopyResult = Awaited<ReturnType<McpClinica['copySessions']>>;
+const SEM_COPIA: CopyResult = { syncedAt: null, stale: true, items: [] };
+
+function setup(calendar = new FakeCalendar(), copy: CopyResult = SEM_COPIA) {
   const siasb = new FakeSiasb();
   const reader = new SiasbReader(siasb, new FakeAccounts(), new FakeCipher(), calendar, () => NOW);
+  const copyRanges: { from: Date; to: Date }[] = [];
   const clinica: McpClinica = {
     hasConnection: async () => true,
     situation: (u) => reader.situation(u),
     sessions: (u, r) => reader.sessions(u, r),
+    copySessions: async (_u, r) => {
+      if (r) copyRanges.push(r);
+      return copy;
+    },
     bookingDeadline: (u, i) => reader.bookingDeadline(u, i),
     patients: (u) => reader.patients(u),
     vacancies: (u) => reader.vacancies(u),
     schedulingContext: (u, a, t) => reader.schedulingContext(u, a, t),
     progress: (u, r) => reader.progress(u, r),
   };
-  return { siasb, reader, clinica };
+  return { siasb, reader, clinica, copyRanges };
 }
 
 const uc = {} as McpUseCases;
@@ -316,6 +324,102 @@ describe('clinica_sessoes', () => {
     expect(res.isError).toBe(true);
     expect(texto(res)).toContain('Data inválida');
     expect(siasb.calls).toEqual([]);
+  });
+});
+
+describe('clinica_sessoes: cópia e ao vivo', () => {
+  const SYNCED = new Date('2026-11-23T11:00:00Z');
+  const copia = (stale: boolean): CopyResult => ({
+    syncedAt: SYNCED,
+    stale,
+    items: [
+      {
+        id: 'c1',
+        attendanceId: 'a3',
+        disciplineName: 'Disc Copia',
+        startAt: d('2026-11-27T13:00:00Z'),
+        endAt: d('2026-11-27T14:00:00Z'),
+        locationName: 'Clínica 9',
+        professorName: 'Prof Copia',
+        patientFirstName: 'Zé',
+        statusLabel: 'Confirmado',
+        rescheduledStartAt: null,
+      },
+    ],
+  });
+
+  it('com cópia não consulta o SIASB e devolve atualizadoEm, desatualizado e origem', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-11-27', ate: '2026-12-04' } });
+    expect(res.isError).toBeFalsy();
+    const out = JSON.parse(texto(res));
+    expect(siasb.calls).toEqual([]);
+    expect(out.origem).toBe('copia');
+    expect(out.atualizadoEm).toBe('2026-11-23T08:00:00-03:00');
+    expect(out.desatualizado).toBe(false);
+    expect(out.sessoes).toEqual([
+      {
+        disciplina: 'Disc Copia',
+        inicio: '2026-11-27T10:00:00-03:00',
+        fim: '2026-11-27T11:00:00-03:00',
+        local: 'Clínica 9',
+        professor: 'Prof Copia',
+        primeiroNome: 'Zé',
+        situacao: 'Confirmado',
+        reagendamentoPara: null,
+      },
+    ]);
+  });
+
+  it('desatualizado espelha stale', async () => {
+    const { clinica } = setup(new FakeCalendar(), copia(true));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(out.desatualizado).toBe(true);
+  });
+
+  it('aoVivo: true ignora a cópia e lê do SIASB', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: { aoVivo: true } })));
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+    expect(out.sessoes[0].disciplina).toBe('Disc 3');
+  });
+
+  it('sem nenhuma sincronização cai no ao vivo', async () => {
+    const { clinica, siasb } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(siasb.calls).toEqual(['sessions']);
+    expect(out.origem).toBe('ao_vivo');
+  });
+
+  it('cópia sincronizada e vazia no período devolve lista vazia, sem consultar o SIASB', async () => {
+    const { clinica, siasb } = setup(new FakeCalendar(), { syncedAt: SYNCED, stale: false, items: [] });
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const out = JSON.parse(texto(await c.callTool({ name: 'clinica_sessoes', arguments: {} })));
+    expect(siasb.calls).toEqual([]);
+    expect(out.sessoes).toEqual([]);
+    expect(out.origem).toBe('copia');
+  });
+
+  it('o período da cópia segue validado: de depois de ate é rejeitado', async () => {
+    const { clinica, copyRanges } = setup(new FakeCalendar(), copia(false));
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const res = await c.callTool({ name: 'clinica_sessoes', arguments: { de: '2026-12-04', ate: '2026-11-27' } });
+    expect(res.isError).toBe(true);
+    expect(texto(res)).not.toContain('2026-12-04');
+    expect(copyRanges).toEqual([]);
+  });
+
+  it('a descrição diz que lê da última sincronização e que aoVivo força a consulta ao vivo', async () => {
+    const { clinica } = setup();
+    const c = await connect({ userId: 'u1', siasb: true }, clinica);
+    const t = (await c.listTools()).tools.find((x) => x.name === 'clinica_sessoes');
+    expect(t?.description).toMatch(/última sincronização/);
+    expect(t?.description).toMatch(/aoVivo/);
   });
 });
 

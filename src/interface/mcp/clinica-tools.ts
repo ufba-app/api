@@ -114,10 +114,14 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
       description:
         'Sessões de clínica da pessoa no SIASB entre `de` e `ate` (datas ISO; padrão: próximos 14 dias; no máximo 45 ' +
         'dias à frente). Traz disciplina, horário (offset da Bahia), local, professor, primeiro nome do paciente, situação ' +
-        'e `reagendamentoPara`. Nunca traz sobrenome nem prontuário. ' + AO_VIVO,
+        'e `reagendamentoPara`. Nunca traz sobrenome nem prontuário. Por padrão lê a cópia da última sincronização ' +
+        '(`atualizadoEm`; `desatualizado` avisa quando ela está velha) e não consulta o SIASB; `aoVivo: true` força a ' +
+        'consulta AO VIVO, com a conexão da pessoa, e também vale enquanto não houver sincronização. A resposta diz a ' +
+        '`origem` (`copia` ou `ao_vivo`); não grava nada no SIASB.',
       inputSchema: {
         de: z.string().optional().describe('Início, ISO (ex.: 2026-11-27).'),
         ate: z.string().optional().describe('Fim, ISO (ex.: 2026-12-04).'),
+        aoVivo: z.boolean().optional().describe('`true` consulta o SIASB na hora em vez de usar a última sincronização.'),
       },
     },
     (args) =>
@@ -129,8 +133,29 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
         if (from && to && from.getTime() > to.getTime()) {
           throw new EntradaInvalida('O início do período (`de`) vem depois do fim (`ate`).');
         }
+        if (args.aoVivo !== true) {
+          const copia = await clinica.copySessions(p.userId, range);
+          if (copia.syncedAt || copia.items.length > 0) {
+            return {
+              origem: 'copia' as const,
+              atualizadoEm: iso(copia.syncedAt),
+              desatualizado: copia.stale,
+              sessoes: copia.items.map((s) => ({
+                disciplina: s.disciplineName,
+                inicio: toBahiaIso(s.startAt),
+                fim: toBahiaIso(s.endAt),
+                local: s.locationName,
+                professor: s.professorName,
+                primeiroNome: s.patientFirstName,
+                situacao: s.statusLabel,
+                reagendamentoPara: iso(s.rescheduledStartAt),
+              })),
+            };
+          }
+        }
         const sessions = await clinica.sessions(p.userId, range);
         return {
+          origem: 'ao_vivo' as const,
           sessoes: sessions.map((s) => ({
             disciplina: s.disciplineName,
             inicio: toBahiaIso(s.startAt),
