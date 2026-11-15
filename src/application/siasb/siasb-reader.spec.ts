@@ -486,6 +486,23 @@ describe('SiasbReader.snapshot', () => {
     await expect(reader.snapshot('u1')).rejects.toBeInstanceOf(ReconectarError);
   });
 
+  it('atendimento nas duas listas vem uma vez, preferindo o ativo; sessão repetida vem uma vez (a primeira)', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [{ id: '2', name: 'Clínica 2' } as ClinicalDiscipline];
+    siasb.atts = [att('a1', '2', false)];
+    siasb.inactiveAtts = [att('a1', '2', true), att('a9', '2', true)];
+    siasb.sess = [
+      sess('s1', '2', 'a1', '2026-11-10T13:00:00Z', 'Primeira'),
+      sess('s1', '2', 'a1', '2026-11-11T13:00:00Z', 'Repetida'),
+    ];
+    const snap = await reader.snapshot('u1');
+    expect(snap.attendances.map((a) => [a.id, a.concluded])).toEqual([
+      ['a1', false],
+      ['a9', true],
+    ]);
+    expect(snap.sessions.map((s) => [s.id, s.statusLabel])).toEqual([['s1', 'Primeira']]);
+  });
+
   it('atendimento de disciplina desconhecida fica com disciplineName vazio', async () => {
     const { siasb, reader } = setup();
     siasb.discs = [];

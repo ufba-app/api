@@ -22,6 +22,10 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean> {
     if (!this.accounts.has(userId)) return false;
+    // como a PK (user_id, id) do Postgres: id repetido derruba a gravação inteira
+    for (const ids of [data.attendances.map((a) => a.id), data.sessions.map((x) => x.id)]) {
+      if (new Set(ids).size !== ids.length) throw new Error('duplicate key value violates unique constraint');
+    }
     this.attendanceRows.set(userId, new Map(data.attendances.map((a) => [a.id, { ...a }])));
     const sessions = this.sessionRows.get(userId) ?? new Map<string, SyncedSession>();
     for (const [id, s] of sessions) {

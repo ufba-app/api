@@ -73,6 +73,18 @@ describe('InMemorySiasbCopy', () => {
     expect(await repo.sessions(U, W.from, W.to)).toEqual([]);
   });
 
+  it('replaceWindow: id duplicado lança, como a PK do Postgres, e nada é gravado', async () => {
+    await expect(repo.replaceWindow(U, W, { attendances: [att('a1'), att('a1')], sessions: [] })).rejects.toThrow();
+    await expect(
+      repo.replaceWindow(U, W, {
+        attendances: [],
+        sessions: [ses('s', '2026-11-12T10:00:00Z'), ses('s', '2026-11-13T10:00:00Z')],
+      }),
+    ).rejects.toThrow();
+    expect(await repo.attendances(U)).toEqual([]);
+    expect(await repo.sessions(U, W.from, W.to)).toEqual([]);
+  });
+
   it('claim: busy enquanto a trava vale; claimed depois do prazo ou do release', async () => {
     const t0 = d('2026-11-15T12:00:00Z');
     expect(await repo.claim(U, t0, 60_000)).toBe('claimed');

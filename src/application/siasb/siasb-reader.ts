@@ -263,8 +263,17 @@ export class SiasbReader {
       sessions: await this.siasb.sessions(session, window.from, window.to),
     }));
     const names = new Map(disciplines.map((d) => [d.id, d.name]));
-    const attendances = [...active, ...inactive].map((a) => ({ ...a, disciplineName: names.get(a.disciplineId) ?? '' }));
-    return { window, attendances, sessions };
+    // A PK da cópia é (user_id, id): id repetido derrubaria a transação toda. Atendimento ativo vence o inativo
+    // (vem primeiro); sessão repetida: a primeira.
+    const firstById = <T extends { id: string }>(list: T[]): T[] => {
+      const seen = new Set<string>();
+      return list.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+    };
+    const attendances = firstById([...active, ...inactive]).map((a) => ({
+      ...a,
+      disciplineName: names.get(a.disciplineId) ?? '',
+    }));
+    return { window, attendances, sessions: firstById(sessions) };
   }
 
   /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */
