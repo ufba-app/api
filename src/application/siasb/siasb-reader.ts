@@ -46,7 +46,7 @@ const SLOTS_SHOWN = 3;
 export interface PatientsByDiscipline {
   disciplineId: string;
   disciplineName: string;
-  patients: { attendanceId: string; initials: string; type: ClinicalAttendance['treatmentType'] }[];
+  patients: { attendanceId: string; firstName: string; type: ClinicalAttendance['treatmentType'] }[];
 }
 
 export interface SchedulingContext {
@@ -185,7 +185,7 @@ export class SiasbReader {
       disciplineName: d.name,
       patients: attendances
         .filter((a) => a.disciplineId === d.id)
-        .map((a) => ({ attendanceId: a.id, initials: a.initials, type: a.treatmentType })),
+        .map((a) => ({ attendanceId: a.id, firstName: a.firstName, type: a.treatmentType })),
     }));
   }
 

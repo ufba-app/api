@@ -21,7 +21,7 @@ function sess(id: string, disc: string, attendance: string, startIso: string, la
     attendanceId: attendance,
     disciplineId: disc,
     disciplineName: `Disc ${disc}`,
-    initials: 'AB',
+    firstName: 'Ab',
     professorName: 'Prof',
     locationName: 'Sala',
     startAt,
@@ -283,8 +283,8 @@ describe('SiasbReader.situation', () => {
       { id: '3', name: 'Disc 3' },
     ];
     s.siasb.atts = [
-      { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING', concluded: false },
-      { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
     ];
     s.siasb.sess = [
       // disciplina 3: sextas 10h (Bahia) atendidas e uma marcada no futuro
@@ -400,7 +400,7 @@ describe('SiasbReader: regravação do jar e erros', () => {
 });
 
 describe('SiasbReader: estado e prazo vencido', () => {
-  const att = { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING' as const, concluded: false };
+  const att = { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING' as const, concluded: false };
 
   it('Confirmado passada e Atendido futura não dão SCHEDULED', async () => {
     const s = setup();

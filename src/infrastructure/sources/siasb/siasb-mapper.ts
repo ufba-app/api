@@ -10,7 +10,7 @@ import type {
 
 /**
  * Mapeadores com lista de permissão (spec 5.1): cada um lê campo a campo, valida o tipo e ignora o resto.
- * Nome, prontuário e id de paciente nunca saem daqui; o paciente vira só `initials`. Qualquer desvio de formato
+ * Nome, prontuário e id de paciente nunca saem daqui; o paciente vira só `firstName`. Qualquer desvio de formato
  * lança `UNEXPECTED_FORMAT` com mensagem fixa (nunca ecoa o corpo).
  */
 
@@ -39,14 +39,12 @@ const dateTime = z
     }
   });
 
-const PARTICLES = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
-
-export function initialsOf(fullName: string): string {
-  return fullName
-    .split(/\s+/)
-    .filter((w) => w !== '' && !PARTICLES.has(w.toLowerCase()))
-    .map((w) => Array.from(w)[0].toUpperCase())
-    .join('');
+/** Primeiro nome, com maiúscula inicial e o resto minúsculo (acentos intactos). O sobrenome nunca sai daqui. */
+export function firstNameOf(raw: string | null | undefined): string {
+  const token = (raw ?? '').trim().split(/\s+/)[0] ?? '';
+  if (token === '') return '';
+  const [first, ...rest] = Array.from(token);
+  return first.toLocaleUpperCase('pt-BR') + rest.join('').toLocaleLowerCase('pt-BR');
 }
 
 const sessionSchema = z.array(
@@ -66,7 +64,7 @@ const sessionSchema = z.array(
   }),
 );
 
-/** Sessões sinalizadas como reservadas por outro aluno são descartadas por inteiro (nem as iniciais saem). */
+/** Sessões sinalizadas como reservadas por outro aluno são descartadas por inteiro (nem o primeiro nome sai). */
 export function mapSessions(raw: unknown): ClinicalSession[] {
   return parse(sessionSchema, raw)
     .filter((s) => s.reservedByAnotherStudent !== true)
@@ -75,7 +73,7 @@ export function mapSessions(raw: unknown): ClinicalSession[] {
       attendanceId: s.attendanceId,
       disciplineId: s.disciplineId,
       disciplineName: s.disciplineName,
-      initials: initialsOf(s.patientName),
+      firstName: firstNameOf(s.patientName),
       professorName: s.professorName,
       locationName: s.ambulatoryLocationName,
       startAt: s.startAt,
@@ -106,7 +104,7 @@ export function mapAttendances(raw: unknown): ClinicalAttendance[] {
     (a): ClinicalAttendance => ({
       id: a.id,
       disciplineId: a.disciplineId,
-      initials: initialsOf(a.patientName),
+      firstName: firstNameOf(a.patientName),
       treatmentType: TREATMENT[a.treatmentType] ?? 'UNKNOWN',
       concluded: a.status === 3,
     }),

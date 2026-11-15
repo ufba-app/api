@@ -45,16 +45,16 @@ As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome 
 | Ferramenta | O que faz | Requisições: SIASB (máx.) |
 |---|---|---|
 | `clinica_situacao()` | Por disciplina: `estado` (`sem_paciente`, `sem_sessao`, `sessao_marcada`), `proximaClinica` e `prazoEstimado` | 3 |
-| `clinica_sessoes(de?, ate?)` | Sessões no intervalo (padrão: próximos 14 dias; até 45 dias à frente): horário, local, professor, iniciais, situação, `reagendamentoPara` | 1 |
+| `clinica_sessoes(de?, ate?)` | Sessões no intervalo (padrão: próximos 14 dias; até 45 dias à frente): horário, local, professor, primeiro nome, situação, `reagendamentoPara` | 1 |
 | `clinica_prazo_marcacao(disciplinaId \| inicioSessao)` | Prazo estimado para marcar paciente; passe exatamente um dos dois | 1 (`disciplinaId`) ou 0 (`inicioSessao`) |
-| `clinica_pacientes()` | Atendimentos ativos por disciplina: `atendimentoId`, `iniciais`, `tipo` | 2 |
+| `clinica_pacientes()` | Atendimentos ativos por disciplina: `atendimentoId`, `primeiroNome`, `tipo` | 2 |
 | `clinica_vagas()` | Quantos pacientes sem responsável há por disciplina (só números) | 2 |
 | `clinica_contexto_agendamento(atendimentoId, busca?)` | Duração da sessão, sessões já feitas (janela de 60 dias), procedimentos do catálogo (50 primeiros ou filtrados por `busca`) e até 3 próximos horários com prazo estimado | 4 |
 | `clinica_progresso(desde?, ate?)` | Por disciplina: ativos, concluídos no período e no histórico, sessões atendidas e marcadas adiante; ritmo semanal e avisos. `desde` e `ate` juntos (até 190 dias) ou nenhum (últimos 120 dias, aproximado) | 4 |
 
 - **Prazo estimado, não oficial:** 2 dias úteis antes da sessão, mais 1 dia útil de margem enquanto não houver calendário oficial (`feriadosConsiderados: false`, com aviso). Todo texto diz "prazo estimado".
 - **Horários** saem com offset da Bahia (`-03:00`, fixo). Datas sem hora valem a hora da Bahia.
-- **Privacidade:** só iniciais de paciente; nunca nome completo nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
+- **Privacidade:** só o primeiro nome do paciente; nunca o sobrenome nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
 - **Segredos:** nenhuma ferramenta aceita senha ou cookie; a conexão é feita no painel (`POST /connections/siasb`).
 
 ## Autenticação

@@ -64,7 +64,7 @@ GET repete até 2 vezes, só em 5xx ou falha de rede. 429 e redirecionamento vir
 
 ## 5. Privacidade
 
-- **Só iniciais** do paciente, mais disciplina, tipo de tratamento, horário, local e professor. Nome completo, prontuário e qualquer registro clínico **não passam** pelo mapeador.
+- **Só o primeiro nome** do paciente, mais disciplina, tipo de tratamento, horário, local e professor. Sobrenome, prontuário e qualquer registro clínico **não passam** pelo mapeador.
 - **A lista de pacientes sem responsável nunca sai do cliente.** `clinica_vagas` devolve só números por disciplina; os nomes de terceiros dessa lista são descartados no `siasb-mapper` (`countUnassigned`).
 - Nada de paciente vai a log, erro ou auditoria. O procedimento que o aluno cita em `clinica_contexto_agendamento` serve só para a estimativa do modelo e nunca é enviado ao SIASB (a busca no catálogo é local).
 
@@ -93,9 +93,9 @@ As 7 ferramentas (`src/interface/mcp/clinica-tools.ts`). **Visibilidade:** apare
 | Ferramenta | Entrada | Devolve | Chamadas ao SIASB (máx.) |
 |---|---|---|---|
 | `clinica_situacao` | nenhuma | por disciplina: `estado`, `proximaClinica`, `prazoEstimado` (`null` em `sessao_marcada`), `feriadosConsiderados` | 3 (disciplinas, atendimentos ativos, sessões) |
-| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, iniciais, situação, `reagendamentoPara` | 1 |
+| `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, primeiro nome, situação, `reagendamentoPara` | 1 |
 | `clinica_prazo_marcacao` | exatamente um: `disciplinaId` ou `inicioSessao` | `prazoEstimado`, `feriadosConsiderados` | 1 com `disciplinaId`; 0 com `inicioSessao` |
-| `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `iniciais`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
+| `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `primeiroNome`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
 | `clinica_vagas` | nenhuma | `vagas` (contagem) por disciplina | 2 |
 | `clinica_contexto_agendamento` | `atendimentoId`, `busca?` | duração da sessão, sessões já feitas (janela de 60 dias), procedimentos (50 primeiros ou filtrados por `busca`), até 3 próximos horários com prazo estimado | 4 (atendimentos, disciplinas, sessões, procedimentos) |
 | `clinica_progresso` | `desde?` e `ate?` (os dois ou nenhum; até 190 dias) | por disciplina: ativos, concluídos no período e no histórico, sessões atendidas e marcadas adiante; ritmo; avisos | 4 (disciplinas, ativos, inativos, sessões) |

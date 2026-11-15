@@ -28,7 +28,7 @@ function sess(id: string, disc: string, att: string, startIso: string, label = '
     attendanceId: att,
     disciplineId: disc,
     disciplineName: `Disc ${disc}`,
-    initials: 'FB',
+    firstName: 'Fb',
     professorName: 'Profa Maria',
     locationName: 'Clínica 2',
     startAt,
@@ -47,8 +47,8 @@ class FakeSiasb extends SiasbSource {
     { id: '3', name: 'Disc 3' },
   ];
   atts: ClinicalAttendance[] = [
-    { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING', concluded: false },
-    { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
+    { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'PLANNING', concluded: false },
+    { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
   ];
   inactiveAtts: ClinicalAttendance[] = [];
   procs: Procedure[] = [];
@@ -301,7 +301,7 @@ describe('clinica_sessoes', () => {
       fim: '2026-11-27T11:00:00-03:00',
       local: 'Clínica 2',
       professor: 'Profa Maria',
-      iniciais: 'FB',
+      primeiroNome: 'Fb',
       situacao: 'Confirmado',
       reagendamentoPara: '2026-12-02T10:00:00-03:00',
     });
@@ -446,13 +446,13 @@ function comDadosDePaciente(siasb: FakeSiasb) {
 }
 
 describe('clinica_pacientes', () => {
-  it('lista por disciplina só iniciais e tipo, sem nome nem prontuário', async () => {
+  it('lista por disciplina só primeiro nome e tipo, sem sobrenome nem prontuário', async () => {
     const { clinica, siasb } = setup();
     siasb.atts = [
-      { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'TRIAGE', concluded: false },
-      { id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false },
-      { id: 'a4', disciplineId: '3', initials: 'EF', treatmentType: 'URGENCY', concluded: false },
-      { id: 'a5', disciplineId: '3', initials: 'GH', treatmentType: 'UNKNOWN', concluded: false },
+      { id: 'a2', disciplineId: '2', firstName: 'Ab', treatmentType: 'TRIAGE', concluded: false },
+      { id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false },
+      { id: 'a4', disciplineId: '3', firstName: 'Ef', treatmentType: 'URGENCY', concluded: false },
+      { id: 'a5', disciplineId: '3', firstName: 'Gh', treatmentType: 'UNKNOWN', concluded: false },
     ];
     comDadosDePaciente(siasb);
     const res = await call(await connect(user, clinica), 'clinica_pacientes');
@@ -460,14 +460,14 @@ describe('clinica_pacientes', () => {
     const out = JSON.parse(texto(res));
     expect(out.disciplinas).toEqual([
       { disciplinaId: '1', disciplina: 'Disc 1', pacientes: [] },
-      { disciplinaId: '2', disciplina: 'Disc 2', pacientes: [{ atendimentoId: 'a2', iniciais: 'AB', tipo: 'triagem' }] },
+      { disciplinaId: '2', disciplina: 'Disc 2', pacientes: [{ atendimentoId: 'a2', primeiroNome: 'Ab', tipo: 'triagem' }] },
       {
         disciplinaId: '3',
         disciplina: 'Disc 3',
         pacientes: [
-          { atendimentoId: 'a3', iniciais: 'CD', tipo: 'planejamento' },
-          { atendimentoId: 'a4', iniciais: 'EF', tipo: 'urgencia' },
-          { atendimentoId: 'a5', iniciais: 'GH', tipo: 'desconhecido' },
+          { atendimentoId: 'a3', primeiroNome: 'Cd', tipo: 'planejamento' },
+          { atendimentoId: 'a4', primeiroNome: 'Ef', tipo: 'urgencia' },
+          { atendimentoId: 'a5', primeiroNome: 'Gh', tipo: 'desconhecido' },
         ],
       },
     ]);
@@ -552,7 +552,7 @@ describe('clinica_contexto_agendamento', () => {
 
   it('atendimento que não é ativo da pessoa: erro em pt-BR, sem chamar procedures e sem ecoar o id', async () => {
     const { clinica, siasb } = setup();
-    siasb.inactiveAtts = [{ id: 'i9', disciplineId: '3', initials: 'ZZ', treatmentType: 'PLANNING', concluded: true }];
+    siasb.inactiveAtts = [{ id: 'i9', disciplineId: '3', firstName: 'Zz', treatmentType: 'PLANNING', concluded: true }];
     const c = await connect(user, clinica);
     for (const id of ['zzz-desconhecido', 'i9']) {
       const res = await call(c, 'clinica_contexto_agendamento', { atendimentoId: id });
@@ -626,11 +626,11 @@ describe('clinica_progresso', () => {
   const ARGS = { desde: '2026-11-02', ate: '2026-11-29' };
 
   function fixture(siasb: FakeSiasb) {
-    siasb.atts = [{ id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false }];
+    siasb.atts = [{ id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false }];
     siasb.inactiveAtts = [
-      { id: 'i1', disciplineId: '3', initials: 'IA', treatmentType: 'PLANNING', concluded: true },
-      { id: 'i2', disciplineId: '3', initials: 'IB', treatmentType: 'PLANNING', concluded: true },
-      { id: 'i3', disciplineId: '3', initials: 'IC', treatmentType: 'PLANNING', concluded: false },
+      { id: 'i1', disciplineId: '3', firstName: 'Ia', treatmentType: 'PLANNING', concluded: true },
+      { id: 'i2', disciplineId: '3', firstName: 'Ib', treatmentType: 'PLANNING', concluded: true },
+      { id: 'i3', disciplineId: '3', firstName: 'Ic', treatmentType: 'PLANNING', concluded: false },
     ];
     siasb.sess = [
       sess('o1', '3', 'a3', '2026-10-20T13:00:00Z', 'Atendido'), // fora do período
@@ -708,7 +708,7 @@ describe('clinica_progresso', () => {
 
   it('período padrão: marcada 10 dias à frente conta em sessoesMarcadasAdiante, numa única chamada de sessões', async () => {
     const { clinica, siasb } = setup();
-    siasb.atts = [{ id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false }];
+    siasb.atts = [{ id: 'a3', disciplineId: '3', firstName: 'Cd', treatmentType: 'PLANNING', concluded: false }];
     siasb.sess = [sess('f1', '3', 'a3', '2026-12-03T13:00:00Z', 'Confirmado')];
     const out = JSON.parse(texto(await call(await connect(user, clinica), 'clinica_progresso')));
     const d3 = out.disciplinas.find((x: { disciplinaId: string }) => x.disciplinaId === '3');

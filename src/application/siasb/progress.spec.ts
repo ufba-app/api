@@ -10,7 +10,7 @@ function sess(id: string, startIso: string, label: string): ClinicalSession {
     attendanceId: 'a1',
     disciplineId: '3',
     disciplineName: 'Disc 3',
-    initials: 'AB',
+    firstName: 'Ab',
     professorName: 'Prof',
     locationName: 'Sala',
     startAt,
