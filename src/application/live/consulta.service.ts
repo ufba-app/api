@@ -46,8 +46,8 @@ export interface ContaConectada {
  * o token só em memória e pergunta à fonte. Não grava nada (a única escrita é marcar a conta como REAUTH_NEEDED
  * quando a fonte recusa o token). Para ler várias contas, quem chama lista com `contas` e consulta uma a uma.
  *
- * SIGAA: não há token guardado; a senha vem do cofre, decifrada com a K do token do cliente, só em memória e só
- * para esta consulta. Nunca vai para log nem para mensagem de erro.
+ * SIGAA: a sessão (cookie) é da pessoa; a senha vem do cofre, decifrada com a K do token do cliente, só em memória e só
+ * quando é preciso logar. Nunca vai para log nem para mensagem de erro.
  */
 @Injectable()
 export class ConsultaService {
@@ -156,7 +156,11 @@ export class ConsultaService {
     }
   }
 
-  /** SIGAA: abre a senha do cliente com a K do token. Sem K ou sem credencial, falha antes de tocar a fonte. */
+  /**
+   * SIGAA: a sessão é da PESSOA e vale para qualquer cliente; a senha só é aberta (com a K do token de quem consulta,
+   * como um refresh token) quando é preciso logar: sessão ausente, parada ou expirada. Sem K ou sem credencial guardada
+   * para o cliente, falha antes de tocar a fonte.
+   */
   private async comSigaa<T>(
     quem: Quem,
     source: LiveSource,
@@ -166,18 +170,14 @@ export class ConsultaService {
     const cliente = quem.cliente;
     if (!cliente?.chave) throw new FonteNaoConectadaError(SIGAA_NAO_CONECTADO);
     const doCliente = { userId: quem.userId, clientId: cliente.clientId };
+    const chave = cliente.chave;
 
-    let cred: Awaited<ReturnType<CofreSigaa['abrir']>>;
-    try {
-      cred = await this.cofre.abrir(doCliente, cliente.chave);
-    } catch (e) {
-      // Credencial já recusada, ou K que não abre o cifrado: nada do erro original vai adiante.
-      if (e instanceof CredencialSigaaInvalidaError) {
-        throw new FonteNaoConectadaError(`SIGAA: o acesso guardado não vale mais: ${SIGAA_RECONECTAR}`);
-      }
-      throw e;
-    }
+    const cred = await this.cofre.situacao(doCliente);
     if (!cred) throw new FonteNaoConectadaError(SIGAA_NAO_CONECTADO);
+    // Credencial já recusada pelo SIGAA: nada de tentar de novo até a pessoa reconectar.
+    if (cred.status === 'REAUTH_NEEDED') {
+      throw new FonteNaoConectadaError(`SIGAA: o acesso guardado não vale mais: ${SIGAA_RECONECTAR}`);
+    }
     if (conta !== undefined && conta.trim().toLowerCase() !== cred.login.toLowerCase()) {
       throw new FonteNaoConectadaError(
         `SIGAA: a conta "${conta}" não está conectada neste aplicativo. Conta: ${cred.login}`,
@@ -187,9 +187,21 @@ export class ConsultaService {
     const ctx: SourceContext = {
       userId: quem.userId,
       accountKey: `sigaa:${cred.login}`,
-      // Inclui o login: reautorizar o mesmo cliente com outro login do SIGAA não reaproveita a sessão do anterior.
-      sessaoKey: `${quem.userId}:${cliente.clientId}:${cred.login}`,
-      credentials: { kind: 'password', username: cred.login, password: cred.senha },
+      credentials: {
+        kind: 'password-on-demand',
+        username: cred.login,
+        open: async (): Promise<Secret> => {
+          try {
+            const aberta = await this.cofre.abrir(doCliente, chave);
+            if (!aberta) throw new SourceError('CREDENTIAL_REJECTED', SIGAA_NAO_CONECTADO);
+            return aberta.senha;
+          } catch (e) {
+            // K que não abre o cifrado (ex.: token de uma autorização substituída): nada do erro original vai adiante.
+            if (e instanceof CredencialSigaaInvalidaError) throw new SourceError('CREDENTIAL_REJECTED', SIGAA_RECONECTAR);
+            throw e;
+          }
+        },
+      },
     };
     try {
       return await fn(source, ctx);
@@ -197,6 +209,9 @@ export class ConsultaService {
       if (e instanceof SourceError && e.code === 'REAUTH_NEEDED') {
         await this.cofre.marcarInvalida(cred.credencialId);
         throw new FonteNaoConectadaError(`SIGAA (${cred.login}) recusou o login e a senha guardados: ${SIGAA_RECONECTAR}`);
+      }
+      if (e instanceof SourceError && e.code === 'CREDENTIAL_REJECTED') {
+        throw new FonteNaoConectadaError(`SIGAA: o acesso guardado não vale mais: ${SIGAA_RECONECTAR}`);
       }
       throw e;
     }

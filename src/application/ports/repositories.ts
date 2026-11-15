@@ -116,3 +116,30 @@ export abstract class SourceBindingRepository {
 export abstract class SubjectHasher {
   abstract hash(subject: SourceSubject): string;
 }
+
+// ── Sessão do SIGAA por pessoa (cookie cifrado + trava) ─────────────────────
+
+export interface SigaaSessionKey {
+  userId: string;
+  /** Login do SIGAA (CPF), em minúsculas. */
+  login: string;
+}
+
+export interface SigaaSessionRecord {
+  cookie: EncryptedSecret;
+  lastUsedAt: number;
+}
+
+/**
+ * Guarda a sessão do SIGAA (só o cookie, cifrado) por pessoa e a TRAVA que serializa as consultas dela entre
+ * instâncias do servidor. A trava é um lease: `acquire` devolve um token ou `null` se outra execução a detém e ela
+ * ainda não venceu; vence sozinha (processo que morreu não prende ninguém). `save`/`delete` só valem para quem ainda
+ * detém o token (devolvem `false` se a trava foi perdida).
+ */
+export abstract class SigaaSessionStore {
+  abstract acquire(key: SigaaSessionKey, ttlMs: number): Promise<string | null>;
+  abstract release(key: SigaaSessionKey, token: string): Promise<void>;
+  abstract load(key: SigaaSessionKey): Promise<SigaaSessionRecord | null>;
+  abstract save(key: SigaaSessionKey, token: string, rec: SigaaSessionRecord): Promise<boolean>;
+  abstract delete(key: SigaaSessionKey, token: string): Promise<boolean>;
+}

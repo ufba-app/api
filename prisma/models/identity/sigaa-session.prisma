@@ -1,0 +1,26 @@
+// Sessão do SIGAA por PESSOA (não por cliente): só o cookie JSESSIONID, cifrado com a SECRETS_KEY como os tokens do
+// Moodle e do Google. Vale ~25 min parada no SIGAA; reaproveitada por todos os clientes. Quando expira, quem consulta
+// refaz o login com a senha aberta pela K do próprio cliente (a K funciona como refresh token). Sem ViewState.
+// A mesma linha guarda a trava (lease) que serializa as consultas da pessoa entre instâncias do servidor.
+model SigaaSession {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  login String
+
+  cookieCiphertext String?   @map("cookie_ciphertext")
+  cookieIv         String?   @map("cookie_iv")
+  cookieAuthTag    String?   @map("cookie_auth_tag")
+  lastUsedAt       DateTime? @map("last_used_at")
+
+  // Lease: quem tem `lockToken` e `lockedUntil` no futuro é o dono da trava. Expira sozinha se o processo morrer.
+  lockToken   String?   @map("lock_token")
+  lockedUntil DateTime? @map("locked_until")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, login])
+  @@map("sigaa_sessions")
+}

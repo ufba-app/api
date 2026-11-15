@@ -11,7 +11,8 @@ import type {
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
 import { htmlToText } from '../moodle/moodle-live';
 import { SigaaRateLimitedError } from './http-client';
-import { SessoesSigaa } from './sessoes-sigaa';
+import type { SigaaSessionKey } from '../../../application/ports/repositories';
+import { SessoesSigaa, SigaaOcupadoError } from './sessoes-sigaa';
 import {
   SigaaInvalidCredentialsError,
   SigaaLoginUnavailableError,
@@ -49,6 +50,7 @@ const MSG = {
   avisoInvalido: 'Aviso do SIGAA inválido: use o `id` de um item `tipo: aviso` de `ver_curso`',
   recusou: 'O SIGAA recusou o usuário e a senha',
   sessao: 'A sessão do SIGAA caiu duas vezes seguidas; tente de novo em instantes',
+  ocupado: 'O SIGAA está ocupado com outra consulta desta conta; tente de novo em instantes',
   limite: 'O SIGAA limitou as requisições; tente de novo em instantes',
   login: 'O SIGAA não concluiu o login agora; tente de novo em instantes',
   pagina: 'O SIGAA devolveu uma página inesperada (fora da turma virtual); tente de novo em instantes',
@@ -103,11 +105,17 @@ function texto(html: string | null | undefined): string | undefined {
   return limpo || undefined;
 }
 
-function credenciais(ctx: SourceContext): { chave: string; cred: SigaaCredentials } {
-  if (ctx.credentials.kind !== 'password' || !ctx.sessaoKey) {
+/** Sessão por pessoa+login (qualquer cliente) e como obter a senha só se for preciso logar. */
+function credenciais(ctx: SourceContext): { chave: SigaaSessionKey; obterCred: () => Promise<SigaaCredentials> } {
+  const c = ctx.credentials;
+  if (c.kind !== 'password' && c.kind !== 'password-on-demand') {
     throw new SourceError('CREDENTIAL_REJECTED', MSG.semCredencial);
   }
-  return { chave: ctx.sessaoKey, cred: { login: ctx.credentials.username, password: ctx.credentials.password } };
+  const login = c.username;
+  return {
+    chave: { userId: ctx.userId, login: login.trim().toLowerCase() },
+    obterCred: async () => ({ login, password: c.kind === 'password' ? c.password : await c.open() }),
+  };
 }
 
 /**
@@ -121,6 +129,7 @@ function erroDaFonte(e: unknown): SourceError {
   if (e instanceof SigaaRateLimitedError) return new SourceError('UNAVAILABLE', MSG.limite);
   if (e instanceof SigaaLoginUnavailableError) return new SourceError('UNAVAILABLE', MSG.login);
   if (e instanceof SigaaSessionExpiredError) return new SourceError('UNAVAILABLE', MSG.sessao);
+  if (e instanceof SigaaOcupadoError) return new SourceError('UNAVAILABLE', MSG.ocupado);
   if (e instanceof PaginaInesperada) return new SourceError('UNAVAILABLE', MSG.pagina);
   return new SourceError('UNAVAILABLE', MSG.indisponivel);
 }
@@ -288,8 +297,8 @@ export class SigaaLive implements LiveSource {
 
   private async usar<T>(ctx: SourceContext, fn: (s: SigaaSession) => Promise<T>): Promise<T> {
     try {
-      const { chave, cred } = credenciais(ctx);
-      return await this.sessoes.usar(chave, cred, fn);
+      const { chave, obterCred } = credenciais(ctx);
+      return await this.sessoes.usar(chave, obterCred, fn);
     } catch (e) {
       throw erroDaFonte(e);
     }

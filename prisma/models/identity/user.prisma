@@ -14,6 +14,7 @@ model User {
   oauthCodes     OAuthCode[]
   oauthTokens    OAuthToken[]
   sigaaCredentials SigaaCredential[]
+  sigaaSessions    SigaaSession[]
   sourceBindings   SourceBinding[]
   memoryUser       MemoryUser?
   ownedProjects    MemoryProject[]

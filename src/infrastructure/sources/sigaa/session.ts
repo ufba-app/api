@@ -1,5 +1,5 @@
 import type { SigaaHttpClient, SigaaHttpResponse } from './http-client';
-import type { Secret } from '../../../application/shared/secret';
+import { Secret } from '../../../application/shared/secret';
 
 /** Usuário e senha chegam por requisição; ficam só na variável local de `login` e nunca são guardados. */
 export interface SigaaCredentials {
@@ -47,6 +47,20 @@ const CREDENTIAL_REJECTION_MARKERS = [
   'senha inválida',
   'usuário e/ou senha',
 ];
+
+/**
+ * Sessão expirada em consulta pontual: o SIGAA responde 302 para `/sigaa/expirada.jsp`, sem corpo e sem cookie
+ * (observado em 14/11/2026 com um JSESSIONID vencido). A página com o alerta "Sua sessão foi expirada" é a que o
+ * navegador carrega ao seguir o redirect; como não seguimos redirects, o que chega aqui é só o 302.
+ */
+function isExpiredRedirect(r: SigaaHttpResponse): boolean {
+  if (r.status !== 302 || !r.headers.location) return false;
+  try {
+    return new URL(r.headers.location, 'https://x.invalid').pathname === '/sigaa/expirada.jsp';
+  } catch {
+    return false;
+  }
+}
 
 function isLoginFormResponse(r: SigaaHttpResponse): boolean {
   return (
@@ -115,6 +129,17 @@ export class SigaaSession {
   private viewState: string | undefined;
 
   constructor(private readonly http: SigaaHttpClient) {}
+
+  /** Retoma uma sessão guardada (só o cookie; o ViewState nunca é guardado, cada consulta recomeça pelo portal). */
+  resume(cookie: Secret): void {
+    this.jsessionId = cookie.reveal();
+    this.viewState = undefined;
+  }
+
+  /** Cookie atual da sessão, para guardar cifrado. `undefined` antes do login. */
+  exportCookie(): Secret | undefined {
+    return this.jsessionId ? Secret.of(this.jsessionId) : undefined;
+  }
 
   async login(credentials: SigaaCredentials): Promise<void> {
     // A sessão precisa nascer na raiz (302 para /sigaa/public/home.jsf, semeia o JSESSIONID):
@@ -238,7 +263,7 @@ export class SigaaSession {
       cookie: this.jsessionId,
     });
     this.captureCookie(response);
-    if (isLoginFormResponse(response)) throw new SigaaSessionExpiredError();
+    if (isLoginFormResponse(response) || isExpiredRedirect(response)) throw new SigaaSessionExpiredError();
     if (capturesViewState) this.captureViewState(response.body);
     return response;
   }

@@ -36,7 +36,7 @@ function res(p: Partial<SigaaHttpResponse>): SigaaHttpResponse {
   };
 }
 
-function fakeSigaa(opts: { loginOk?: boolean; loginBody?: string; pdf?: Buffer; expireAfterLogin?: boolean } = {}) {
+function fakeSigaa(opts: { loginOk?: boolean; loginBody?: string; pdf?: Buffer; expireAfterLogin?: boolean; expireRedirect?: boolean } = {}) {
   const requests: SigaaHttpRequest[] = [];
   const http: SigaaHttpClient = {
     async request(req) {
@@ -51,6 +51,8 @@ function fakeSigaa(opts: { loginOk?: boolean; loginBody?: string; pdf?: Buffer; 
       if (req.path === '/sigaa/paginaInicial.do') return res({ body: '<html>ok</html>' });
       if (req.path === '/sigaa/portais/discente/discente.jsf') {
         if (opts.expireAfterLogin) return res({ body: LOGIN_PAGE });
+        // Comportamento real do SIGAA com sessão vencida: 302 para expirada.jsp, sem corpo (14/11/2026).
+        if (opts.expireRedirect) return res({ status: 302, headers: { location: 'https://sigaa.ufba.br/sigaa/expirada.jsp' } });
         if (req.method === 'GET') return res({ body: PORTAL });
         return res({ bodyBuffer: opts.pdf ?? PDF, body: '' });
       }
@@ -138,6 +140,11 @@ describe('SigaaGateway (SourceGateway)', () => {
     expect(await codeOf(new SigaaGateway(expired.http).fetch(ctx(), { kind: 'tudo' }))).toBe('REAUTH_NEEDED');
     // sem senha guardada: nenhum segundo login
     expect(expired.requests.filter((q) => q.path.startsWith('/sigaa/logar.do'))).toHaveLength(1);
+  });
+
+  it('sessão vencida como o SIGAA real devolve (302 para expirada.jsp) vira REAUTH_NEEDED, não "página inesperada"', async () => {
+    const expired = fakeSigaa({ expireRedirect: true });
+    expect(await codeOf(new SigaaGateway(expired.http).fetch(ctx(), { kind: 'tudo' }))).toBe('REAUTH_NEEDED');
   });
 
   it('recusa HTML no lugar do PDF', async () => {

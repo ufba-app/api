@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 import { SigaaRateLimitedError } from './http-client';
+import type { SecretCipher } from '../../../application/ports/secret-cipher';
+import { MemorySigaaSessionStore } from './memory-session-store';
 import { SessoesSigaa } from './sessoes-sigaa';
 import { SigaaInvalidCredentialsError, type SigaaSession } from './session';
 import { MAX_TURMAS_PRAZOS, SigaaLive } from './sigaa-live';
@@ -18,7 +20,6 @@ const SENHA = 'senha-falsa-de-teste';
 const ctx: SourceContext = {
   userId: 'u1',
   accountKey: 'sigaa:fulano',
-  sessaoKey: 'u1:cliente1:fulano',
   credentials: { kind: 'password', username: 'fulano', password: Secret.of(SENHA) },
 };
 
@@ -59,6 +60,8 @@ function montar(paginas: Pagina = {}, now = () => Date.parse('2026-11-04T12:00:0
     paginas.postback ?? ((path: string) => (path === NOTICIAS ? fixture('noticia-mostrar.html') : PAGINA_DA_TURMA));
   const sessao = {
     login: jest.fn(paginas.login ?? (async () => undefined)),
+    resume: jest.fn(),
+    exportCookie: () => Secret.of('JSESSIONID=fake'),
     get: jest.fn(async (path: string) => {
       reqs.push(`GET ${path}`);
       return get[path] ?? '';
@@ -69,7 +72,12 @@ function montar(paginas: Pagina = {}, now = () => Date.parse('2026-11-04T12:00:0
       return postback(path, fields);
     }),
   } as unknown as SigaaSession;
-  const live = new SigaaLive(new SessoesSigaa(() => sessao), { now });
+  const cifra = {
+    encrypt: (s: string) => ({ ciphertext: s, iv: 'i', authTag: 't' }),
+    decrypt: (e: { ciphertext: string }) => e.ciphertext,
+  } as unknown as SecretCipher;
+  const store = new MemorySigaaSessionStore();
+  const live = new SigaaLive(new SessoesSigaa(() => sessao, store, cifra), { now });
   return { live, reqs, posts, sessao };
 }
 
@@ -234,7 +242,6 @@ describe('SigaaLive', () => {
     await expect(
       live.listarCursos({ ...ctx, credentials: { kind: 'token', token: Secret.of('x') } }),
     ).rejects.toBeInstanceOf(SourceError);
-    await expect(live.listarCursos({ ...ctx, sessaoKey: undefined })).rejects.toBeInstanceOf(SourceError);
     expect(sessao.login).not.toHaveBeenCalled();
   });
 

@@ -26,6 +26,7 @@ import { MemoryAccess, MemoryAdmin, MemoryMcp, MemoryProjectRegistry, MemoryUser
 import { MemoryUsers } from './application/memory/memory-users';
 import { LiveSources } from './application/ports/live-source';
 import { mcpExports, mcpProviders } from './mcp-wiring';
+import { SigaaSessionStore } from './application/ports/repositories';
 import { SecretCipher } from './application/ports/secret-cipher';
 import { SourceGateway, SourceRegistry } from './application/ports/source-gateway';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
@@ -43,6 +44,7 @@ import { GoogleAuth, GoogleHttp } from './infrastructure/sources/google/google-h
 import { MoodleGateway } from './infrastructure/sources/moodle/moodle.gateway';
 import { MoodleLive } from './infrastructure/sources/moodle/moodle-live';
 import { createSigaaHttpClient } from './infrastructure/sources/sigaa/http-client';
+import { MemorySigaaSessionStore } from './infrastructure/sources/sigaa/memory-session-store';
 import { SessoesSigaa } from './infrastructure/sources/sigaa/sessoes-sigaa';
 import { SigaaSession } from './infrastructure/sources/sigaa/session';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
@@ -74,9 +76,12 @@ export function buildGateways(env: NodeJS.ProcessEnv = process.env): SourceGatew
   return gateways;
 }
 
-/** Sessões do SIGAA em memória (uma por pessoa+cliente), cada uma com o cliente HTTP real. */
-export function buildSessoesSigaa(): SessoesSigaa {
-  return new SessoesSigaa(() => new SigaaSession(createSigaaHttpClient()));
+/** Sessões do SIGAA por pessoa (cookie cifrado no store, trava entre instâncias), com o cliente HTTP real. */
+export function buildSessoesSigaa(
+  store: SigaaSessionStore = new MemorySigaaSessionStore(),
+  cipher: SecretCipher = new AesSecretCipher(),
+): SessoesSigaa {
+  return new SessoesSigaa(() => new SigaaSession(createSigaaHttpClient()), store, cipher);
 }
 
 /**
@@ -105,7 +110,11 @@ export function buildLiveSources(
     BearerGuard,
     ConsultaService,
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
-    { provide: SessoesSigaa, useFactory: buildSessoesSigaa },
+    {
+      provide: SessoesSigaa,
+      useFactory: (store: SigaaSessionStore, cipher: SecretCipher) => buildSessoesSigaa(store, cipher),
+      inject: [SigaaSessionStore, SecretCipher],
+    },
     {
       provide: LiveSources,
       useFactory: (sessoes: SessoesSigaa) => buildLiveSources(process.env, sessoes),
