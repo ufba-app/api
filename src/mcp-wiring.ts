@@ -51,7 +51,9 @@ import { SigaaLink } from './infrastructure/sources/sigaa/sigaa-link';
 import { MoodleLink } from './infrastructure/sources/moodle/moodle-link';
 import { AuthenticatorsMcpAuth } from './interface/mcp/mcp-auth';
 import { McpUseCasesImpl } from './interface/mcp/mcp-use-cases';
-import { MCP_AUTH, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { MCP_AUTH, MCP_CLINICA, MCP_MEMORY, MCP_USE_CASES } from './interface/mcp/mcp-ports';
+import { McpClinicaImpl } from './interface/mcp/mcp-clinica';
+import { SiasbReader } from './application/siasb/siasb-reader';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
@@ -219,6 +221,12 @@ export const mcpProviders: Provider[] = [
   },
   // Proxy de memória (memory_*): sem MEMORY_ROOT_TOKEN, `enabled()` é falso e o /mcp só tem as ferramentas da casa.
   { provide: MCP_MEMORY, useExisting: MemoryProxy },
+  // Ferramentas clinica_*: só aparecem para quem tem conexão SIASB (decidido por requisição no controller).
+  {
+    provide: MCP_CLINICA,
+    useFactory: (reader: SiasbReader, link: SiasbLink) => new McpClinicaImpl(reader, link),
+    inject: [SiasbReader, SiasbLink],
+  },
   {
     provide: MCP_AUTH,
     useFactory: (authenticators: Authenticator[], permissions: PermissionsService) =>
@@ -240,6 +248,7 @@ export const mcpExports = [
   MCP_USE_CASES,
   MCP_AUTH,
   MCP_MEMORY,
+  MCP_CLINICA,
   OAUTH_SERVICE,
   GOOGLE_LINK,
   MOODLE_LINK,

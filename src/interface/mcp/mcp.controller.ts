@@ -3,7 +3,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Request, Response } from 'express';
 import { buildMcpServer } from './mcp-tools';
 import { baseUrl } from './oauth/base-url';
-import { MCP_AUTH, MCP_MEMORY, MCP_USE_CASES, McpAuth, McpMemory, McpUseCases } from './mcp-ports';
+import { resolveSiasbFlag } from './clinica-tools';
+import { MCP_AUTH, MCP_CLINICA, MCP_MEMORY, MCP_USE_CASES, McpAuth, McpClinica, McpMemory, McpUseCases } from './mcp-ports';
 
 function rpcError(res: Response, status: number, code: number, message: string): void {
   res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id: null });
@@ -16,6 +17,7 @@ export class McpController {
     @Inject(MCP_USE_CASES) private readonly useCases: McpUseCases,
     @Inject(MCP_AUTH) private readonly auth: McpAuth,
     @Optional() @Inject(MCP_MEMORY) private readonly memory?: McpMemory,
+    @Optional() @Inject(MCP_CLINICA) private readonly clinica?: McpClinica,
   ) {}
 
   @Post()
@@ -30,7 +32,8 @@ export class McpController {
       return;
     }
 
-    const server = buildMcpServer(this.useCases, { ...principal, baseUrl: baseUrl(req) }, this.memory);
+    const siasb = await resolveSiasbFlag(this.clinica, principal.userId);
+    const server = buildMcpServer(this.useCases, { ...principal, baseUrl: baseUrl(req), siasb }, this.memory, this.clinica);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

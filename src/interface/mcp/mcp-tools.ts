@@ -3,7 +3,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { z } from 'zod/v4';
 import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memory/connect-guide';
 import { MEMORY_INSTRUCTIONS } from '../../application/memory/memory-proxy';
-import { McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
+import { registerClinicaTools } from './clinica-tools';
+import { McpClinica, McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
+import { run } from './tool-result';
 
 const FONTE = z
   .enum(['moodle', 'classroom', 'sigaa'])
@@ -34,28 +36,6 @@ export const FERRAMENTAS = [
   'baixar_anexo',
 ] as const;
 
-function json(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-/** Erro de ferramenta: só a mensagem (os casos de uso já não carregam senha nem token). */
-function falha(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e);
-  const code = (e as { code?: unknown })?.code;
-  return {
-    isError: true,
-    content: [{ type: 'text' as const, text: typeof code === 'string' ? `${code}: ${msg}` : msg }],
-  };
-}
-
-async function run<T>(fn: () => Promise<T>) {
-  try {
-    return json(await fn());
-  } catch (e) {
-    return falha(e);
-  }
-}
-
 /**
  * Registra uma ferramenta de ESCRITA só se a pessoa ligou a permissão `key` no painel. Sem a chave a ferramenta nem existe
  * para o cliente (não aparece em `tools/list`). Ligar e desligar vale na próxima requisição.
@@ -66,8 +46,16 @@ export function registerPermissionedTool(p: McpPrincipal, key: string, register:
   return true;
 }
 
-/** Cria um servidor MCP para uma requisição, com ferramentas finas sobre os casos de uso. */
-export function buildMcpServer(uc: McpUseCases, p: McpPrincipal, memory?: McpMemory): McpServer {
+/**
+ * Cria um servidor MCP para uma requisição, com ferramentas finas sobre os casos de uso. As `clinica_*` só entram
+ * quando a pessoa tem conexão SIASB (`p.siasb`) e a dependência `clinica` existe.
+ */
+export function buildMcpServer(
+  uc: McpUseCases,
+  p: McpPrincipal,
+  memory?: McpMemory,
+  clinica?: McpClinica,
+): McpServer {
   const withMemory = memory?.enabled() === true;
   const server = new McpServer(
     { name: 'platform', version: '0.1.0' },
@@ -163,6 +151,8 @@ export function buildMcpServer(uc: McpUseCases, p: McpPrincipal, memory?: McpMem
     },
     (args) => run(() => uc.baixarAnexo(p, args)),
   );
+
+  if (p.siasb && clinica) registerClinicaTools(server, clinica, p);
 
   if (withMemory) {
     addMemoryTools(server, memory, p);
