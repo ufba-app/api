@@ -14,7 +14,7 @@ import type { SigaaMasterSlotRepository, SourceAccountRepository } from '../port
 import { Secret } from '../shared/secret';
 import { CredencialSigaaInvalidaError, type CofreSigaa } from '../sigaa/cofre-sigaa';
 import { RateWindow } from '../memory/rate-window';
-import { ApiError, sessionExpired, WEB_CLIENT_ID, type GuestApp, type WebPrincipal } from './web-api';
+import { ApiError, sessionExpired, webCopyOf, MAX_WEB_COPIES, WEB_COPY_PREFIX, type GuestApp, type WebPrincipal } from './web-api';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const toApp = (a: GuestApp): AppClassroom => (a === 'guest' ? 'convidado' : 'ufba');
@@ -58,7 +58,8 @@ export class ConnectionsService {
     const usuario = await this.sigaa.validar(`web:${p.userId}`, login, password, p.userId);
     // Senha certa provou que o CPF é desta pessoa: só agora o vínculo (e a recusa se o CPF for de outra conta).
     await this.bindings.bind(p.userId, sigaaSubject(usuario));
-    const { novaDk } = await this.cofre.gravar({ userId: p.userId, clientId: WEB_CLIENT_ID }, { login: usuario, senha: password }, p.chave);
+    const { novaDk } = await this.cofre.gravar(webCopyOf(p), { login: usuario, senha: password }, p.chave);
+    await this.cofre.podarCopias(p.userId, WEB_COPY_PREFIX, MAX_WEB_COPIES);
     // DK nova (a pessoa digitou a senha sem ter a DK nesta sessão): as cópias das passkeys guardam a DK velha e morrem.
     if (novaDk) await this.slots.deleteAll(p.userId);
   }
@@ -70,7 +71,7 @@ export class ConnectionsService {
   async sigaaKey(p: WebPrincipal): Promise<{ dk: string }> {
     if (!p.chave) throw sessionExpired();
     if (!this.keyRate.take(p.userId)) throw tooMany();
-    const dk = await this.cofre.chaveDeDados({ userId: p.userId, clientId: WEB_CLIENT_ID }, p.chave);
+    const dk = await this.cofre.chaveDeDados(webCopyOf(p), p.chave);
     if (!dk) throw new ApiError(409, 'source_not_connected', 'Conecte o SIGAA nesta sessão antes de guardar a chave com a passkey.');
     return { dk: dk.reveal() };
   }
@@ -83,7 +84,8 @@ export class ConnectionsService {
       throw new ApiError(409, 'source_not_connected', 'Não há senha do SIGAA guardada. Digite a senha do SIGAA.');
     }
     try {
-      await this.cofre.desbloquear({ userId: p.userId, clientId: WEB_CLIENT_ID }, p.chave, Secret.of(dkB64));
+      await this.cofre.desbloquear(webCopyOf(p), p.chave, Secret.of(dkB64));
+      await this.cofre.podarCopias(p.userId, WEB_COPY_PREFIX, MAX_WEB_COPIES);
     } catch (e) {
       if (e instanceof CredencialSigaaInvalidaError) {
         throw new ApiError(422, 'invalid_credentials', 'A chave não abriu a senha guardada. Digite a senha do SIGAA.');

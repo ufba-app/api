@@ -8,11 +8,12 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UseFilters,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { ClientDirectory } from '../../application/oauth/client-directory';
 import { CLIENT_DIRECTORY } from './web-tokens';
 import { Inject } from '@nestjs/common';
@@ -42,6 +43,7 @@ import {
   SessionGuard,
   SessionTokenParam,
   checkCsrf,
+  requireCustomHeader,
   clearSessionCookie,
   setSessionCookie,
   setSignedInMarker,
@@ -130,7 +132,9 @@ export class ConnectionsController {
   @Get('sigaa/key')
   @Header('Cache-Control', 'no-store')
   @UseGuards(SessionGuard)
-  sigaaKey(@Principal() p: WebPrincipal | null) {
+  sigaaKey(@Principal() p: WebPrincipal | null, @Req() req: Request) {
+    // GET que entrega a DK e gasta limite: exige X-UFBA (ver `requireCustomHeader`).
+    requireCustomHeader(req);
     return this.web.sigaaKey(must(p));
   }
 

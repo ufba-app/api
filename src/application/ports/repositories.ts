@@ -103,6 +103,8 @@ export abstract class SigaaCredentialRepository {
   abstract deleteAllExcept(userId: string, clientId: string): Promise<void>;
   /** Apaga todas as cópias da DK da pessoa. */
   abstract deleteAllOf(userId: string): Promise<void>;
+  /** Entre as cópias cujo `clientId` começa por `prefix`, mantém só as `keep` mais novas. */
+  abstract pruneOldest(userId: string, clientIdPrefix: string, keep: number): Promise<void>;
 }
 
 /** Cofre da senha do SIGAA, um por pessoa: a senha cifrada com a DK (que nunca é guardada em claro). */

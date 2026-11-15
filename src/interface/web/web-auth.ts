@@ -9,6 +9,7 @@ import {
 import type { Request, Response } from 'express';
 import { AUTHENTICATORS, type Authenticator } from '../../application/ports/authenticator';
 import type { OAuthService } from '../../application/oauth/oauth.service';
+import { sha256Base64Url } from '../../application/oauth/pkce';
 import { ApiError, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { OAUTH_SERVICE } from '../mcp/oauth/oauth-tokens';
 
@@ -170,6 +171,17 @@ export function checkCsrf(req: Request): void {
   }
 }
 
+/**
+ * Para rotas GET que gastam um limite ou entregam segredo (a DK): exige `X-UFBA: 1`. Um cabeçalho personalizado força o
+ * preflight de CORS, então outro subdomínio de `ufba.app` (mesmo "site", o cookie vai junto) não consegue chamar a rota com
+ * um `<img>` ou um formulário para gastar o limite da pessoa ou ler a resposta.
+ */
+export function requireCustomHeader(req: Request): void {
+  if (req.headers['x-ufba'] !== '1') {
+    throw new ApiError(403, 'csrf_rejected', 'Pedido recusado por segurança. Recarregue a página e tente de novo.');
+  }
+}
+
 async function fromCookie(oauth: OAuthService, req: WebRequest): Promise<WebPrincipal | null> {
   const token = sessionToken(req);
   if (!token) return null;
@@ -181,6 +193,7 @@ async function fromCookie(oauth: OAuthService, req: WebRequest): Promise<WebPrin
     clientId: s.clientId,
     ...(s.chave ? { chave: s.chave } : {}),
     ...(s.expiresAt ? { sessionExpiresAt: s.expiresAt } : {}),
+    sessionKey: sha256Base64Url(token).slice(0, 22),
   };
 }
 

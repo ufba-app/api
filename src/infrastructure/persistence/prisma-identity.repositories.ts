@@ -221,6 +221,16 @@ export class PrismaSigaaCredentialRepository extends SigaaCredentialRepository {
   async deleteAllOf(userId: string): Promise<void> {
     await this.prisma.sigaaCredential.deleteMany({ where: { userId } });
   }
+
+  async pruneOldest(userId: string, clientIdPrefix: string, keep: number): Promise<void> {
+    const old = await this.prisma.sigaaCredential.findMany({
+      where: { userId, clientId: { startsWith: clientIdPrefix } },
+      orderBy: { createdAt: 'desc' },
+      skip: keep,
+      select: { id: true },
+    });
+    if (old.length) await this.prisma.sigaaCredential.deleteMany({ where: { id: { in: old.map((r) => r.id) } } });
+  }
 }
 
 @Injectable()

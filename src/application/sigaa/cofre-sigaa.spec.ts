@@ -41,7 +41,7 @@ describe('CofreSigaa (cofre com DK)', () => {
     const cop = repo.rows.get('u1|ufba-web')!;
     expect(JSON.stringify(cop)).not.toContain(SENHA);
     // A cópia é a DK (32 bytes) cifrada com a K: aberta com a K, dá 43 caracteres base64url.
-    expect(Buffer.from(cifra(k).decrypt(cop.secret), 'base64url')).toHaveLength(32);
+    expect(Buffer.from(cifra(k).decrypt(cop.secret, 'copy:u1:ufba-web'), 'base64url')).toHaveLength(32);
   });
 
   it('abrir com a K da sessão recupera login, senha e a DK', async () => {
@@ -168,6 +168,37 @@ describe('CofreSigaa (cofre com DK)', () => {
     cofre.vincularCodigo('txn3', 'h3');
     await expect(cofre.gravarNoToken('h3', quem)).resolves.toHaveLength(32);
     await expect(cofre.gravarNoToken('h3', quem)).resolves.toBeNull();
+  });
+
+  it('AAD: o cifrado está amarrado ao dono e ao cliente (linha copiada para outro cliente ou outro usuário não abre)', async () => {
+    const { cofre, repo, cofres } = montar();
+    const k = await conectar(cofre);
+    // A mesma linha (DK cifrada com a K certa) registrada sob outro clientId não abre.
+    const copia = repo.rows.get('u1|ufba-web')!;
+    await repo.upsert({ userId: 'u1', clientId: 'outro-cliente', login: 'aluno', secret: copia.secret });
+    await expect(cofre.abrir({ userId: 'u1', clientId: 'outro-cliente' }, k)).rejects.toBeInstanceOf(CredencialSigaaInvalidaError);
+    // O cofre de u1 copiado para u2 não abre com a DK certa.
+    const dk = (await cofre.chaveDeDados(web, k))!;
+    await cofres.upsert({ userId: 'u2', login: 'aluno', secret: cofres.rows.get('u1')!.secret });
+    await expect(cofre.desbloquear({ userId: 'u2', clientId: 'ufba-web' }, randomBytes(32), dk)).rejects.toBeInstanceOf(
+      CredencialSigaaInvalidaError,
+    );
+  });
+
+  it('podarCopias mantém só as cópias mais novas de um prefixo e não toca nas dos apps', async () => {
+    const { cofre, repo } = montar();
+    const kWeb = await conectar(cofre);
+    const dk = (await cofre.chaveDeDados(web, kWeb))!;
+    for (let i = 1; i <= 5; i++) {
+      await cofre.desbloquear({ userId: 'u1', clientId: `ufba-web:s${i}` }, randomBytes(32), dk);
+      // o relógio da cópia: a mais nova é a de maior índice
+      repo.rows.get(`u1|ufba-web:s${i}`)!.createdAt = new Date(2026, 0, i);
+    }
+    await autorizar(cofre, kWeb); // cópia de um app (clientId c1)
+    await cofre.podarCopias('u1', 'ufba-web:', 2);
+    const restantes = [...repo.rows.keys()].filter((k) => k.startsWith('u1|ufba-web:')).sort();
+    expect(restantes).toEqual(['u1|ufba-web:s4', 'u1|ufba-web:s5']);
+    expect(repo.rows.has('u1|c1')).toBe(true);
   });
 
   it('cópia no formato antigo (a senha, não a DK) não abre: pede senha de novo', async () => {
