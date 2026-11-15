@@ -33,6 +33,7 @@ export interface Progress {
 }
 
 const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+const isCancelled = (s: ClinicalSession) => normalize(s.statusLabel).startsWith('cancel');
 const isAttended = (s: ClinicalSession) => normalize(s.statusLabel) === 'atendido';
 
 export function computeProgress(i: {
@@ -78,7 +79,7 @@ export function computeProgress(i: {
   let weeksWithoutSession = 0;
   for (let w = 0; w < Math.floor(elapsedMs / MS_WEEK); w++) {
     const start = from.getTime() + w * MS_WEEK;
-    if (!elapsed.some((s) => s.startAt.getTime() >= start && s.startAt.getTime() < start + MS_WEEK)) {
+    if (!elapsed.some((s) => !isCancelled(s) && s.startAt.getTime() >= start && s.startAt.getTime() < start + MS_WEEK)) {
       weeksWithoutSession++;
     }
   }

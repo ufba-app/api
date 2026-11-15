@@ -52,6 +52,20 @@ describe('computeProgress: ritmo só sobre o período decorrido', () => {
     expect(r.rhythm.sessionsPerWeek).toBe(0.67); // 2 sessões / 3 semanas decorridas
   });
 
+  it('semana só com sessão cancelada conta como semana sem sessão', () => {
+    const r = rhythm({
+      from: FROM,
+      to: '2026-12-28T02:59:59Z',
+      now: '2026-11-23T03:00:00Z',
+      sessions: [
+        sess('s1', '2026-11-03T13:00:00Z', 'Atendido'), // bloco 1
+        sess('s2', '2026-11-10T13:00:00Z', 'Cancelado'), // bloco 2: só cancelada
+        sess('s3', '2026-11-17T13:00:00Z', 'Cancelada'), // bloco 3: só cancelada
+      ],
+    });
+    expect(r.rhythm.weeksWithoutSession).toBe(2);
+  });
+
   it('período de 3 dias com 3 sessões: 3 sessões em 3/7 de semana = 7 por semana', () => {
     const r = rhythm({
       from: FROM,
