@@ -1,0 +1,5 @@
+[
+  {"attendanceId":601,"attendanceType":2,"disciplineId":11,"disciplineName":"Clínica Integrada I","medicalRecordCode":"PR-000111","patientName":"Gumercindo Falcão Bastos","sessionDate":"2026-11-27T08:00"},
+  {"attendanceId":602,"attendanceType":2,"disciplineId":11,"disciplineName":"Clínica Integrada I","medicalRecordCode":"PR-000222","patientName":"Iracema Duarte Lins","sessionDate":null},
+  {"attendanceId":603,"attendanceType":3,"disciplineId":12,"disciplineName":"Clínica Integrada II","medicalRecordCode":"PR-000333","patientName":"Valdemar Cunha Reis","sessionDate":null}
+]

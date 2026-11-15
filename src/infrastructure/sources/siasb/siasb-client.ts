@@ -1,15 +1,30 @@
 import {
   SiasbError,
   SiasbSession,
+  SiasbSource,
   type SiasbCourse,
   type SiasbErrorCode,
 } from '../../../application/ports/siasb-source';
 import type { Secret } from '../../../application/shared/secret';
+import type {
+  ClinicalAttendance,
+  ClinicalDiscipline,
+  ClinicalSession,
+  Procedure,
+} from '../../../domain/siasb/types';
+import {
+  countUnassigned,
+  mapAttendances,
+  mapDisciplines,
+  mapProcedures,
+  mapSessions,
+} from './siasb-mapper';
 
 export const SIASB_BASE_URL = 'https://api.siasb.ufba.br/api/v1';
 
 const TIMEOUT_MS = 15_000;
 const GET_RETRIES = 2;
+const RETRY_DELAY_MS = 300;
 
 const DATE_TIME = '\\d{4}-\\d{2}-\\d{2}T\\d{2}(?::|%3A)\\d{2}(?:(?::|%3A)\\d{2})?';
 
@@ -17,7 +32,7 @@ const DATE_TIME = '\\d{4}-\\d{2}-\\d{2}T\\d{2}(?::|%3A)\\d{2}(?:(?::|%3A)\\d{2})
  * Lista de rotas que o código consegue chamar, só GET, num único lugar (spec 5.1). Cada item casa o caminho inteiro,
  * com a query, sem barra dupla, `..` nem fragmento. Tudo o que não casa é FORBIDDEN_ROUTE antes de qualquer rede.
  * `student/attendances?status=4` (pacientes de outros alunos) e todo dado clínico ficam de fora de propósito.
- * `student/unassigned-attendances` NÃO está em `ALLOWED`: só `countUnassigned` a chama, e só devolve a contagem.
+ * `student/unassigned-attendances` NÃO está em `ALLOWED`: só `unassignedCount` a chama, e só devolve contagens.
  */
 const ALLOWED: readonly RegExp[] = [
   /^\/auth\/course-options\?username=\d{1,20}$/,
@@ -106,6 +121,16 @@ function cookieHeader(session: SiasbSession): string {
     .join('; ');
 }
 
+/** Descarta o corpo de uma resposta que não vai ser lida (libera a conexão). */
+function discard(res: Response): void {
+  res.body?.cancel().catch(() => undefined);
+}
+
+/** Data e hora no formato do SIASB (`YYYY-MM-DDTHH:mm`), no horário da Bahia (UTC-3). */
+function siasbDateTime(d: Date): string {
+  return new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 16);
+}
+
 function fail(code: SiasbErrorCode, message: string): never {
   throw new SiasbError(code, message);
 }
@@ -117,13 +142,20 @@ function fail(code: SiasbErrorCode, message: string): never {
  * - só rotas da tabela `ALLOWED` saem daqui; o resto é FORBIDDEN_ROUTE sem tocar na rede;
  * - o login nunca repete (evita bloquear a conta); GET repete até 2 vezes, só em 5xx ou falha de rede.
  */
-export class SiasbClient {
+export class SiasbClient extends SiasbSource {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
+  private readonly retryDelayMs: number;
 
-  constructor(opts: { baseUrl?: string; fetch?: typeof fetch } = {}) {
+  /**
+   * `baseUrl` existe só para teste; em produção fica o padrão (`SIASB_BASE_URL`). `retryDelayMs` é a espera entre
+   * as tentativas de um GET (os testes passam 0).
+   */
+  constructor(opts: { baseUrl?: string; fetch?: typeof fetch; retryDelayMs?: number } = {}) {
+    super();
     this.baseUrl = (opts.baseUrl ?? SIASB_BASE_URL).replace(/\/+$/, '');
     this.fetchFn = opts.fetch ?? fetch;
+    this.retryDelayMs = opts.retryDelayMs ?? RETRY_DELAY_MS;
   }
 
   async courseOptions(registration: string): Promise<SiasbCourse[]> {
@@ -168,6 +200,10 @@ export class SiasbClient {
       body,
     });
 
+    if ((res.status >= 300 && res.status < 400) || res.status === 429) {
+      discard(res);
+      fail('UNAVAILABLE', 'O SIASB está indisponível.');
+    }
     if (res.status === 409) {
       const parsed = await this.tryJson(res);
       const code = (parsed as { code?: unknown } | null)?.code;
@@ -177,10 +213,17 @@ export class SiasbClient {
       fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
     }
     if (res.status === 400 || res.status === 401 || res.status === 403) {
+      discard(res);
       fail('CREDENTIAL_REJECTED', 'O SIASB recusou a matrícula ou a senha.');
     }
-    if (res.status >= 500) fail('UNAVAILABLE', 'O SIASB está indisponível.');
-    if (!res.ok) fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
+    if (res.status >= 500) {
+      discard(res);
+      fail('UNAVAILABLE', 'O SIASB está indisponível.');
+    }
+    if (!res.ok) {
+      discard(res);
+      fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
+    }
 
     const session = new SiasbSession();
     mergeCookies(session, readSetCookies(res));
@@ -208,14 +251,35 @@ export class SiasbClient {
     return this.readJson(res);
   }
 
-  /** Quantos pacientes sem responsável existem. A lista (com nomes de terceiros) nunca sai daqui. */
-  async countUnassigned(session: SiasbSession): Promise<number> {
+  async disciplines(session: SiasbSession): Promise<ClinicalDiscipline[]> {
+    return mapDisciplines(await this.get(session, '/student/new-attendance/disciplines'));
+  }
+
+  async attendances(session: SiasbSession, which: 'active' | 'inactive'): Promise<ClinicalAttendance[]> {
+    const status = which === 'active' ? 1 : 2;
+    return mapAttendances(await this.get(session, `/student/attendances?status=${status}`));
+  }
+
+  async sessions(session: SiasbSession, from: Date, to: Date): Promise<ClinicalSession[]> {
+    const path = `/student/schedule/sessions?startAt=${siasbDateTime(from)}&endAt=${siasbDateTime(to)}`;
+    return mapSessions(await this.get(session, path));
+  }
+
+  /** `term` filtra pelo nome aqui mesmo (sem texto livre na URL). */
+  async procedures(session: SiasbSession, attendanceId: string, term?: string): Promise<Procedure[]> {
+    const all = mapProcedures(
+      await this.get(session, `/student/options?kind=procedures&attendanceId=${attendanceId}`),
+    );
+    const needle = term?.trim().toLowerCase();
+    return needle ? all.filter((p) => p.name.toLowerCase().includes(needle)) : all;
+  }
+
+  /** Quantos pacientes sem responsável existem, por disciplina. A lista (com nomes de terceiros) nunca sai daqui. */
+  async unassignedCount(session: SiasbSession): Promise<Record<string, number>> {
     const path = '/student/unassigned-attendances';
     if (!isAllowed(path, COUNT_ONLY)) fail('FORBIDDEN_ROUTE', 'Rota não permitida.');
     const res = await this.getWithRetry(path, session);
-    const body = await this.readJson(res);
-    if (!Array.isArray(body)) fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
-    return body.length;
+    return countUnassigned(await this.readJson(res));
   }
 
   private async getWithRetry(path: string, session: SiasbSession | undefined): Promise<Response> {
@@ -224,6 +288,9 @@ export class SiasbClient {
 
     let last: SiasbError | null = null;
     for (let attempt = 0; attempt <= GET_RETRIES; attempt++) {
+      if (attempt > 0 && this.retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs * attempt));
+      }
       let res: Response;
       try {
         res = await this.send(path, { method: 'GET', headers });
@@ -235,11 +302,22 @@ export class SiasbClient {
         throw e;
       }
       if (res.status >= 500) {
+        discard(res);
         last = new SiasbError('UNAVAILABLE', 'O SIASB está indisponível.');
         continue;
       }
-      if (res.status === 401) fail('REAUTH_NEEDED', 'A sessão do SIASB expirou. Conecte de novo.');
-      if (!res.ok) fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
+      if (res.status === 401 || res.status === 403) {
+        discard(res);
+        fail('REAUTH_NEEDED', 'A sessão do SIASB expirou. Conecte de novo.');
+      }
+      if (res.status === 429 || (res.status >= 300 && res.status < 400)) {
+        discard(res);
+        fail('UNAVAILABLE', 'O SIASB está indisponível.');
+      }
+      if (!res.ok) {
+        discard(res);
+        fail('UNEXPECTED_FORMAT', 'Resposta inesperada do SIASB.');
+      }
       if (session && mergeCookies(session, readSetCookies(res))) session.dirty = true;
       return res;
     }
@@ -252,6 +330,8 @@ export class SiasbClient {
       return await this.fetchFn(`${this.baseUrl}${path}`, {
         ...init,
         cache: 'no-store',
+        // Nunca segue redirect: um 307/308 reenviaria o corpo do login (com a senha) para outro host.
+        redirect: 'error',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch {

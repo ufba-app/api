@@ -1,4 +1,11 @@
 import { inspect } from 'node:util';
+import type { Secret } from '../shared/secret';
+import type {
+  ClinicalAttendance,
+  ClinicalDiscipline,
+  ClinicalSession,
+  Procedure,
+} from '../../domain/siasb/types';
 
 /**
  * Sessão do SIASB: o jar de cookies da pessoa. Os NOMES dos cookies também são sensíveis (um deles carrega a matrícula
@@ -50,4 +57,20 @@ export interface SiasbCourse {
   name: string;
   abbreviation: string;
   isDefault: boolean;
+}
+
+/** Porta de leitura do SIASB. Toda consulta recebe a sessão da pessoa; nada é copiado para o banco. */
+export abstract class SiasbSource {
+  abstract courseOptions(registration: string): Promise<SiasbCourse[]>;
+  abstract login(
+    registration: string,
+    password: Secret,
+    courseId: number,
+  ): Promise<{ session: SiasbSession; username: string }>;
+  abstract disciplines(session: SiasbSession): Promise<ClinicalDiscipline[]>;
+  abstract attendances(session: SiasbSession, which: 'active' | 'inactive'): Promise<ClinicalAttendance[]>;
+  abstract sessions(session: SiasbSession, from: Date, to: Date): Promise<ClinicalSession[]>;
+  abstract procedures(session: SiasbSession, attendanceId: string, term?: string): Promise<Procedure[]>;
+  /** Quantos pacientes sem responsável existem, POR disciplina (id da disciplina como chave). */
+  abstract unassignedCount(session: SiasbSession): Promise<Record<string, number>>;
 }

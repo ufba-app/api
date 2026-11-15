@@ -1,0 +1,166 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { SiasbError } from '../../../application/ports/siasb-source';
+import {
+  countUnassigned,
+  initialsOf,
+  mapAttendances,
+  mapDisciplines,
+  mapProcedures,
+  mapSessions,
+} from './siasb-mapper';
+
+const fx = (name: string): unknown =>
+  JSON.parse(readFileSync(join(__dirname, '__fixtures__', `${name}.json`), 'utf8')) as unknown;
+
+const unexpected = { code: 'UNEXPECTED_FORMAT' };
+
+describe('initialsOf', () => {
+  it('pega a inicial de cada nome, sem preposições', () => {
+    expect(initialsOf('Maria Souza Lima')).toBe('MSL');
+    expect(initialsOf('Otávio de Albuquerque dos Santos da Neves')).toBe('OASN');
+    expect(initialsOf('  ')).toBe('');
+    expect(initialsOf('')).toBe('');
+  });
+});
+
+describe('mapSessions', () => {
+  it('não deixa nome, prontuário nem id de paciente escapar', () => {
+    const out = mapSessions(fx('sessions'));
+    const text = JSON.stringify(out);
+    for (const secret of [
+      'Zenaide',
+      'Quintanilha',
+      'Otávio',
+      'Albuquerque',
+      'PR-998877',
+      'PR-112233',
+      '7771',
+      '7772',
+      'patientName',
+      'patientRecord',
+      'patientId',
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(out[0].initials).toBe('ZQP');
+    expect(out[1].initials).toBe('OAN');
+  });
+
+  it('lê os horários como hora da Bahia (UTC-3)', () => {
+    const out = mapSessions(fx('sessions'));
+    expect(out[0].startAt).toBeInstanceOf(Date);
+    expect(out[0].startAt.toISOString()).toBe('2026-11-27T11:00:00.000Z');
+    expect(out[0].endAt.toISOString()).toBe('2026-11-27T14:30:00.000Z');
+    expect(out[0].rescheduledStartAt).toBeNull();
+    expect(out[1].startAt.toISOString()).toBe('2026-11-30T16:00:00.000Z');
+    expect(out[1].rescheduledStartAt?.toISOString()).toBe('2026-12-02T16:00:00.000Z');
+  });
+
+  it('copia só os campos da lista de permissão, com ids como texto', () => {
+    const [s] = mapSessions(fx('sessions'));
+    expect(Object.keys(s).sort()).toEqual(
+      [
+        'attendanceId',
+        'disciplineId',
+        'disciplineName',
+        'endAt',
+        'id',
+        'initials',
+        'locationName',
+        'professorName',
+        'rescheduledStartAt',
+        'startAt',
+        'statusLabel',
+      ].sort(),
+    );
+    expect(s).toMatchObject({
+      id: '9001',
+      attendanceId: '501',
+      disciplineId: '11',
+      disciplineName: 'Clínica Integrada I',
+      professorName: 'Prof. Aurélio Tavares',
+      locationName: 'Sala 3A',
+      statusLabel: 'Confirmado',
+    });
+  });
+
+  it('formato inesperado lança UNEXPECTED_FORMAT', () => {
+    expect(() => mapSessions({})).toThrow(SiasbError);
+    expect(() => mapSessions({})).toThrow(expect.objectContaining(unexpected));
+    expect(() => mapSessions([{ id: 1 }])).toThrow(expect.objectContaining(unexpected));
+    expect(() => mapSessions([{ ...(fx('sessions') as object[])[0], startAt: 'lixo' }])).toThrow(
+      expect.objectContaining(unexpected),
+    );
+    expect(() => mapSessions([{ ...(fx('sessions') as object[])[0], patientName: 5 }])).toThrow(
+      expect.objectContaining(unexpected),
+    );
+  });
+});
+
+describe('mapAttendances', () => {
+  it('mapeia tipo, concluído e iniciais, sem dados do paciente', () => {
+    const out = mapAttendances(fx('attendances'));
+    expect(out.map((a) => a.treatmentType)).toEqual(['PLANNING', 'URGENCY', 'TRIAGE', 'UNKNOWN']);
+    expect(out.map((a) => a.concluded)).toEqual([false, true, false, false]);
+    expect(out[0]).toEqual({
+      id: '501',
+      disciplineId: '11',
+      initials: 'ZQP',
+      treatmentType: 'PLANNING',
+      concluded: false,
+    });
+    const text = JSON.stringify(out);
+    for (const secret of ['Zenaide', 'Lucrécia', 'PR-', 'patientName', 'patientRecord', 'responsible', 'Aluno Inventado']) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it('formato inesperado', () => {
+    expect(() => mapAttendances({})).toThrow(expect.objectContaining(unexpected));
+    expect(() => mapAttendances([{ id: 1, patientName: 'X' }])).toThrow(
+      expect.objectContaining(unexpected),
+    );
+  });
+});
+
+describe('mapDisciplines', () => {
+  it('mapeia id e nome', () => {
+    expect(mapDisciplines(fx('disciplines'))).toEqual([
+      { id: '11', name: 'Clínica Integrada I' },
+      { id: '12', name: 'Clínica Integrada II' },
+    ]);
+  });
+  it('formato inesperado', () => {
+    expect(() => mapDisciplines(null)).toThrow(expect.objectContaining(unexpected));
+    expect(() => mapDisciplines([{ disciplineId: 1 }])).toThrow(expect.objectContaining(unexpected));
+  });
+});
+
+describe('mapProcedures', () => {
+  it('mapeia id e nome', () => {
+    expect(mapProcedures(fx('procedures'))).toEqual([
+      { id: '1', name: '81000030 - Consulta Odontológica' },
+      { id: '2', name: '82000050 - Raspagem Supragengival' },
+    ]);
+  });
+  it('formato inesperado', () => {
+    expect(() => mapProcedures('x')).toThrow(expect.objectContaining(unexpected));
+  });
+});
+
+describe('countUnassigned', () => {
+  it('conta por disciplina e não carrega dado de paciente', () => {
+    const out = countUnassigned(fx('unassigned'));
+    expect(out).toEqual({ '11': 2, '12': 1 });
+    const text = JSON.stringify(out);
+    for (const secret of ['Gumercindo', 'Iracema', 'PR-000', 'patientName', 'medicalRecordCode']) {
+      expect(text).not.toContain(secret);
+    }
+  });
+  it('lista vazia e formato inesperado', () => {
+    expect(countUnassigned([])).toEqual({});
+    expect(() => countUnassigned({})).toThrow(expect.objectContaining(unexpected));
+    expect(() => countUnassigned([{ attendanceId: 1 }])).toThrow(expect.objectContaining(unexpected));
+  });
+});

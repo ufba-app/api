@@ -1,0 +1,6 @@
+[
+  {"id":501,"patientId":7771,"patientName":"Zenaide Quintanilha Prado","patientRecord":"PR-998877","age":40,"disciplineId":11,"disciplineName":"Clínica Integrada I","responsibleStudentName":"Aluno Inventado","status":2,"statusLabel":"Em atendimento","treatmentType":2,"treatmentTypeLabel":"Planejamento","canWrite":true},
+  {"id":502,"patientId":7772,"patientName":"Otávio de Albuquerque Neves","patientRecord":"PR-112233","age":55,"disciplineId":12,"disciplineName":"Clínica Integrada II","responsibleStudentName":"Aluno Inventado","status":3,"statusLabel":"Concluído","treatmentType":3,"treatmentTypeLabel":"Urgência","canWrite":false},
+  {"id":503,"patientId":7773,"patientName":"Lucrécia Mota","patientRecord":"PR-445566","age":29,"disciplineId":11,"disciplineName":"Clínica Integrada I","responsibleStudentName":"Aluno Inventado","status":2,"statusLabel":"Em atendimento","treatmentType":1,"treatmentTypeLabel":"Triagem","canWrite":true},
+  {"id":504,"patientId":7774,"patientName":"Heitor Sampaio","patientRecord":"PR-778899","age":33,"disciplineId":11,"disciplineName":"Clínica Integrada I","responsibleStudentName":"Aluno Inventado","status":2,"statusLabel":"Em atendimento","treatmentType":9,"treatmentTypeLabel":"Outro","canWrite":true}
+]
