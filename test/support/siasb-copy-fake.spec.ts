@@ -112,6 +112,23 @@ describe('InMemorySiasbCopy', () => {
     expect(await repo.dueUsers(now, 2)).toEqual([U, 'u-early']);
   });
 
+  it('dueUsers: nextRunAt nulo conta como devido se a conta está OK (reconexão), mas não com REAUTH_NEEDED', async () => {
+    const now = d('2026-11-15T12:00:00Z');
+    repo.accounts.set('u-rc', 'OK');
+    repo.accounts.set('u-rc-reauth', 'REAUTH_NEEDED');
+    repo.accounts.set('u-lock', 'OK');
+    for (const u of ['u-rc', 'u-rc-reauth']) {
+      await repo.claim(u, now, 60_000);
+      await repo.recordAttempt(u, { result: 'RECONNECT_REQUIRED', at: now, nextRunAt: null });
+      await repo.release(u);
+    }
+    await repo.claim('u-lock', now, 60_000);
+    const due = await repo.dueUsers(now, 10);
+    expect(due).toContain('u-rc');
+    expect(due).toContain('u-lock');
+    expect(due).not.toContain('u-rc-reauth');
+  });
+
   it('deleteAll apaga cópia e estado', async () => {
     await repo.replaceWindow(U, W, {
       attendances: [att('a1')],

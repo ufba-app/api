@@ -263,7 +263,7 @@ describe('PrismaSiasbCopyRepository', () => {
       }),
       acc('stopped', { nextRunAt: null, lastAttemptAt: now }),
     ]);
-    expect(await repo.dueUsers(now, 3)).toEqual(['fresh', 'early', 'late']);
+    expect(await repo.dueUsers(now, 4)).toEqual(['fresh', 'stopped', 'early', 'late']);
     expect(prisma.sourceAccount.findMany.mock.calls[0][0].where).toEqual({
       provider: 'SIASB',
       status: 'OK',

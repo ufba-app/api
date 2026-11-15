@@ -59,8 +59,8 @@ export abstract class SiasbCopyRepository {
   abstract claim(userId: string, now: Date, leaseMs: number): Promise<boolean>;
   abstract release(userId: string): Promise<void>;
   /**
-   * Conta SIASB `OK` e (sem estado, ou `nextRunAt <= now`, ou estado criado só pela trava, sem tentativa nem agenda),
-   * por `nextRunAt` crescente (sem estado primeiro).
+   * Conta SIASB `OK` e (sem estado, ou sem agenda, ou `nextRunAt <= now`), por `nextRunAt` crescente (sem estado e sem
+   * agenda primeiro). Sem agenda cobre a reconexão depois de `RECONNECT_REQUIRED` (que grava `nextRunAt = null`).
    */
   abstract dueUsers(now: Date, limit: number): Promise<string[]>;
 }

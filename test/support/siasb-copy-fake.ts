@@ -99,8 +99,8 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
       if (status !== 'OK') continue;
       const s = this.states.get(userId);
       if (!s) due.push({ userId, at: -Infinity });
-      else if (s.nextRunAt && s.nextRunAt <= now) due.push({ userId, at: s.nextRunAt.getTime() });
-      else if (!s.nextRunAt && !s.lastAttemptAt) due.push({ userId, at: -Infinity });
+      else if (!s.nextRunAt) due.push({ userId, at: -Infinity });
+      else if (s.nextRunAt <= now) due.push({ userId, at: s.nextRunAt.getTime() });
     }
     return due
       .sort((a, b) => a.at - b.at)

@@ -145,6 +145,16 @@ describe('SiasbSyncer', () => {
     });
   });
 
+  it('RECONNECT_REQUIRED e depois reconexão (conta OK, sem sincronização inicial): dueUsers devolve a pessoa', async () => {
+    const { reader, copy, syncer } = setup(() => snap());
+    reader.snapshot.mockRejectedValueOnce(new ReconectarError());
+    expect(await syncer.syncUser(USER)).toBe('RECONNECT_REQUIRED');
+    copy.accounts.set(USER, 'REAUTH_NEEDED');
+    expect(await copy.dueUsers(NOW, 10)).toEqual([]);
+    copy.accounts.set(USER, 'OK');
+    expect(await copy.dueUsers(NOW, 10)).toEqual([USER]);
+  });
+
   it('claim ocupado: BUSY e o leitor não é chamado', async () => {
     const { reader, copy, syncer } = setup(() => snap());
     await copy.claim(USER, NOW, SYNC_LEASE_MS);

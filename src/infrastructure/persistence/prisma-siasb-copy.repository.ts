@@ -172,8 +172,9 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     const due: { userId: string; at: number }[] = [];
     for (const a of accounts) {
       const s = a.user.siasbSyncState;
-      if (!s || (!s.nextRunAt && !s.lastAttemptAt)) due.push({ userId: a.userId, at: -Infinity });
-      else if (s.nextRunAt && s.nextRunAt <= now) due.push({ userId: a.userId, at: s.nextRunAt.getTime() });
+      // Sem agenda (nextRunAt nulo) é devido: a conta está OK, então a pessoa reconectou depois de RECONNECT_REQUIRED.
+      if (!s || !s.nextRunAt) due.push({ userId: a.userId, at: -Infinity });
+      else if (s.nextRunAt <= now) due.push({ userId: a.userId, at: s.nextRunAt.getTime() });
     }
     return due
       .sort((x, y) => x.at - y.at)
