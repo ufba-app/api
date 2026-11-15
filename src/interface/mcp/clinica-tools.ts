@@ -28,7 +28,8 @@ const TIPOS = { TRIAGE: 'triagem', PLANNING: 'planejamento', URGENCY: 'urgencia'
 
 const OBSERVACAO_CONTEXTO =
   'A estimativa de quantas sessões marcar vem do modelo, com conhecimento geral; quem confirma é o professor. ' +
-  'O procedimento que o aluno citar serve só para essa estimativa e nunca é enviado ao SIASB.';
+  'O procedimento que o aluno citar serve só para essa estimativa e nunca é enviado ao SIASB. ' +
+  'Conta só as sessões dos últimos 60 dias.';
 
 /** "Período: 18/07 a 15/11/2026" a partir de dois ISO com offset da Bahia (o ano vai nos dois se forem diferentes). */
 function periodoTexto(de: string, ate: string): string {

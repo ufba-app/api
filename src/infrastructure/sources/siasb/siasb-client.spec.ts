@@ -323,18 +323,17 @@ describe('SiasbClient, métodos de leitura', () => {
     );
   });
 
-  it('procedures usa o attendanceId e filtra pelo termo no cliente', async () => {
+  it('procedures usa o attendanceId e devolve o catálogo inteiro (a busca é do leitor)', async () => {
     const list = [
       { id: 1, name: '81000030 - Consulta Odontológica' },
       { id: 2, name: '82000050 - Raspagem' },
     ];
-    const f = fake(res(200, list), res(200, list));
-    const c = client(f);
-    await expect(c.procedures(session(), '42')).resolves.toHaveLength(2);
-    expect(lastUrl(f)).toBe(`${API}/student/options?kind=procedures&attendanceId=42`);
-    await expect(c.procedures(session(), '42', 'rasp')).resolves.toEqual([
+    const f = fake(res(200, list));
+    await expect(client(f).procedures(session(), '42')).resolves.toEqual([
+      { id: '1', name: '81000030 - Consulta Odontológica' },
       { id: '2', name: '82000050 - Raspagem' },
     ]);
+    expect(lastUrl(f)).toBe(`${API}/student/options?kind=procedures&attendanceId=42`);
   });
 
   it('attendanceId fora do padrão é FORBIDDEN_ROUTE', async () => {

@@ -189,12 +189,13 @@ export class SiasbReader {
    */
   async schedulingContext(userId: string, attendanceId: string, term?: string): Promise<SchedulingContext> {
     const now = this.now();
-    const { attendance, sessions, catalog } = await this.withSession(userId, async (session) => {
+    const { attendance, disciplines, sessions, catalog } = await this.withSession(userId, async (session) => {
       const attendance = (await this.siasb.attendances(session, 'active')).find((a) => a.id === attendanceId);
       if (!attendance) throw new SiasbReadError('siasb_attendance_not_found');
+      const disciplines = await this.siasb.disciplines(session);
       const sessions = await this.siasb.sessions(session, ...this.historyWindow(now));
       const catalog = await this.siasb.procedures(session, attendance.id);
-      return { attendance, sessions, catalog };
+      return { attendance, disciplines, sessions, catalog };
     });
     const slots = deduceSlots(sessions.filter(countsForSlots)).filter((s) => s.disciplineId === attendance.disciplineId);
     const holidays = await this.calendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
@@ -202,7 +203,7 @@ export class SiasbReader {
     const matching = needle ? catalog.filter((p) => normalize(p.name).includes(needle)) : catalog;
     return {
       attendanceId: attendance.id,
-      disciplineName: sessions.find((s) => s.disciplineId === attendance.disciplineId)?.disciplineName ?? null,
+      disciplineName: disciplines.find((d) => d.id === attendance.disciplineId)?.name ?? null,
       sessionDurationMin: slots.length ? medianOf(slots.map((s) => s.durationMin)) : null,
       attendanceSessions: sessions.filter((s) => s.attendanceId === attendance.id && countsForSlots(s)).length,
       procedures: matching.slice(0, PROCEDURES_LIMIT),
@@ -216,15 +217,16 @@ export class SiasbReader {
     };
   }
 
-  /** Sem `range`, os últimos `PROGRESS_DEFAULT_DAYS` até agora. Quem chama valida o período (tamanho e ordem). */
+  /** Uma só consulta de sessões, do início do período até o maior entre o fim e agora+45 dias (para as marcadas adiante). Sem `range`, os últimos `PROGRESS_DEFAULT_DAYS` até agora. Quem chama valida o período (tamanho e ordem). */
   async progress(userId: string, range?: { from: Date; to: Date }): Promise<Progress> {
     const now = this.now();
     const used = range ?? { from: new Date(now.getTime() - PROGRESS_DEFAULT_DAYS * DAY_MS), to: now };
+    const forwardEnd = new Date(Math.max(used.to.getTime(), now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
     const { disciplines, active, inactive, sessions } = await this.withSession(userId, async (session) => ({
       disciplines: await this.siasb.disciplines(session),
       active: await this.siasb.attendances(session, 'active'),
       inactive: await this.siasb.attendances(session, 'inactive'),
-      sessions: await this.siasb.sessions(session, used.from, used.to),
+      sessions: await this.siasb.sessions(session, used.from, forwardEnd),
     }));
     return computeProgress({ disciplines, active, inactive, sessions, range: used, isDefault: !range, now });
   }

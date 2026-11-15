@@ -52,7 +52,8 @@ class FakeSiasb extends SiasbSource {
   ];
   inactiveAtts: ClinicalAttendance[] = [];
   procs: Procedure[] = [];
-  procedureCalls: { attendanceId: string; term?: string }[] = [];
+  sessionRanges: { from: Date; to: Date }[] = [];
+  procedureCalls: { attendanceId: string }[] = [];
   unassigned: Record<string, number> = {};
   sess: ClinicalSession[] = [
     sess('s1', '3', 'a3', '2026-11-06T13:00:00Z', 'Atendido'),
@@ -77,13 +78,14 @@ class FakeSiasb extends SiasbSource {
     this.touch(`attendances:${which}`);
     return which === 'active' ? this.atts : this.inactiveAtts;
   }
-  async sessions() {
+  async sessions(_s: SiasbSession, from: Date, to: Date) {
     this.touch('sessions');
+    this.sessionRanges.push({ from, to });
     return this.sess;
   }
-  async procedures(_s: SiasbSession, attendanceId: string, term?: string): Promise<Procedure[]> {
+  async procedures(_s: SiasbSession, attendanceId: string): Promise<Procedure[]> {
     this.touch('procedures');
-    this.procedureCalls.push({ attendanceId, term });
+    this.procedureCalls.push({ attendanceId });
     return this.procs;
   }
   async unassignedCount() {
@@ -515,6 +517,7 @@ describe('clinica_contexto_agendamento', () => {
     expect(out.observacao).toMatch(/conhecimento geral/);
     expect(out.observacao).toMatch(/professor/);
     expect(out.observacao).toMatch(/nunca é enviado ao SIASB/);
+    expect(out.observacao).toContain('Conta só as sessões dos últimos 60 dias.');
     for (const t of SEM_PACIENTE) expect(JSON.stringify(res)).not.toContain(t);
   });
 
@@ -572,6 +575,7 @@ describe('clinica_contexto_agendamento', () => {
     const out = JSON.parse(
       texto(await call(await connect(user, clinica), 'clinica_contexto_agendamento', { atendimentoId: 'a2' })),
     );
+    expect(out.disciplina).toBe('Disc 2');
     expect(out.duracaoSessaoMin).toBeNull();
     expect(out.proximosHorarios).toEqual([]);
     expect(out.sessoesDoAtendimento).toBe(0);
@@ -604,6 +608,7 @@ describe('clinica_progresso', () => {
     siasb.inactiveAtts = [
       { id: 'i1', disciplineId: '3', initials: 'IA', treatmentType: 'PLANNING', concluded: true },
       { id: 'i2', disciplineId: '3', initials: 'IB', treatmentType: 'PLANNING', concluded: true },
+      { id: 'i3', disciplineId: '3', initials: 'IC', treatmentType: 'PLANNING', concluded: false },
     ];
     siasb.sess = [
       sess('o1', '3', 'a3', '2026-10-20T13:00:00Z', 'Atendido'), // fora do período
@@ -612,6 +617,9 @@ describe('clinica_progresso', () => {
       sess('p3', '3', 'a3', '2026-11-11T13:00:00Z', 'Cancelado'),
       sess('p4', '3', 'i1', '2026-11-12T13:00:00Z', 'Cancelado'),
       sess('p5', '3', 'a3', '2026-11-25T13:00:00Z', 'Confirmado'),
+      sess('q1', '3', 'a3', '2026-12-02T13:00:00Z', 'Atendido'), // depois de `ate`: fora de atendidas e do ritmo
+      sess('q2', '3', 'a3', '2026-12-03T13:00:00Z', 'Confirmado'), // depois de `ate`, marcada adiante
+      sess('p6', '3', 'i3', '2026-11-13T13:00:00Z', 'Cancelado'), // i3 não é concluído
     ];
   }
 
@@ -632,7 +640,7 @@ describe('clinica_progresso', () => {
       concluidosNoPeriodo: 1, // i1 teve sessão no período; i2 só entra no histórico
       concluidosNoHistorico: 2,
       sessoesAtendidas: 2, // só 'Atendido' dentro do período (o de 20/10 e o cancelado não contam)
-      sessoesMarcadasAdiante: 1, // p5, depois de agora (23/11)
+      sessoesMarcadasAdiante: 2, // p5 e q2, depois de agora (23/11)
     });
     // (2 atendidas + 1 marcada) / 4 semanas = 0,75; a semana 16-22 ficou sem sessão alguma.
     expect(out.ritmo.sessoesPorSemana).toBe(0.75);
@@ -675,6 +683,34 @@ describe('clinica_progresso', () => {
     expect(out.avisos).toContain('O SIASB pode devolver só parte do período pedido; confira os números.');
   });
 
+  it('período padrão: marcada 10 dias à frente conta em sessoesMarcadasAdiante, numa única chamada de sessões', async () => {
+    const { clinica, siasb } = setup();
+    siasb.atts = [{ id: 'a3', disciplineId: '3', initials: 'CD', treatmentType: 'PLANNING', concluded: false }];
+    siasb.sess = [sess('f1', '3', 'a3', '2026-12-03T13:00:00Z', 'Confirmado')];
+    const out = JSON.parse(texto(await call(await connect(user, clinica), 'clinica_progresso')));
+    const d3 = out.disciplinas.find((x: { disciplinaId: string }) => x.disciplinaId === '3');
+    expect(d3.sessoesMarcadasAdiante).toBe(1);
+    expect(d3.sessoesAtendidas).toBe(0);
+    expect(out.ritmo.sessoesPorSemana).toBe(0);
+    expect(siasb.sessionRanges).toHaveLength(1);
+    expect(siasb.sessionRanges[0].from.toISOString()).toBe('2026-07-26T12:00:00.000Z');
+    expect(siasb.sessionRanges[0].to.getTime()).toBe(NOW.getTime() + 45 * 86_400_000);
+  });
+
+  it('período passado explícito: ainda conta as marcadas futuras, sem somá-las ao ritmo', async () => {
+    const { clinica, siasb } = setup();
+    fixture(siasb);
+    const out = JSON.parse(
+      texto(await call(await connect(user, clinica), 'clinica_progresso', { desde: '2026-10-01', ate: '2026-10-31' })),
+    );
+    const d3 = out.disciplinas.find((x: { disciplinaId: string }) => x.disciplinaId === '3');
+    expect(d3.sessoesMarcadasAdiante).toBe(2); // p5 e q2
+    expect(d3.sessoesAtendidas).toBe(1); // só o1 de 20/10
+    expect(out.ritmo.sessoesPorSemana).toBeCloseTo(1 / (31 / 7), 2);
+    expect(out.periodo.ate).toBe('2026-10-31T23:59:59-03:00');
+    expect(siasb.sessionRanges[0].to.getTime()).toBe(NOW.getTime() + 45 * 86_400_000);
+  });
+
   it('só uma das datas, invertidas, inválida ou acima de 190 dias: erro em pt-BR sem ecoar o valor e sem chamar o SIASB', async () => {
     const casos: Record<string, unknown>[] = [
       { desde: '2026-11-02' },
@@ -715,11 +751,11 @@ describe('clinica_progresso', () => {
 });
 
 describe('teto de chamadas das outras quatro ferramentas', () => {
-  it('pacientes <= 2, vagas <= 2, contexto <= 3, progresso <= 4', async () => {
+  it('pacientes <= 2, vagas <= 2, contexto <= 4, progresso <= 4', async () => {
     const casos: [string, Record<string, unknown>, number][] = [
       ['clinica_pacientes', {}, 2],
       ['clinica_vagas', {}, 2],
-      ['clinica_contexto_agendamento', { atendimentoId: 'a3' }, 3],
+      ['clinica_contexto_agendamento', { atendimentoId: 'a3' }, 4],
       ['clinica_progresso', {}, 4],
       ['clinica_progresso', { desde: '2026-11-02', ate: '2026-11-29' }, 4],
     ];

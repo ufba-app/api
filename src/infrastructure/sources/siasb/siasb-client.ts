@@ -265,13 +265,9 @@ export class SiasbClient extends SiasbSource {
     return mapSessions(await this.get(session, path));
   }
 
-  /** `term` filtra pelo nome aqui mesmo (sem texto livre na URL). */
-  async procedures(session: SiasbSession, attendanceId: string, term?: string): Promise<Procedure[]> {
-    const all = mapProcedures(
-      await this.get(session, `/student/options?kind=procedures&attendanceId=${attendanceId}`),
-    );
-    const needle = term?.trim().toLowerCase();
-    return needle ? all.filter((p) => p.name.toLowerCase().includes(needle)) : all;
+  /** Catálogo inteiro; a busca por texto é do leitor (nenhum texto livre vai na URL). */
+  async procedures(session: SiasbSession, attendanceId: string): Promise<Procedure[]> {
+    return mapProcedures(await this.get(session, `/student/options?kind=procedures&attendanceId=${attendanceId}`));
   }
 
   /** Quantos pacientes sem responsável existem, por disciplina. A lista (com nomes de terceiros) nunca sai daqui. */

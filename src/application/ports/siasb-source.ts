@@ -70,7 +70,7 @@ export abstract class SiasbSource {
   abstract disciplines(session: SiasbSession): Promise<ClinicalDiscipline[]>;
   abstract attendances(session: SiasbSession, which: 'active' | 'inactive'): Promise<ClinicalAttendance[]>;
   abstract sessions(session: SiasbSession, from: Date, to: Date): Promise<ClinicalSession[]>;
-  abstract procedures(session: SiasbSession, attendanceId: string, term?: string): Promise<Procedure[]>;
+  abstract procedures(session: SiasbSession, attendanceId: string): Promise<Procedure[]>;
   /** Quantos pacientes sem responsável existem, POR disciplina (id da disciplina como chave). */
   abstract unassignedCount(session: SiasbSession): Promise<Record<string, number>>;
 }

@@ -49,7 +49,7 @@ export function computeProgress(i: {
 
   const disciplines = i.disciplines.map((d) => {
     const mine = inPeriod.filter((s) => s.disciplineId === d.id);
-    const inactive = i.inactive.filter((a) => a.disciplineId === d.id);
+    const inactive = i.inactive.filter((a) => a.disciplineId === d.id && a.concluded);
     return {
       disciplineId: d.id,
       disciplineName: d.name,
@@ -58,7 +58,8 @@ export function computeProgress(i: {
       concludedInPeriod: inactive.filter((a) => attendancesWithSession.has(a.id)).length,
       concludedAllTime: inactive.length,
       sessionsAttended: mine.filter(isAttended).length,
-      sessionsScheduledAhead: mine.filter((s) => isMarked(s.statusLabel) && s.startAt > now).length,
+      sessionsScheduledAhead: i.sessions
+        .filter((s) => s.disciplineId === d.id && isMarked(s.statusLabel) && s.startAt > now).length,
     };
   });
 
