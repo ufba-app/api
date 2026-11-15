@@ -231,7 +231,7 @@ export function buildLiveSources(
         access: MemoryAccess,
         computers: MemoryComputerDirectory,
         sync: MemoryGrantSync,
-      ) => new MemoryProxy(admin, users, mcp, registry, access, computers, { sync }),
+      ) => new MemoryProxy(admin, users, mcp, registry, access, computers, { sync, webOrigin: () => webEnv().webOrigin }),
       inject: [
         MemoryAdmin,
         MemoryUsers,

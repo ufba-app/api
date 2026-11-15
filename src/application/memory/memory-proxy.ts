@@ -67,6 +67,8 @@ export interface ProxyOptions {
   callsPerMinute?: number;
   /** Reconciliador de acessos, chamado no máximo a cada 5 min por pessoa (convites e papéis valem no primeiro uso). */
   sync?: MemoryGrantSync;
+  /** Origem do painel (`WEB_ORIGIN`), para o link de computadores do guia de conexão. */
+  webOrigin?: () => string;
 }
 
 const SYNC_EVERY_MS = 5 * 60_000;
@@ -83,6 +85,7 @@ export class MemoryProxy {
   private readonly now: () => number;
   private readonly grants?: MemoryGrantSync;
   private readonly syncedAt = new Map<string, number>();
+  private readonly webOrigin: () => string;
   private readonly warnedAt = new Map<string, number>();
   private readonly log = new Logger('MemoryProxy');
 
@@ -97,6 +100,7 @@ export class MemoryProxy {
   ) {
     this.now = opts.now ?? Date.now;
     this.grants = opts.sync;
+    this.webOrigin = opts.webOrigin ?? (() => 'http://localhost:3001');
     this.rate = new RateWindow(opts.callsPerMinute ?? CALLS_PER_MINUTE, 60_000, this.now);
   }
 
@@ -129,7 +133,7 @@ export class MemoryProxy {
     }
     if (!(await this.access.canUse(userId))) return failure(MSG.notAllowed);
     // Só texto: não fala com o memory nem cria usuário (funciona mesmo com o memory fora do ar).
-    if (name === MEMORY_CONNECT_TOOL.name) return { content: [{ type: 'text', text: connectComputerGuide(args.os) }] };
+    if (name === MEMORY_CONNECT_TOOL.name) return { content: [{ type: 'text', text: connectComputerGuide(args.os, this.webOrigin()) }] };
     try {
       await this.users.ensure(userId);
       await this.syncGrants(userId);
