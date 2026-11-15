@@ -62,7 +62,9 @@ segredo**:
 
 - **Não autentica nada.** A API continua validando só o cookie de sessão; o marcador diz apenas "houve login" e pode estar
   velho (ex.: sessão revogada no servidor). Quem o lê trata como dica de UX, nunca como prova.
-- Emitido em `POST /session`. Apagado (`Max-Age=0`, mesmo `Domain` e `Path`) em `DELETE /session`, `DELETE /me` e em
+- Emitido em `POST /session` e **reemitido em `GET /me`** quando a sessão é válida (idempotente, mesmos atributos, `Max-Age` = o que resta da sessão): quem entrou antes do marcador existir o ganha na próxima chamada, sem loop de redirect.
+  sem loop de redirect.
+- Apagado (`Max-Age=0`, mesmo `Domain` e `Path`) em `DELETE /session`, `DELETE /me` e em
   qualquer resposta `401 session_expired`.
 - `Domain` vem da config: o sufixo que `WEB_ORIGIN`, `AUTH_ORIGIN` e `PUBLIC_URL` têm em comum (hoje `.ufba.app`).
   Em dev (http, localhost) não há `Domain` nem `Secure`. É `HttpOnly`: só o servidor lê (o JavaScript do painel não).

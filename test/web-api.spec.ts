@@ -309,6 +309,25 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(del.headers.getSetCookie().some((c) => c.startsWith('ufba_signed_in=; ') && c.includes('Max-Age=0'))).toBe(true);
   });
 
+  it('GET /me com sessão válida reemite o marcador (quem entrou antes dele); sessão inválida não emite', async () => {
+    const cookie = await signIn('marcador3');
+    const r = await get('/me', cookie);
+    expect(r.status).toBe(200);
+    const cs = r.headers.getSetCookie();
+    expect(cs).toHaveLength(1);
+    const m = /^ufba_signed_in=1; Path=\/; HttpOnly; SameSite=Lax; Max-Age=(\d+)$/.exec(cs[0]);
+    expect(m).not.toBeNull();
+    const resta = Number(m![1]);
+    expect(resta).toBeGreaterThan(29 * 24 * 3600); // o que resta da sessão (30 dias renovados no uso)
+    expect(resta).toBeLessThanOrEqual(30 * 24 * 3600);
+    expect(cs[0]).not.toContain(cookie.split('=')[1]);
+
+    // Sessão inválida: nada de marcador novo; o 401 session_expired apaga, como já fazia.
+    const ruim = await get('/me', 'ufba_session=lixo.lixo');
+    expect(ruim.status).toBe(401);
+    expect(ruim.headers.getSetCookie()).toEqual(['ufba_signed_in=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0']);
+  });
+
   it('conta fora do domínio volta ao web com a mensagem pronta (com o e-mail)', async () => {
     const { challenge } = pkce();
     const q = new URLSearchParams({

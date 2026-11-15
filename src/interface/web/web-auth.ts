@@ -176,7 +176,12 @@ async function fromCookie(oauth: OAuthService, req: WebRequest): Promise<WebPrin
   const s = await oauth.verifySession(token);
   if (!s) return null;
   req.webToken = token;
-  return { userId: s.userId, clientId: s.clientId, ...(s.chave ? { chave: s.chave } : {}) };
+  return {
+    userId: s.userId,
+    clientId: s.clientId,
+    ...(s.chave ? { chave: s.chave } : {}),
+    ...(s.expiresAt ? { sessionExpiresAt: s.expiresAt } : {}),
+  };
 }
 
 /** Exige o cookie de sessão do app web (e CSRF nas rotas que mudam estado). */

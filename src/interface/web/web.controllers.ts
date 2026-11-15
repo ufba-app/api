@@ -36,6 +36,7 @@ import {
   checkCsrf,
   clearSessionCookie,
   setSessionCookie,
+  setSignedInMarker,
   webEnv,
 } from './web-auth';
 
@@ -78,8 +79,14 @@ export class SessionController {
 
   @Get('me')
   @UseGuards(SessionGuard)
-  me(@Principal() p: WebPrincipal | null) {
-    return this.web.me(must(p));
+  me(@Principal() p: WebPrincipal | null, @Res({ passthrough: true }) res: Response) {
+    const who = must(p);
+    // Quem tinha sessão antes do marcador não o tem: reemite (idempotente, mesmos atributos, o que resta da sessão).
+    if (who.sessionExpiresAt) {
+      const restanteMs = who.sessionExpiresAt - Date.now();
+      if (restanteMs > 0) setSignedInMarker(res, restanteMs);
+    }
+    return this.web.me(who);
   }
 
   /** Excluir a conta (e tudo dela, inclusive os vínculos com SIGAA e AVA). A tela confirma antes de chamar. */
