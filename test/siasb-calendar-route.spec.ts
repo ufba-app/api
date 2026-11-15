@@ -138,6 +138,22 @@ describe('GET /me/siasb/sessions', () => {
     expect(((await bad.json()) as any).error).toBe('invalid_request');
   });
 
+  it('data pura ou data-hora sem fuso: 400 sem ecoar o valor; com Z ou -03:00: 200', async () => {
+    const enc = encodeURIComponent;
+    for (const bad of ['2026-11-27', '2026-11-27T10:00:00', '2026-11-27T10:00']) {
+      const r = await get(`?from=${enc(bad)}`);
+      expect(r.status).toBe(400);
+      const text = await r.text();
+      expect(JSON.parse(text).error).toBe('invalid_request');
+      expect(text).not.toContain(bad);
+    }
+    expect((await get(`?to=${enc('2026-11-27')}`)).status).toBe(400);
+    const z = await get(`?from=${enc('2026-11-20T00:00:00Z')}&to=${enc('2026-11-27T00:00:00Z')}`);
+    expect(z.status).toBe(200);
+    const br = await get(`?from=${enc('2026-11-20T00:00:00-03:00')}&to=${enc('2026-11-27T00:00:00-03:00')}`);
+    expect(br.status).toBe(200);
+  });
+
   it('data inválida: 400 sem ecoar o valor', async () => {
     const r = await get('?from=lixo-secreto');
     expect(r.status).toBe(400);

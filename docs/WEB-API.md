@@ -271,7 +271,7 @@ GET  /me/siasb/sessions?from=&to=                    → 200 { syncedAt, stale, 
 
 - `POST /connections/siasb/sync` ("Sincronizar agora"): sincroniza a cópia da pessoa na hora. Sem corpo. Erros: `404 not_found` (sem conta SIASB), `409 siasb_reconnect_required` (reconectar), `503 siasb_unavailable` (o SIASB não respondeu), `429 too_many_attempts` (mais de 3 por 10 minutos por pessoa). Uma sincronização já em curso conta como sucesso (204).
 - `GET /me/siasb/sessions` (calendário do painel, lido da cópia, `Cache-Control: no-store`): `syncedAt` (ISO ou `null`), `stale` (`true` se nunca sincronizou, a última tentativa falhou ou o último sucesso tem mais de 3 h) e `items` (`id`, `attendanceId`, `disciplineName`, `startAt`, `endAt`, `locationName`, `professorName`, `patientFirstName`, `statusLabel`, `rescheduledStartAt`). `patientFirstName` é só o primeiro nome, decifrado para o dono; vazio se não puder ser lido. Padrão: de 14 dias atrás a 45 à frente. `400 invalid_request` se `from > to` ou o intervalo passa de 190 dias; `404 not_found` sem conta SIASB.
-- **`from` e `to` devem ser ISO 8601 COM fuso** (ex.: `2026-11-15T00:00:00Z`): sem fuso valem como hora local do servidor.
+- `from` e `to` são instantes ISO 8601 com fuso, por exemplo `2026-11-15T00:00:00-03:00` ou terminando em `Z`; data sem hora ou sem fuso dá 400. Quando só `from` é enviado, `to` = agora + 45 dias; por isso um `from` anterior a cerca de 145 dias atrás passa de 190 dias e também dá 400.
 - Detalhes da integração: `docs/SIASB.md`.
 
 ### Classroom (pode haver várias contas)

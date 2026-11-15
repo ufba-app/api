@@ -358,11 +358,11 @@ export const ConnectSiasbBody = z.object({
   password: z.string().min(1),
 });
 
-/** Intervalo do calendário do SIASB (datas ISO 8601). Sem from e to: agora − 14 dias a agora + 45 dias; no máximo 190 dias. */
-const IsoInstant = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}/)
-  .refine((v) => !Number.isNaN(Date.parse(v)));
+/**
+ * Intervalo do calendário do SIASB: instantes ISO 8601 COM fuso (`Z` ou `±hh:mm`); data pura ou sem fuso é 400.
+ * Sem from e to: agora − 14 dias a agora + 45 dias; no máximo 190 dias.
+ */
+const IsoInstant = z.string().datetime({ offset: true });
 export const SiasbCalendarQuery = z.object({ from: IsoInstant.optional(), to: IsoInstant.optional() });
 
 export const SiasbCalendarResponse = z.object({
