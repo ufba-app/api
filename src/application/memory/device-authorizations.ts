@@ -79,7 +79,7 @@ export interface DeviceTokenGrant {
 
 export interface DeviceOptions {
   now?: () => number;
-  /** Base da tela de aprovação (https://ufba.app). */
+  /** Base da tela de aprovação (o painel, `WEB_ORIGIN`). */
   webOrigin: () => string;
 }
 

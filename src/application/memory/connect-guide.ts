@@ -1,6 +1,7 @@
 import type { RemoteTool } from './memory-ports';
 
-export const COMPUTERS_URL = 'https://ufba.app/memory/computers';
+/** Tela de computadores do painel (a origem do painel vem de `WEB_ORIGIN`; os comandos abaixo ficam na landing). */
+export const computersUrl = (webOrigin: string): string => `${webOrigin.replace(/\/+$/, '')}/memory/computers`;
 export const INSTALLER_REPO_URL = 'https://github.com/ufba-app/memory';
 
 export const CONNECT_COMMANDS = {
@@ -44,7 +45,7 @@ function commandBlock(os: GuideOs | undefined): string {
 }
 
 /** Texto do passo a passo. Sem segredo e sem efeito: só instrução para o agente repassar à pessoa. */
-export function connectComputerGuide(os?: unknown): string {
+export function connectComputerGuide(os: unknown, webOrigin: string): string {
   const chosen = typeof os === 'string' && os in CONNECT_COMMANDS ? (os as GuideOs) : undefined;
   return [
     'Conectar este computador à memória compartilhada da ufba.app',
@@ -62,7 +63,7 @@ export function connectComputerGuide(os?: unknown): string {
     '',
     'Se este cliente não tem terminal, mostre o comando à pessoa para ela colar no terminal dela.',
     `Prefere ler o script antes de rodar? O código do instalador está em ${INSTALLER_REPO_URL} (o hash de cada versão fica no manifesto do release).`,
-    `Para ver ou desconectar computadores: ${COMPUTERS_URL}`,
+    `Para ver ou desconectar computadores: ${computersUrl(webOrigin)}`,
   ].join('\n');
 }
 

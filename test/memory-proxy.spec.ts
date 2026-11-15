@@ -269,7 +269,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     const both = text(await proxy.call(UID, 'memory_connect_computer', { os: 'amiga' }));
     expect(both).toContain('install.ps1');
     expect(both).toContain('curl -fsSL https://ufba.app/install.sh | sh');
-    expect(both).toContain('https://ufba.app/memory/computers');
+    expect(both).toContain('http://localhost:3001/memory/computers'); // origem do painel, não fixa
     expect(both).toContain('sem o arquivo `.ai-memory.toml`');
     expect(both).not.toMatch(/aim_|sudos/);
     expect(fake.requests).toHaveLength(0);
