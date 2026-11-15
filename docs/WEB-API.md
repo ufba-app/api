@@ -245,6 +245,39 @@ DELETE /connections/classroom/{email}   → 204
   `{WEB}/connections?connected=classroom` ou `{WEB}/connections?error=<code>&message=<texto>`.
 - `app=ufba`: conta `@ufba.br`. `app=guest`: gmail pessoal (app em teste, só usuários cadastrados).
 
+## 5.1 Vida acadêmica (histórico lido pela IA e grade do curso)
+
+Desenho em `docs/specs/2026-11-15-vida-academica.md`; brief de telas em `dev/ufba/handoffs/design-vida-academica.md`. Depois de
+conectar o SIGAA, o painel oferece **importar a vida acadêmica**: a API lê o histórico (a IA só **lê**, Haiku 5.5), a pessoa
+**confere e confirma** antes de gravar, e a grade do curso (currículo **Ativo** do SIGAA público) é adequada ao histórico por
+equivalências. Tudo é **estimativa** do lado da grade; o histórico é a fonte oficial do que foi feito. Nada de identidade
+(nome, CPF, nascimento, docentes) existe no banco; o PDF e o texto enviado ao provedor nunca são gravados.
+
+Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}` no corpo, como as demais rotas de mudança).
+
+- `GET /me/academic` → `{ available, consent, status, failure, verified, reader, importedAt, curriculumStatus, summary, draft }`.
+  `available = false`: o servidor não tem chave do provedor de IA (esconder a oferta). `status`: `NONE` | `RUNNING` |
+  `NEEDS_CONFIRMATION` | `READY` | `FAILED` (+ `failure`: `REDACTION_REFUSED`, `READER_FAILED`, `SIGAA_UNAVAILABLE`, `PDF_INVALID`,
+  `SESSION_EXPIRED`, `TIMEOUT`). `draft` só em `NEEDS_CONFIRMATION` (o que foi lido: componentes, pendentes, horas, avisos);
+  `summary` só com o histórico gravado. `curriculumStatus` (a grade do curso): `NONE` | `READY` | `IMPORTING` | `UNAVAILABLE`.
+  A tela acompanha a importação consultando esta rota (a importação roda em segundo plano).
+- `PUT /me/academic/consent` `{ accepted }` → 204. Aceita (ou revoga) o envio das disciplinas e notas, **sem identidade**, ao
+  provedor de IA. Revogar exige novo aceite para importar; não apaga o que já foi gravado.
+- `POST /me/academic/import` → **202**. Exige consentimento (409 `consent_required`), o SIGAA aberto **nesta** sessão (409
+  `source_not_connected`), nenhuma importação em andamento (409 `import_in_progress`), no máximo 3 por dia por pessoa (429
+  `too_many_attempts`) e a leitura disponível (503 `import_unavailable`: sem chave, ou o teto de gasto do mês foi atingido).
+- `POST /me/academic/confirm` → 204. Grava o histórico (substitui o anterior), o perfil do portal e apaga o rascunho. **Com
+  `verified = false` a confirmação é obrigatória e a tela mostra `draft.verification.warnings`.** 404 `import_not_found` sem rascunho
+  (o rascunho vale 7 dias).
+- `DELETE /me/academic` → 204. Apaga histórico, rascunho e perfil importado (o aceite fica).
+- `GET /me/academic/curriculum` → a grade do curso (currículo Ativo) marcada com o que a pessoa já fez: componentes obrigatórios,
+  optativas e complementares com `state` (`DONE`, `DONE_VIA_EQUIVALENCE`, `ENROLLED`, `AVAILABLE`, `BLOCKED` + o que falta de
+  pré-requisito), horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`. 404 `import_not_found`
+  sem histórico gravado; 409 `curriculum_unavailable` enquanto a grade do curso não está pronta.
+
+Até a fase 5, a fonte do PDF no SIGAA **não está ligada**: a importação só existe com `ANTHROPIC_API_KEY` configurada e, antes da
+fase 5, qualquer tentativa termina em `SIGAA_UNAVAILABLE`.
+
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 
 1. O cliente abre `GET {API}/authorize?…` (OAuth 2.1 + PKCE). A API valida cliente e `redirect_uri` e redireciona

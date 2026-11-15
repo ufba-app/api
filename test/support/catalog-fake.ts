@@ -74,6 +74,8 @@ export class FakeCatalogSource extends CatalogSource {
   activeCode = 'G20251';
   calls = { list: 0, code: 0, fetch: 0 };
   delayMs = 0;
+  /** Se definido, é a lista de componentes que a "importação" devolve (senão, o exemplo de um componente só). */
+  components: CatalogComponent[] | null = null;
 
   async listPrograms() {
     this.calls.list++;
@@ -86,6 +88,7 @@ export class FakeCatalogSource extends CatalogSource {
   async fetchActiveCurriculum() {
     this.calls.fetch++;
     if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
-    return sampleCurriculum(this.activeCode);
+    const base = sampleCurriculum(this.activeCode);
+    return this.components ? { ...base, components: this.components } : base;
   }
 }

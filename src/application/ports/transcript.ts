@@ -12,6 +12,9 @@ export interface TextItem {
   text: string;
 }
 
+/** Token do leitor da IA: `null` sem `ANTHROPIC_API_KEY` (a importação do histórico simplesmente não existe). */
+export const TRANSCRIPT_READER = Symbol('TRANSCRIPT_READER');
+
 /** PDF do histórico → itens de texto posicionais. */
 export abstract class PdfTextExtractor {
   abstract extract(pdf: Buffer): Promise<TextItem[]>;

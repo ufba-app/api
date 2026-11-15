@@ -50,6 +50,13 @@ import { SigaaSession } from './infrastructure/sources/sigaa/session';
 import { SigaaGateway } from './infrastructure/sources/sigaa/sigaa-gateway';
 import { SigaaPublicCatalogSource } from './infrastructure/sources/sigaa/catalog/sigaa-public-catalog';
 import { CatalogService } from './application/academic/catalog.service';
+import { AcademicImports } from './application/academic/academic-imports';
+import { AcademicRepository, TranscriptSource } from './application/ports/academic';
+import { PdfTextExtractor, TRANSCRIPT_READER, TranscriptReader } from './application/ports/transcript';
+import { ConnectionStatus } from './application/web/connection-status';
+import { AnthropicTranscriptReader } from './infrastructure/sources/sigaa/history/anthropic-transcript-reader';
+import { NotWiredTranscriptSource } from './infrastructure/sources/sigaa/history/not-wired-transcript-source';
+import { PdfParseTextExtractor } from './infrastructure/sources/sigaa/history/pdf-text-extractor';
 import { CatalogRepository, CatalogSource } from './application/ports/catalog';
 import { SigaaLive } from './infrastructure/sources/sigaa/sigaa-live';
 import { McpModule } from './interface/mcp/mcp.module';
@@ -302,6 +309,29 @@ export function buildLiveSources(
       useFactory: (repo: CatalogRepository, source: CatalogSource) => new CatalogService(repo, source),
       inject: [CatalogRepository, CatalogSource],
     },
+    // Vida acadêmica: histórico lido pela IA (docs/specs/2026-11-15-vida-academica.md). Sem ANTHROPIC_API_KEY o leitor é
+    // `null` e a importação não existe. O PDF vem de uma fonte que a fase 5 liga ao SIGAA (hoje "não ligada").
+    { provide: PdfTextExtractor, useFactory: () => new PdfParseTextExtractor() },
+    { provide: TranscriptSource, useFactory: () => new NotWiredTranscriptSource() },
+    {
+      provide: TRANSCRIPT_READER,
+      useFactory: () => (process.env.ANTHROPIC_API_KEY ? new AnthropicTranscriptReader() : null),
+    },
+    {
+      provide: AcademicImports,
+      useFactory: (
+        repo: AcademicRepository,
+        source: TranscriptSource,
+        extractor: PdfTextExtractor,
+        reader: TranscriptReader | null,
+        catalog: CatalogService,
+        status: ConnectionStatus,
+      ) =>
+        new AcademicImports(repo, source, extractor, reader, catalog, status, undefined, {
+          monthlyCapUsd: Number(process.env.ACADEMIC_MONTHLY_CAP_USD) > 0 ? Number(process.env.ACADEMIC_MONTHLY_CAP_USD) : 5,
+        }),
+      inject: [AcademicRepository, TranscriptSource, PdfTextExtractor, TRANSCRIPT_READER, CatalogService, ConnectionStatus],
+    },
     ...mcpProviders,
   ],
   exports: [
@@ -322,6 +352,7 @@ export function buildLiveSources(
     AccountDeparture,
     DownloadLinks,
     LiveSources,
+    AcademicImports,
     ...mcpExports,
   ],
 })

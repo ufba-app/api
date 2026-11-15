@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -22,11 +23,13 @@ import { AuthorizedApps } from '../../application/web/authorized-apps.service';
 import { ConnectionsService } from '../../application/web/connections.service';
 import { SigaaPasskeys } from '../../application/web/sigaa-passkeys.service';
 import { SigaaPairings } from '../../application/web/sigaa-pairings.service';
+import { AcademicImports, type AcademicState } from '../../application/academic/academic-imports';
 import { parseUserAgent } from '../../application/web/user-agent';
 import {
   ClassroomStartQuery,
   ConnectMoodleBody,
   ConnectSigaaBody,
+  AcademicConsentBody,
   CreatePairingBody,
   CreateSessionBody,
   DeliverPairingBody,
@@ -228,6 +231,57 @@ export class SigaaPasskeyController {
   async remove(@Principal() p: WebPrincipal | null, @Param('credentialId') credentialId: string): Promise<void> {
     if (!/^[A-Za-z0-9_-]{1,1364}$/.test(credentialId)) throw invalidRequest();
     await this.passkeys.remove(must(p), credentialId);
+  }
+}
+
+const academicState = (s: AcademicState) => ({ ...s, importedAt: s.importedAt ? s.importedAt.toISOString() : null });
+
+/**
+ * Vida acadêmica (docs/specs/2026-11-15-vida-academica.md): consentimento, importação do histórico em segundo plano
+ * (a IA só LÊ), confirmação da pessoa antes de gravar, e a grade do curso adequada ao currículo Ativo. Tudo apagável.
+ */
+@Controller('me/academic')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class AcademicController {
+  constructor(private readonly academic: AcademicImports) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async state(@Principal() p: WebPrincipal | null) {
+    return academicState(await this.academic.state(must(p)));
+  }
+
+  @Put('consent')
+  @HttpCode(204)
+  async consent(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
+    await this.academic.setConsent(must(p), parseInput(AcademicConsentBody, b, invalidRequest).accepted);
+  }
+
+  /** Dispara a importação em segundo plano; a tela acompanha por `GET /me/academic`. */
+  @Post('import')
+  @HttpCode(202)
+  async start(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.academic.start(must(p));
+  }
+
+  @Post('confirm')
+  @HttpCode(204)
+  async confirm(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.academic.confirm(must(p));
+  }
+
+  @Delete()
+  @HttpCode(204)
+  async remove(@Principal() p: WebPrincipal | null): Promise<void> {
+    await this.academic.remove(must(p));
+  }
+
+  /** A grade do curso (currículo Ativo) marcada com o que a pessoa já fez. Sempre uma estimativa. */
+  @Get('curriculum')
+  @Header('Cache-Control', 'no-store')
+  curriculum(@Principal() p: WebPrincipal | null) {
+    return this.academic.progress(must(p));
   }
 }
 

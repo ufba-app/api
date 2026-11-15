@@ -5,6 +5,7 @@ import {
   AuthorizedAppsController,
   AuthorizeRequestsController,
   ClientLogosController,
+  AcademicController,
   ConnectionsController,
   PairingsController,
   SessionController,
@@ -20,6 +21,7 @@ import { DataGuard, OptionalSessionGuard, SessionGuard } from './web-auth';
   controllers: [
     SessionController,
     ConnectionsController,
+    AcademicController,
     SigaaPasskeyController,
     PairingsController,
     AuthorizeRequestsController,
