@@ -55,7 +55,7 @@ const sessionSchema = z.array(
     attendanceId: id,
     disciplineId: id,
     disciplineName: text,
-    patientName: text,
+    patientName: nullableText,
     professorName: nullableText,
     ambulatoryLocationName: nullableText,
     startAt: dateTime,
@@ -93,7 +93,7 @@ const attendanceSchema = z.array(
   z.object({
     id,
     disciplineId: id,
-    patientName: text,
+    patientName: nullableText,
     treatmentType: z.number().int(),
     status: z.number().int(),
   }),

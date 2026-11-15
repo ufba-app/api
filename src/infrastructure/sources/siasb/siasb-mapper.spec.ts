@@ -98,6 +98,37 @@ describe('mapSessions', () => {
   });
 });
 
+describe('paciente sem nome', () => {
+  const base = (name: string) => (fx(name) as Array<Record<string, unknown>>)[0];
+  const variants = (name: string) => {
+    const nulled = { ...base(name), patientName: null };
+    const missing = { ...base(name) } as Record<string, unknown>;
+    delete missing.patientName;
+    return [nulled, missing];
+  };
+
+  it('sessão com patientName nulo ou ausente mapeia, com iniciais vazias', () => {
+    for (const raw of variants('sessions')) {
+      const out = mapSessions([raw, (fx('sessions') as unknown[])[1]]);
+      expect(out).toHaveLength(2);
+      expect(out[0].initials).toBe('');
+      expect(out[0]).toMatchObject({ id: '9001', attendanceId: '501', disciplineName: 'Clínica Integrada I' });
+      expect(out[0].startAt.toISOString()).toBe('2026-11-27T11:00:00.000Z');
+      expect(JSON.stringify(out)).not.toContain('Zenaide');
+    }
+  });
+
+  it('atendimento com patientName nulo ou ausente mapeia, com iniciais vazias', () => {
+    for (const raw of variants('attendances')) {
+      const out = mapAttendances([raw]);
+      expect(out).toEqual([
+        { id: '501', disciplineId: '11', initials: '', treatmentType: 'PLANNING', concluded: false },
+      ]);
+      expect(JSON.stringify(out)).not.toContain('Zenaide');
+    }
+  });
+});
+
 describe('mapAttendances', () => {
   it('mapeia tipo, concluído e iniciais, sem dados do paciente', () => {
     const out = mapAttendances(fx('attendances'));
