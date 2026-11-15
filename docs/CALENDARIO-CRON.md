@@ -15,13 +15,16 @@ Código de saída: **0** se a leitura rodou (inclusive quando a página falhou: 
 
 ## Serviço no Railway
 
-| campo | valor |
+O `railway.json` da raiz é da **API** (healthcheck `/health`, reinício em falha) e vale para todo serviço deste repo que o use. O cron tem config própria, **`railway.cron.json`**: aponte o serviço `calendar-cron` para ele (Settings → Config-as-code → caminho do arquivo, `railwayConfigFile`).
+
+| campo | valor (vem de `railway.cron.json`) |
 |---|---|
 | Repositório | `ufba-app/api` (o mesmo da API) |
-| Build | o mesmo `Dockerfile` |
-| Comando de start | `node dist/src/calendar-job.js` (**substitui** o `CMD` do Dockerfile, então não roda `prisma migrate deploy`: as migrações continuam sendo da API) |
+| Build | `Dockerfile` |
+| Comando de start | `node dist/src/calendar-job.js` (**substitui** o `CMD` do Dockerfile, que é quem roda `prisma migrate deploy`: o job **não** migra; as migrações continuam sendo da API) |
 | Agendamento (cron, UTC) | `0 9 * * 1`: toda segunda às 09:00 UTC (06:00 em Salvador) |
-| Reinício | nunca (o serviço de cron termina sozinho) |
+| Healthcheck | nenhum (o job não tem HTTP) |
+| Reinício | `NEVER` (uma saída com código 1 não repete a leitura da SUPAC) |
 
 Variáveis (por referência ao serviço da API, sem copiar o valor):
 
