@@ -41,7 +41,7 @@ import { SiasbSyncer } from './application/siasb/siasb-syncer';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
 import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AcademicCalendar } from './application/ports/academic-calendar';
-import { NoAcademicCalendar } from './infrastructure/calendar/no-academic-calendar';
+import { PublishedAcademicCalendar } from './application/siasb/published-academic-calendar';
 import { SiasbClient } from './infrastructure/sources/siasb/siasb-client';
 import { SigaaSessionStore, SourceAccountRepository, StudentRegistrations } from './application/ports/repositories';
 import { SecretCipher } from './application/ports/secret-cipher';
@@ -162,7 +162,11 @@ export function buildLiveSources(
       ) => new SiasbLink(siasb, regs, bindings, accounts, cipher, copy),
       inject: [SiasbSource, StudentRegistrations, SourceBindings, SourceAccountRepository, SecretCipher, SiasbCopyRepository],
     },
-    { provide: AcademicCalendar, useFactory: () => new NoAcademicCalendar() },
+    {
+      provide: AcademicCalendar,
+      useFactory: (logs: CalendarLogRepository) => new PublishedAcademicCalendar(logs),
+      inject: [CalendarLogRepository],
+    },
     {
       provide: SiasbReader,
       useFactory: (siasb: SiasbSource, accounts: SourceAccountRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>

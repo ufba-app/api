@@ -83,7 +83,7 @@ Por disciplina de clínica (`src/domain/siasb/clinical-state.ts`):
 **O prazo é estimado**, e todo texto diz "prazo estimado" (nunca o prazo oficial): o do SIASB é configuração do curso, em horas úteis, e o aluno não consegue lê-la.
 
 - Regra (`src/domain/siasb/deadline.ts`): **2 dias úteis** antes do início da sessão, mantendo o horário; dia útil = não é sábado, domingo nem feriado, na data da Bahia.
-- **Margem.** Os feriados vêm da porta `AcademicCalendar` (`src/application/ports/academic-calendar.ts`). A implementação atual é `NoAcademicCalendar` (`known: false`, sem datas): **enquanto não houver calendário oficial, soma-se 1 dia útil de margem** (o erro cai para o lado de o aluno chegar cedo) e a resposta traz `feriadosConsiderados: false` com o aviso "Feriados e recessos não considerados; confirme o prazo no SIASB."
+- **Margem.** Os feriados vêm da porta `AcademicCalendar` (`src/application/ports/academic-calendar.ts`), implementada por `PublishedAcademicCalendar` (`src/application/siasb/published-academic-calendar.ts`) a partir dos calendários SUPAC publicados (`nonTeachingDays`; cache de 60 s). Quando o intervalo consultado está inteiro dentro dos semestres publicados, `known: true`, os feriados entram e **não há margem**. Fora deles (vão entre semestres, depois do último calendário) ou sem calendário/erro no banco, `known: false`: **soma-se 1 dia útil de margem** (o erro cai para o lado de o aluno chegar cedo) e a resposta traz `feriadosConsiderados: false` com o aviso "Feriados e recessos não considerados; confirme o prazo no SIASB."
 - O horário de cada clínica é **deduzido do histórico** de sessões da disciplina (janela de 60 dias para trás). Sem histórico, não há horário nem prazo. Se o prazo do próximo horário já passou, vale o da semana seguinte.
 
 ## 7. Ferramentas MCP
@@ -179,7 +179,7 @@ Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railw
 
 Nenhuma delas exige requisição ao SIASB sem OK do André.
 
-- **`AcademicCalendar` oficial** (a cargo do André). Até lá o prazo usa 1 dia útil de margem.
+- **`AcademicCalendar`** agora lê os calendários SUPAC publicados; sem cobertura do período o prazo mantém 1 dia útil de margem.
 - **Códigos de situação** das sessões além de 1 e 2 (Atendido, Desmarcado, Cancelada, Nova, Agendado pelo sistema, Falta): hoje o mapeamento é por rótulo.
 - **DevTools:** conferir horas úteis, horário de funcionamento e datas bloqueadas do prazo real.
 - **Cookie a partir do Railway:** confirmar que o cookie funciona do IP de produção.
