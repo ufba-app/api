@@ -1,5 +1,6 @@
 import { bahiaDateKey, bahiaDayAndHour, bahiaWeekday } from '../../domain/siasb/alert-format';
 import { alertChain, chainSlotAtOrBefore, lastAlertAt, latestDue, unscheduledSlot, ALERT_GAP_MS } from '../../domain/siasb/alert-schedule';
+import { inQuietHours } from '../../domain/notifications/quiet-hours';
 import type { AlertResult } from '../notifications/alert-provider';
 import type { Notifier, NotifyResult } from '../notifications/notifier';
 import type { SourceAccountRepository } from '../ports/repositories';
@@ -20,7 +21,7 @@ const RECONNECT_BEFORE_MS = [7 * DAY, 3 * DAY, 1 * DAY];
 /**
  * Instantes do aviso de reconexão (função pura): `vencimento − 7 d`, `− 3 d`, `− 1 d`, o próprio vencimento e depois a
  * cada 36 h desde ele. Só `> after` (exclusivo) e `<= upTo`, do mais antigo ao mais recente. Um instante que cai no
- * silêncio NÃO é movido: o Notifier responde `quiet` e o aviso é tentado de novo na rodada seguinte.
+ * silêncio NÃO é movido: `evaluateUser` não faz nada no silêncio e o aviso é reavaliado na rodada seguinte.
  */
 export function reconnectSlots(expiresAt: Date, after: Date, upTo: Date): Date[] {
   const e = expiresAt.getTime();
@@ -59,6 +60,9 @@ export class SiasbAlerts {
     } catch {
       return { ...r, failed: 1 };
     }
+    // O silêncio 22h-7h é daqui (não do Notifier): nada é enviado nem registrado (nem suppressed) e o que está devido
+    // espera a próxima rodada. Vale para todo aviso (prazo, sem horário, prazo perdido e reconexão).
+    if (inQuietHours(now)) return { ...r, skipped: 1 };
     try {
       await this.deadlineAlerts(userId, now, r);
     } catch {
@@ -76,9 +80,16 @@ export class SiasbAlerts {
 
   private async deliver(userId: string, r: AlertResult, subject: string, slotAt: Date, body: string): Promise<NotifyResult> {
     const res = await this.notifier.send(userId, { key: KEY, subject, slotAt, title: TITLE, body, tag: `siasb-${subject}`, url: '/' });
-    if (res === 'sent') r.sent++;
-    else if (res === 'failed') r.failed++;
-    else r.skipped++;
+    switch (res) {
+      case 'sent':
+        r.sent++;
+        break;
+      case 'failed':
+        r.failed++;
+        break;
+      default:
+        r.skipped++;
+    }
     return res;
   }
 

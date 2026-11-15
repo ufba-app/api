@@ -264,6 +264,52 @@ describe('SiasbAlerts: aviso de prazo', () => {
   });
 });
 
+describe('SiasbAlerts: silêncio 22h-7h (decidido aqui)', () => {
+  it.each(['2026-11-18T22:00:00-03:00', '2026-11-19T03:00:00-03:00', '2026-11-19T06:59:00-03:00'])(
+    'em %s: nada enviado nem registrado, skipped, sem ler a cópia',
+    async (when) => {
+      const t = await setup();
+      t.accounts.rows = [account(at('2026-11-19T12:00:00-03:00'))];
+      const r = await t.run(when);
+      expect(r).toEqual({ sent: 0, suppressed: 0, skipped: 1, failed: 0 });
+      expect(t.sender.sent).toHaveLength(0);
+      expect(t.log.rows.size).toBe(0);
+      expect(t.situationCalls).toBe(0);
+    },
+  );
+
+  it('às 07:00 em ponto o aviso devido sai; 22:00 seguido de 07:00 envia exatamente uma vez', async () => {
+    const t = await setup();
+    await t.run('2026-11-18T22:00:00-03:00');
+    expect((await t.run('2026-11-19T07:00:00-03:00')).sent).toBe(1);
+    expect((await t.run('2026-11-19T07:15:00-03:00')).sent).toBe(0);
+    expect(t.sender.sent).toHaveLength(1);
+  });
+
+  it('reconexão: nada no silêncio; sai uma vez às 07:00 (instante 02/12 00:00 não é movido)', async () => {
+    const t = await setup();
+    t.items = [];
+    t.accounts.rows = [account(at('2026-11-30T12:00:00-03:00'))];
+    await t.run('2026-11-30T12:05:00-03:00');
+    const before = t.log.rows.size;
+    expect((await t.run('2026-12-02T00:00:00-03:00')).sent).toBe(0);
+    expect(t.log.rows.size).toBe(before);
+    expect((await t.run('2026-12-02T07:00:00-03:00')).sent).toBe(1);
+    expect(t.keys().pop()).toBe(`siasb.alerts|connection|${at('2026-12-02T00:00:00-03:00').toISOString()}`);
+  });
+
+  it('rajada depois de silêncio longo: nada às 22h/03h; às 07:00 envia só o mais recente e grava os anteriores suppressed', async () => {
+    const t = await setup();
+    await t.run('2026-11-16T12:00:00-03:00');
+    const before = t.log.rows.size;
+    for (const when of ['2026-11-19T22:00:00-03:00', '2026-11-20T03:00:00-03:00']) {
+      expect(await t.run(when)).toEqual({ sent: 0, suppressed: 0, skipped: 1, failed: 0 });
+      expect(t.log.rows.size).toBe(before);
+    }
+    expect(await t.run('2026-11-20T07:00:00-03:00')).toEqual({ sent: 1, suppressed: 2, skipped: 0, failed: 0 });
+  });
+});
+
 describe('SiasbAlerts: prazo perdido', () => {
   it('deadline do item já passou: um único "Prazo perdido" (slotAt = prazo); as outras rodadas dão duplicata', async () => {
     const t = await setup();
