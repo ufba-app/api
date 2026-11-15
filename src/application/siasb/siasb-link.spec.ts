@@ -417,7 +417,7 @@ describe('SiasbLink.status e disconnect', () => {
     copy.accounts.set('u2', 'OK');
     const at = new Date('2026-11-15T10:00:00Z');
     for (const u of ['u1', 'u2']) {
-      await copy.replaceWindow(u, { from: at, to: at }, { attendances: [att], sessions: [] });
+      await copy.replaceWindow(u, { from: at, to: at }, { disciplines: [], attendances: [att], sessions: [] });
       copy.seedState(u);
       await copy.recordAttempt(u, { result: 'OK', at, nextRunAt: null });
     }

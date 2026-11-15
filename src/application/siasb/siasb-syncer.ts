@@ -32,6 +32,7 @@ export class SiasbSyncer {
       let outcome: SyncOutcome;
       try {
         const snap = await this.reader.snapshot(userId);
+        const disciplines = snap.disciplines.map((d) => ({ id: d.id, name: d.name }));
         const attendances = snap.attendances.map((a) => ({
           id: a.id,
           disciplineId: a.disciplineId,
@@ -53,6 +54,7 @@ export class SiasbSyncer {
           statusLabel: s.statusLabel,
         }));
         const stored = await this.copy.replaceWindow(userId, snap.window, {
+          disciplines,
           attendances,
           sessions,
         });

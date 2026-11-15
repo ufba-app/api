@@ -54,3 +54,16 @@ model SiasbSyncState {
 
   @@map("siasb_sync_state")
 }
+
+// Disciplinas clínicas do aluno no SIASB (inclusive as sem paciente), base dos avisos de prazo.
+// Substituídas por inteiro a cada sincronização; só o nome (não é segredo).
+model SiasbSyncedDiscipline {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String
+
+  name String
+
+  @@id([userId, id])
+  @@map("siasb_disciplines")
+}

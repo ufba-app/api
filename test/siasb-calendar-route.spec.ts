@@ -51,6 +51,7 @@ describe('GET /me/siasb/sessions', () => {
       'u1',
       { from: at(-400), to: at(400) },
       {
+        disciplines: [],
         attendances: [
           {
             id: 'a1',

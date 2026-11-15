@@ -503,6 +503,21 @@ describe('SiasbReader.snapshot', () => {
     expect(snap.sessions.map((s) => [s.id, s.statusLabel])).toEqual([['s1', 'Primeira']]);
   });
 
+  it('devolve as disciplinas (inclusive sem atendimento) e deduplica por id mantendo a primeira', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [
+      { id: '2', name: 'Clínica 2' } as ClinicalDiscipline,
+      { id: '3', name: 'Clínica 3' } as ClinicalDiscipline,
+      { id: '2', name: 'Repetida' } as ClinicalDiscipline,
+    ];
+    siasb.atts = [att('a1', '2')];
+    const snap = await reader.snapshot('u1');
+    expect(snap.disciplines).toEqual([
+      { id: '2', name: 'Clínica 2' },
+      { id: '3', name: 'Clínica 3' },
+    ]);
+  });
+
   it('atendimento de disciplina desconhecida fica com disciplineName vazio', async () => {
     const { siasb, reader } = setup();
     siasb.discs = [];

@@ -49,6 +49,7 @@ async function setup(now = NOW) {
     'u1',
     { from: new Date('2026-11-01T00:00:00Z'), to: new Date('2026-12-31T00:00:00Z') },
     {
+      disciplines: [],
       attendances: [attendance('u1', 'a1')],
       sessions: [
         session('s2', 'a1', '2026-11-20T14:00:00Z'),

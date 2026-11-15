@@ -1,5 +1,11 @@
 import type { EncryptedSecret } from './repositories';
 
+/** Disciplina clínica do aluno no SIASB (inclusive sem paciente). O nome não é segredo. */
+export interface SyncedDiscipline {
+  id: string;
+  name: string;
+}
+
 /** Atendimento (paciente) do aluno no SIASB. Só o primeiro nome do paciente, cifrado. */
 export interface SyncedAttendance {
   id: string;
@@ -40,18 +46,20 @@ export interface SyncState {
  */
 export abstract class SiasbCopyRepository {
   /**
-   * false (e nada gravado) se a pessoa não tem conta SIASB no momento da gravação. Atendimentos: substitui todos.
+   * false (e nada gravado) se a pessoa não tem conta SIASB no momento da gravação. Disciplinas e atendimentos: substitui todos.
    * Sessões: apaga as de `window` (e as de mesmo id das novas) e grava as novas; as de fora ficam. Tudo numa transação que trava a linha da conta SIASB (FOR SHARE):
    * uma desconexão concorrente espera o commit e o `deleteAll` dela, depois, apaga o que foi gravado.
    */
   abstract replaceWindow(
     userId: string,
     window: { from: Date; to: Date },
-    data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
+    data: { disciplines: SyncedDiscipline[]; attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean>;
   /** Ordenadas por `startAt`. */
   abstract sessions(userId: string, from: Date, to: Date): Promise<SyncedSession[]>;
   abstract attendances(userId: string): Promise<SyncedAttendance[]>;
+  /** Ordenadas por nome. */
+  abstract disciplines(userId: string): Promise<SyncedDiscipline[]>;
   /** Cópia e estado. */
   abstract deleteAll(userId: string): Promise<void>;
   abstract state(userId: string): Promise<SyncState | null>;

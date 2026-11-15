@@ -248,6 +248,7 @@ export class SiasbReader {
    */
   async snapshot(userId: string): Promise<{
     window: { from: Date; to: Date };
+    disciplines: { id: string; name: string }[];
     attendances: (ClinicalAttendance & { disciplineName: string })[];
     sessions: ClinicalSession[];
   }> {
@@ -273,7 +274,12 @@ export class SiasbReader {
       ...a,
       disciplineName: names.get(a.disciplineId) ?? '',
     }));
-    return { window, attendances, sessions: firstById(sessions) };
+    return {
+      window,
+      disciplines: firstById(disciplines).map((d) => ({ id: d.id, name: d.name })),
+      attendances,
+      sessions: firstById(sessions),
+    };
   }
 
   /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */
