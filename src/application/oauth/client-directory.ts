@@ -1,4 +1,5 @@
 import { sanitizeName } from '../../domain/oauth/client-name';
+import { isLocalRedirect } from './redirect-uri';
 import { createHash } from 'node:crypto';
 import type { ClientLogo, OAuthClient, OAuthStore } from './oauth-ports';
 import { isValidRedirectUri, type ClientResolver } from './oauth.service';
@@ -34,6 +35,8 @@ export interface VerifiedAppsPort {
 
 /** Como a tela de autorização e a lista de apps mostram um cliente. */
 export interface ClientView {
+  /** O redirect volta para a própria máquina da pessoa (loopback ou esquema privado). Não é verificação: só diz para onde vai o código. */
+  local: boolean;
   domain: string;
   redirectUri: string;
   name: string | null;
@@ -118,18 +121,31 @@ export class ClientDirectory implements ClientResolver {
     // Esquema privado sem host (`com.exemplo.app:/cb`): o esquema faz o papel de domínio.
     const parsed = new URL(redirectUri);
     const domain = parsed.hostname || parsed.protocol.replace(/:$/, '');
-    const v = this.verified.match(domain);
     const fromDoc = client.fromMetadata === true;
+    // Cliente CIMD: quem prova a identidade é o HOST de onde o documento é servido (o client_id, em https), não o redirect
+    // (que pode ser localhost). Os demais, pelo domínio do redirect.
+    const v = this.verifiedByClientId(client) ?? this.verified.match(domain);
     const name = v?.name ?? (fromDoc ? (client.clientName ?? null) : null);
     const hash = v?.logoHash ?? (fromDoc ? client.logoHash : undefined);
     return {
       domain,
       redirectUri,
+      local: isLocalRedirect(redirectUri),
       name,
       logoUrl: hash ? `${this.publicUrl().replace(/\/+$/, '')}/client-logos/${hash}` : null,
       verified: !!v,
       metadata: fromDoc ? 'present' : 'absent',
     };
+  }
+
+  /** Cliente CIMD cujo documento é servido por um host da lista de verificados (ex.: claude.ai). */
+  verifiedByClientId(client: OAuthClient): VerifiedApp | undefined {
+    if (client.fromMetadata !== true) return undefined;
+    try {
+      return this.verified.match(new URL(client.clientId).hostname);
+    } catch {
+      return undefined;
+    }
   }
 
   async logo(hash: string): Promise<{ mime: LogoMime; bytes: Buffer } | null> {

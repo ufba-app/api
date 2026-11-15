@@ -12,6 +12,16 @@ function parse(uri: string): URL | null {
 const isLoopbackHttp = (u: URL): boolean => u.protocol === 'http:' && LOOPBACK_HOSTS.has(u.hostname);
 
 /**
+ * O redirect volta para a PRÓPRIA máquina da pessoa? Loopback http (`localhost`, `127.0.0.1`, `[::1]`) ou esquema privado de app
+ * nativo (`cursor://`, `com.exemplo.app:/cb`). Diz PARA ONDE o código vai, não QUEM é o cliente: não é verificação.
+ */
+export function isLocalRedirect(uri: string): boolean {
+  const u = parse(uri);
+  if (!u) return false;
+  return isLoopbackHttp(u) || (u.protocol !== 'http:' && u.protocol !== 'https:');
+}
+
+/**
  * O `redirect_uri` pedido está entre os registrados? Comparação EXATA, com uma única exceção (RFC 8252 §7.3 e §8.3):
  * para `http` em loopback (`localhost`, `127.0.0.1`, `[::1]`) a PORTA é ignorada, porque o app nativo usa uma porta
  * aleatória por autorização. Exige scheme, host, path e query iguais (o host não é trocado por outro loopback: `localhost`
