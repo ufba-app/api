@@ -6,7 +6,10 @@ import { McpAuth, McpPrincipal } from './mcp-ports';
  * token de acesso OAuth). Sem Bearer ou com credencial inválida devolve null (o controller responde 401).
  */
 export class AuthenticatorsMcpAuth implements McpAuth {
-  constructor(private readonly authenticators: readonly Authenticator[]) {}
+  constructor(
+    private readonly authenticators: readonly Authenticator[],
+    private readonly permissions?: { enabledKeys(userId: string): Promise<ReadonlySet<string>> },
+  ) {}
 
   async authenticate(header: string | undefined): Promise<McpPrincipal | null> {
     const match = typeof header === 'string' ? /^Bearer\s+(\S+)$/i.exec(header) : null;
@@ -14,9 +17,13 @@ export class AuthenticatorsMcpAuth implements McpAuth {
     for (const auth of this.authenticators) {
       const found = await auth.authenticate(match[1]);
       if (found) {
-        return found.clientId
-          ? { userId: found.userId, cliente: { clientId: found.clientId, ...(found.chave ? { chave: found.chave } : {}) } }
-          : { userId: found.userId };
+        // As permissões ligadas valem na hora: são lidas a cada requisição, ao montar o servidor.
+        const permissions = this.permissions ? await this.permissions.enabledKeys(found.userId) : undefined;
+        return {
+          userId: found.userId,
+          ...(found.clientId ? { cliente: { clientId: found.clientId, ...(found.chave ? { chave: found.chave } : {}) } } : {}),
+          ...(permissions ? { permissions } : {}),
+        };
       }
     }
     return null;

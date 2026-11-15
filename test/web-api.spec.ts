@@ -34,6 +34,8 @@ import { MemoryProjectRepository } from '../src/application/memory/project-ports
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
+import { UserPermissionRepository } from '../src/application/ports/permissions';
+import { InMemoryPermissions } from './support/permission-fake';
 import { AcademicRepository, TranscriptSource } from '../src/application/ports/academic';
 import { CatalogRepository, CatalogSource } from '../src/application/ports/catalog';
 import { PdfTextExtractor, TRANSCRIPT_READER } from '../src/application/ports/transcript';
@@ -74,6 +76,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const accounts: SourceAccountRecord[] = [];
   const slotsRepo = new InMemorySlots();
   const pairingsRepo = new InMemoryPairings();
+  const permissionsRepo = new InMemoryPermissions();
   // Vida acadêmica: tudo falso (sem rede, sem SIGAA, sem IA).
   const academicRepo = new InMemoryAcademic();
   const academicSource = new FakeTranscriptSource();
@@ -196,6 +199,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(slotsRepo)
       .overrideProvider(SigaaPairingRepository)
       .useValue(pairingsRepo)
+      .overrideProvider(UserPermissionRepository)
+      .useValue(permissionsRepo)
       .overrideProvider(AcademicRepository)
       .useValue(academicRepo)
       .overrideProvider(TranscriptSource)
@@ -943,6 +948,55 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('o pacote lacrado nunca aparece em log ou erro', async () => {
       for (const s of [PUB, IV, CT]) expect(saida.join('\n')).not.toContain(s);
+    });
+  });
+
+  describe('permissões por fonte', () => {
+    it('lista as permissões com texto da API, todas DESLIGADAS e indisponíveis sem a fonte conectada', async () => {
+      const cookie = await signIn('perm1');
+      const r = await get('/me/permissions', cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      const { items } = (await r.json()) as { items: any[] };
+      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write']);
+      expect(items[0]).toMatchObject({
+        source: 'siasb',
+        title: 'Agendar e desmarcar sessões pelo Claude',
+        risk: 'low',
+        enabled: false,
+        available: false,
+        unavailableReason: 'source_not_connected',
+      });
+      expect(items[0].description).toMatch(/pede a sua confirmação/);
+      expect(items[1]).toMatchObject({ risk: 'high', enabled: false });
+    });
+
+    it('ligar sem a fonte conectada: 409 permission_unavailable, e nada é gravado', async () => {
+      const cookie = await signIn('perm2');
+      const r = await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: true } });
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('permission_unavailable');
+      expect(permissionsRepo.rows.size).toBe(0);
+    });
+
+    it('desligar é sempre permitido (204), mesmo sem a fonte', async () => {
+      const cookie = await signIn('perm3');
+      expect((await send('PUT', '/me/permissions/siasb.procedures_write', { cookie, body: { enabled: false } })).status).toBe(204);
+    });
+
+    it('chave desconhecida e corpo inválido: 400 invalid_request', async () => {
+      const cookie = await signIn('perm4');
+      const a = await send('PUT', '/me/permissions/siasb.nao_existe', { cookie, body: { enabled: true } });
+      expect(a.status).toBe(400);
+      expect(((await a.json()) as any).error).toBe('invalid_request');
+      expect((await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: 'sim' } })).status).toBe(400);
+    });
+
+    it('exige sessão, X-UFBA e Origin da casa', async () => {
+      const cookie = await signIn('perm5');
+      expect((await get('/me/permissions')).status).toBe(401);
+      expect((await send('PUT', '/me/permissions/siasb.schedule_write', { body: { enabled: false } })).status).toBe(401);
+      expect((await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: false }, csrf: false })).status).toBe(403);
     });
   });
 

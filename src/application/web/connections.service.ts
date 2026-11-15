@@ -41,6 +41,8 @@ export class ConnectionsService {
     private readonly slots: SigaaMasterSlotRepository,
     private readonly cfg: { webOrigin: string; institutionalDomain: string },
     private readonly now: () => number = Date.now,
+    /** Chamado depois de desconectar uma fonte inteira (as permissões dela somem). */
+    private readonly onSourceDisconnected: (userId: string, source: string) => Promise<void> = async () => undefined,
   ) {
     // Premissa: a API roda em UMA instância (como o RateWindow do resto da casa).
     this.keyRate = new RateWindow(10, 60 * 60_000, this.now);
@@ -98,6 +100,7 @@ export class ConnectionsService {
     // A pessoa quis tirar a senha: o cofre, as cópias da DK (painel e apps) e as das passkeys vão juntos.
     await this.cofre.apagarCofre(p.userId);
     await this.slots.deleteAll(p.userId);
+    await this.onSourceDisconnected(p.userId, 'sigaa');
   }
 
   // ---- Moodle ----
@@ -127,6 +130,7 @@ export class ConnectionsService {
 
   async disconnectMoodle(p: WebPrincipal): Promise<void> {
     for (const a of await this.accounts.findByUserAndProvider(p.userId, 'MOODLE')) await this.accounts.delete(a.id);
+    await this.onSourceDisconnected(p.userId, 'moodle');
   }
 
   // ---- Classroom ----

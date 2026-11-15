@@ -298,6 +298,21 @@ Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 
 `GET /calendar[?term=2026.2]` → 200, qualquer pessoa com sessão (`no-store`). Sem `term`: o semestre vigente (o que contém hoje; entre dois semestres, o próximo a começar; passados todos, o mais recente). Reedição do mesmo semestre: vale a mais recente. 404 `not_found` se não há calendário publicado; `term` inválido é 400.
 O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersion: "1", sourceUrl, publishedAt, document: { term, publishedOn }, keyDates: { termStart, progress25, progress50, progress75, termEnd, internship }, events[], teachingDays: { byMonth[], total }, nonTeachingDays[], otherEvents[] }`. Toda data é ISO (`YYYY-MM-DD`); `when` é uma união por `type` (`on`, `between`, `until`, `from`, `undetermined`). A projeção em intervalos de dia ainda não existe.
 
+## 5.3 Permissões por fonte (o que a pessoa libera para o Claude fazer)
+
+Interruptores que **só a pessoa liga, pela sessão do painel** (nenhuma ferramenta MCP altera permissões). Genéricos: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada.
+
+- `GET /me/permissions` → `{ items: Permission[] }` (`no-store`), na ordem do catálogo.
+  `Permission = { key, source, title, description, risk: "low"|"high", enabled, available, unavailableReason: "source_not_connected" | null }`.
+  Sem linha no banco = `enabled: false` (todas nascem **desligadas**). `available` = a pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar); sem conexão: `available: false` e `unavailableReason: "source_not_connected"`.
+- `PUT /me/permissions/{key}` `{ enabled }` → 204. Exige sessão, `X-UFBA: 1`, `Origin` da casa e JSON (como as demais rotas que mudam estado). `key` é o enum fechado `PERMISSION_KEYS` do contrato; chave desconhecida ou corpo inválido: 400 `invalid_request`. **Ligar** sem a fonte conectada: 409 `permission_unavailable`. Desligar é sempre permitido.
+
+Chaves: `siasb.schedule_write` (risco `low`: agendar e desmarcar sessões) e `siasb.procedures_write` (risco `high`: lançar e excluir procedimentos previstos; o web abre um diálogo de confirmação antes de ligar). Chave nova entra em `PERMISSION_KEYS` e em `PERMISSION_CATALOG` (`src/application/permissions/permissions.service.ts`: título, descrição, fonte e risco são obrigatórios por tipo).
+
+Armazenamento: `user_permissions (user_id, key, enabled, updated_at)`, chave primária `(user_id, key)`. Desconectar a fonte apaga as linhas daquela fonte (chaves `<fonte>.*`); `DELETE /me` apaga todas (cascade). Cada mudança vai para o log de auditoria sem dado clínico: `permissão: user=<id> chave=<chave> valor=<bool> em=<ISO>`.
+
+**MCP:** o `/mcp` resolve as permissões LIGADAS da pessoa a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave dela está ligada (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Ligar e desligar vale na próxima requisição. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
+
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 
 1. O cliente abre `GET {API}/authorize?…` (OAuth 2.1 + PKCE). A API valida cliente e `redirect_uri` e redireciona
