@@ -1,8 +1,9 @@
 import type { SecretCipher } from '../ports/secret-cipher';
-import type { SiasbCopyRepository, SyncResult } from '../ports/siasb-copy';
+import type { SyncOutcome } from '../jobs/sync-provider';
+import type { SiasbCopyRepository } from '../ports/siasb-copy';
 import { ReconectarError, type SiasbReader } from './siasb-reader';
 
-export type SyncOutcome = SyncResult | 'BUSY' | 'DISCONNECTED';
+export type { SyncOutcome };
 
 export const SYNC_INTERVAL_MS = 45 * 60_000;
 export const SYNC_RETRY_MS = 15 * 60_000;
