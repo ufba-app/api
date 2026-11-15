@@ -43,8 +43,14 @@ ALTER TABLE "user_team_roles" ADD CONSTRAINT "user_team_roles_role_key_fkey" FOR
 
 -- Papeis do time (configuracao). Mudar aqui exige migracao/PR (escrita em docs publica no docs.ufba.app).
 INSERT INTO "team_roles" ("key", "description") VALUES
+  ('dev', 'Desenvolvimento: escreve em api e web, le docs'),
   ('maintainer', 'Mantenedor: escreve em api, web e docs (publica no docs.ufba.app)')
 ON CONFLICT ("key") DO NOTHING;
+
+INSERT INTO "team_role_grants" ("role_key", "project_id", "level")
+SELECT 'dev', "id", CASE WHEN "project" = 'docs' THEN 'read' ELSE 'write' END
+FROM "memory_projects" WHERE "workspace" = 'ufba-app' AND "project" IN ('api', 'web', 'docs')
+ON CONFLICT DO NOTHING;
 
 INSERT INTO "team_role_grants" ("role_key", "project_id", "level")
 SELECT 'maintainer', "id", 'write'
