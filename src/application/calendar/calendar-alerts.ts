@@ -6,6 +6,11 @@ export interface CalendarAdminGate {
   require(userId: string): Promise<void>;
 }
 
+/** O que o "Reprocessar" precisa do verificador. */
+export interface CalendarReprocessor {
+  startReprocess(id: string): Promise<void>;
+}
+
 export interface CalendarAlertItem {
   id: string;
   createdAt: Date;
@@ -53,12 +58,15 @@ export function currentTerm(published: PublishedSpan[], today: string): string |
   return [...published].sort((a, b) => b.term.localeCompare(a.term))[0]!.term;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Alertas do calendário para o painel dos admins e o "Visto". */
 export class CalendarAlertService {
   constructor(
     private readonly logs: CalendarLogRepository,
     private readonly admins: CalendarAdminGate,
     private readonly now: () => Date = () => new Date(),
+    private readonly reprocessor: CalendarReprocessor | null = null,
   ) {}
 
   /**
@@ -96,9 +104,17 @@ export class CalendarAlertService {
     return { items, expired };
   }
 
+  /** "Reprocessar": só admin; valida e dispara a releitura em segundo plano (a tela acompanha pelos alertas). */
+  async reprocess(userId: string, id: string): Promise<void> {
+    await this.admins.require(userId);
+    if (!this.reprocessor) throw new ApiError(503, 'calendar_unavailable', 'A leitura do calendário está indisponível neste servidor.');
+    if (!UUID.test(id)) throw new ApiError(404, 'not_found', 'Registro não encontrado.');
+    await this.reprocessor.startReprocess(id);
+  }
+
   async markSeen(userId: string, id: string): Promise<void> {
     await this.admins.require(userId);
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ApiError(404, 'not_found', 'Registro não encontrado.');
+    if (!UUID.test(id)) throw new ApiError(404, 'not_found', 'Registro não encontrado.');
     const row = await this.logs.markSeen(id, userId, this.now());
     if (!row) throw new ApiError(404, 'not_found', 'Registro não encontrado.');
   }

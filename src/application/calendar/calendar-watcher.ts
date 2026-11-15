@@ -9,6 +9,7 @@ import {
   type NewCalendarLog,
 } from '../ports/calendar';
 import type { CalendarContract } from './contract';
+import { ApiError } from '../web/web-api';
 import { readCalendar } from './read-calendar';
 
 /** Modelo registrado no log (o leitor da Anthropic usa este mesmo, fixo). */
@@ -48,6 +49,7 @@ function reason(e: unknown): string {
  */
 export class CalendarWatcher {
   private running = false;
+  private readonly reprocessing = new Map<string, Promise<void>>();
 
   constructor(
     private readonly logs: CalendarLogRepository,
@@ -121,25 +123,93 @@ export class CalendarWatcher {
       return;
     }
 
-    const outcome = await this.readTwice(pdf);
-    const base = { sourceUrl: link.url, sourceSha256: sha, model: CALENDAR_MODEL };
-    let row: NewCalendarLog;
-    if (outcome.kind === 'error') {
-      row = { ...base, term: link.term, status: 'ERROR', verified: null, warnings: [outcome.message], contract: null, ...outcome.usage };
-      summary.errors += 1;
-    } else {
-      const c = outcome.contract;
-      // O semestre do documento vale mais que o do texto do link.
-      const term = TERM.test(c.document.term) ? c.document.term : link.term;
-      const verified = c.verification.verified;
-      row = { ...base, term, status: verified ? 'PUBLISHED' : 'NOT_VERIFIED', verified, warnings: c.verification.warnings, contract: c, ...outcome.usage };
-      if (verified) summary.published += 1;
-      else summary.notVerified += 1;
-    }
+    const { row, kind } = await this.buildRow(link, pdf, sha);
+    if (kind === 'error') summary.errors += 1;
+    else if (kind === 'published') summary.published += 1;
+    else summary.notVerified += 1;
     // ERROR anterior do mesmo arquivo, ou do download que falhava nesta URL: a linha é atualizada (mantém o "Visto").
     const old = existing ?? (await this.logs.findErrorByUrl(link.url));
     if (old) await this.logs.update(old.id, row);
     else await this.logs.create(row);
+  }
+
+  /** Lê o PDF (com a releitura única) e monta a linha do log: PUBLISHED, NOT_VERIFIED ou ERROR. */
+  private async buildRow(
+    link: { term: string | null; url: string },
+    pdf: Buffer,
+    sha: string,
+  ): Promise<{ row: NewCalendarLog; kind: 'published' | 'notVerified' | 'error' }> {
+    const outcome = await this.readTwice(pdf);
+    const base = { sourceUrl: link.url, sourceSha256: sha, model: CALENDAR_MODEL };
+    if (outcome.kind === 'error') {
+      return {
+        kind: 'error',
+        row: { ...base, term: link.term, status: 'ERROR', verified: null, warnings: [outcome.message], contract: null, ...outcome.usage },
+      };
+    }
+    const c = outcome.contract;
+    // O semestre do documento vale mais que o do texto do link.
+    const term = TERM.test(c.document.term) ? c.document.term : link.term;
+    const verified = c.verification.verified;
+    return {
+      kind: verified ? 'published' : 'notVerified',
+      row: { ...base, term, status: verified ? 'PUBLISHED' : 'NOT_VERIFIED', verified, warnings: c.verification.warnings, contract: c, ...outcome.usage },
+    };
+  }
+
+  /**
+   * "Reprocessar" (botão na linha do alerta): lê de novo o MESMO arquivo e atualiza a MESMA linha (mantém Visto/quem/quando).
+   * Valida na hora (404, 409, 503) e roda em segundo plano: a leitura leva até alguns minutos (duas tentativas). A tela
+   * acompanha pela lista de alertas. Ignora a idempotência por hash, de propósito. Só NOT_VERIFIED e ERROR de um PDF.
+   */
+  async startReprocess(id: string): Promise<void> {
+    if (!this.reader) throw new ApiError(503, 'calendar_unavailable', 'A leitura do calendário está indisponível neste servidor.');
+    const row = await this.logs.findById(id);
+    if (!row) throw new ApiError(404, 'not_found', 'Registro não encontrado.');
+    if (row.status === 'PUBLISHED') {
+      throw new ApiError(409, 'calendar_log_not_reprocessable', 'Esta leitura já foi publicada; só leituras não verificadas ou com erro podem ser reprocessadas.');
+    }
+    if (row.sourceUrl === this.source.pageUrl()) {
+      throw new ApiError(409, 'calendar_log_not_reprocessable', 'Este alerta é da página inteira, não de um arquivo. A próxima leitura semanal o refaz.');
+    }
+    if (this.reprocessing.has(id)) throw new ApiError(409, 'calendar_log_not_reprocessable', 'Este registro já está sendo reprocessado.');
+    const job = this.reprocessOnce(row).finally(() => this.reprocessing.delete(id));
+    this.reprocessing.set(id, job);
+    job.catch(() => undefined);
+  }
+
+  /** Espera o reprocessamento do registro terminar (testes e desligamento ordenado). */
+  async idle(id: string): Promise<void> {
+    await this.reprocessing.get(id)?.catch(() => undefined);
+  }
+
+  private async reprocessOnce(row: CalendarLogRow): Promise<void> {
+    const fail = (message: string): NewCalendarLog => ({
+      sourceUrl: row.sourceUrl,
+      sourceSha256: row.sourceSha256,
+      term: row.term,
+      status: 'ERROR',
+      verified: null,
+      warnings: [message],
+      contract: null,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
+    });
+    let pdf: Buffer;
+    try {
+      pdf = await this.source.download(row.sourceUrl);
+    } catch (e) {
+      await this.logs.update(row.id, fail(`Falha ao baixar o PDF: ${reason(e)}`));
+      return;
+    }
+    const sha = createHash('sha256').update(pdf).digest('hex');
+    const other = await this.logs.findBySha(sha);
+    if (other && other.id !== row.id) {
+      await this.logs.update(row.id, fail('Este arquivo já foi lido em outro registro do log.'));
+      return;
+    }
+    await this.logs.update(row.id, (await this.buildRow({ term: row.term, url: row.sourceUrl }, pdf, sha)).row);
   }
 
   /** Lê; se não fechar (ou falhar), lê mais uma vez. Soma os tokens das duas. */

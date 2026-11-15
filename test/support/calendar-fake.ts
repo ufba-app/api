@@ -34,6 +34,9 @@ export class InMemoryCalendarLogs extends CalendarLogRepository {
   private seq = 0;
   now: () => Date = () => new Date();
 
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
   async findBySha(sha: string) {
     return this.rows.find((r) => r.sourceSha256 === sha) ?? null;
   }

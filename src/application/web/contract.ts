@@ -34,6 +34,8 @@ export const API_ERROR_CODES = [
   "not_project_owner",
   "invalid_email_domain",
   "not_admin",
+  "calendar_unavailable",
+  "calendar_log_not_reprocessable",
   "role_not_found",
   "passkey_limit_reached",
   "passkey_not_found",
@@ -499,6 +501,78 @@ export const TeamResponse = z.object({
 export const TeamSearchQuery = z.object({ q: z.string().max(100).optional() });
 
 export const TeamSearchResponse = z.object({ people: z.array(TeamMemberView) });
+
+const CalendarIsoDate = z.string().describe("YYYY-MM-DD");
+const CalendarRange = z.object({ start: CalendarIsoDate, end: CalendarIsoDate });
+const CalendarOn = z.object({ type: z.literal("on"), date: CalendarIsoDate });
+const CalendarBetween = z.object({ type: z.literal("between"), start: CalendarIsoDate, end: CalendarIsoDate });
+const CalendarUndetermined = z.object({
+  type: z.literal("undetermined"),
+  reason: z.enum(["tbd", "anytime", "suspended", "see-link", "per-notice", "relative", "other"]),
+  /** O texto impresso na coluna DATA. */
+  text: z.string(),
+});
+
+export const CalendarQuery = z.object({ term: z.string().regex(/^\d{4}\.[12]$/).optional() });
+
+/**
+ * O calendário acadêmico publicado de um semestre (contrato fiel ao PDF da SUPAC, sem a conferência interna). Toda data é
+ * ISO; textos como impressos. `when` é uma união: dia, intervalo, "até", "a partir de" ou sem data.
+ */
+export const PublishedCalendarResponse = z.object({
+  contractVersion: z.literal("1"),
+  /** De onde veio (PDF na SUPAC) e quando a API o publicou. */
+  sourceUrl: z.string(),
+  publishedAt: z.string().datetime(),
+  document: z.object({ term: z.string(), publishedOn: CalendarIsoDate.nullable() }),
+  keyDates: z.object({
+    termStart: CalendarIsoDate,
+    progress25: CalendarIsoDate,
+    progress50: CalendarIsoDate,
+    progress75: CalendarIsoDate,
+    termEnd: CalendarIsoDate,
+    internship: CalendarRange.nullable(),
+  }),
+  events: z.array(
+    z.object({
+      section: z.string(),
+      procedure: z.string(),
+      responsibles: z.array(z.string()),
+      description: z.string(),
+      when: z.discriminatedUnion("type", [
+        CalendarOn,
+        CalendarBetween,
+        z.object({ type: z.literal("until"), date: CalendarIsoDate }),
+        z.object({ type: z.literal("from"), date: CalendarIsoDate }),
+        CalendarUndetermined,
+      ]),
+      /** Janelas extras do mesmo evento (reaberturas e dias soltos). */
+      additionalWindows: z.array(CalendarRange),
+      /** Data marcada com * (alteração de data). */
+      dateChanged: z.boolean(),
+      links: z.array(z.string()),
+    }),
+  ),
+  teachingDays: z.object({
+    byMonth: z.array(z.object({ month: z.string().describe("YYYY-MM"), days: z.number() })),
+    total: z.number(),
+  }),
+  nonTeachingDays: z.array(
+    z.object({
+      name: z.string(),
+      when: z.discriminatedUnion("type", [CalendarOn, CalendarBetween]),
+      weekday: z.enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]).nullable(),
+      dateChanged: z.boolean(),
+    }),
+  ),
+  otherEvents: z.array(
+    z.object({
+      name: z.string(),
+      when: z.discriminatedUnion("type", [CalendarOn, CalendarBetween, CalendarUndetermined]),
+      links: z.array(z.string()),
+    }),
+  ),
+});
 
 /** Alertas do calendário acadêmico para os admins (sem o contrato completo: é grande). */
 export const CalendarAlertsResponse = z.object({
