@@ -34,7 +34,7 @@ function sess(id: string, disc: string, attendance: string, startIso: string, la
 class FakeSiasb extends SiasbSource {
   calls: string[] = [];
   sessionRanges: { from: Date; to: Date }[] = [];
-  failure: SiasbError | null = null;
+  failure: Error | null = null;
   renew = false;
   discs: ClinicalDiscipline[] = [];
   atts: ClinicalAttendance[] = [];
@@ -43,12 +43,12 @@ class FakeSiasb extends SiasbSource {
   private touch(name: string, s: SiasbSession) {
     this.calls.push(name);
     this.seenCookies.push({ ...s.cookies });
-    if (this.failure) throw this.failure;
     if (this.renew) {
       s.cookies = { ...s.cookies, fresh: 'novo' };
       s.expiresAt = new Date('2026-12-31T00:00:00Z');
       s.dirty = true;
     }
+    if (this.failure) throw this.failure;
   }
   async courseOptions() {
     return [];
@@ -80,6 +80,7 @@ class FakeSiasb extends SiasbSource {
 class FakeAccounts extends SourceAccountRepository {
   rows: SourceAccountRecord[] = [];
   statuses: { id: string; status: string }[] = [];
+  failUpdate = false;
   updates: { id: string; secret: EncryptedSecret; expiresAt?: Date }[] = [];
   async upsert(_i: UpsertSourceAccountInput): Promise<SourceAccountRecord> {
     throw new Error('no');
@@ -95,6 +96,7 @@ class FakeAccounts extends SourceAccountRepository {
     this.rows.forEach((r) => r.id === id && (r.status = status));
   }
   async updateSecret(id: string, secret: EncryptedSecret, expiresAt?: Date) {
+    if (this.failUpdate) throw new Error('P2025');
     this.updates.push({ id, secret, expiresAt });
   }
   async delete() {}
@@ -284,5 +286,97 @@ describe('SiasbReader.bookingDeadline e feriados', () => {
     const ok = await s.reader.bookingDeadline('u1', { disciplineId: '3' });
     expect(ok.deadline).toEqual(d('2026-11-17T13:00:00Z'));
     await expect(s.reader.bookingDeadline('u1', { disciplineId: '1' })).rejects.toThrow(/horário/);
+  });
+});
+
+describe('SiasbReader: regravação do jar e erros', () => {
+  it('401 com jar dirty não regrava o jar', async () => {
+    const { siasb, accounts, reader } = setup();
+    siasb.renew = true;
+    siasb.failure = new SiasbError('REAUTH_NEEDED');
+    await expect(reader.sessions('u1')).rejects.toBeInstanceOf(ReconectarError);
+    expect(accounts.updates).toHaveLength(0);
+  });
+
+  it('falha ao regravar não troca o resultado da leitura', async () => {
+    const { siasb, accounts, reader } = setup();
+    siasb.renew = true;
+    siasb.sess = [sess('s1', '3', 'a3', '2026-11-20T13:00:00Z')];
+    accounts.failUpdate = true;
+    await expect(reader.sessions('u1')).resolves.toHaveLength(1);
+  });
+
+  it('falha ao regravar não troca o erro original da leitura', async () => {
+    const { siasb, accounts, reader } = setup();
+    siasb.renew = true;
+    siasb.failure = new SiasbError('UNAVAILABLE');
+    accounts.failUpdate = true;
+    await expect(reader.sessions('u1')).rejects.toThrow('O SIASB não respondeu agora');
+  });
+
+  it('jar guardado corrompido vira REAUTH_NEEDED sem vazar conteúdo', async () => {
+    const { siasb, accounts, reader } = setup();
+    accounts.rows[0].secret = { ciphertext: 'segredo-cookie{', iv: 'iv', authTag: 'tag' };
+    const err = await reader.sessions('u1').catch((e) => e);
+    expect(err).toBeInstanceOf(ReconectarError);
+    expect(err.message).not.toContain('segredo-cookie');
+    expect(accounts.statuses).toEqual([{ id: 'acc1', status: 'REAUTH_NEEDED' }]);
+    expect(siasb.calls).toEqual([]);
+  });
+
+  it('erro que não é do SIASB é relançado como está', async () => {
+    const { siasb, accounts, reader } = setup();
+    siasb.failure = new Error('boom');
+    const err = await reader.sessions('u1').catch((e) => e);
+    expect(err).not.toBeInstanceOf(ReconectarError);
+    expect(err.message).toBe('boom');
+    expect(accounts.statuses).toEqual([]);
+  });
+});
+
+describe('SiasbReader: estado e prazo vencido', () => {
+  const att = { id: 'a2', disciplineId: '2', initials: 'AB', treatmentType: 'PLANNING' as const, concluded: false };
+
+  it('Confirmado passada e Atendido futura não dão SCHEDULED', async () => {
+    const s = setup();
+    s.siasb.discs = [{ id: '2', name: 'Disc 2' }];
+    s.siasb.atts = [att];
+    s.siasb.sess = [
+      sess('s1', '2', 'a2', '2026-11-10T13:00:00Z', 'Confirmado'),
+      sess('s2', '2', 'a2', '2026-11-20T13:00:00Z', 'Atendido'),
+    ];
+    const [r] = await s.reader.situation('u1');
+    expect(r.state).toBe('NO_SESSION');
+  });
+
+  function wednesdays(s: ReturnType<typeof setup>) {
+    s.siasb.discs = [{ id: '2', name: 'Disc 2' }];
+    s.siasb.atts = [att];
+    s.siasb.sess = [
+      sess('s1', '2', 'a2', '2026-11-04T13:00:00Z', 'Atendido'),
+      sess('s2', '2', 'a2', '2026-11-11T13:00:00Z', 'Atendido'),
+    ];
+  }
+
+  it('situation usa o horário da semana seguinte quando o prazo do próximo já passou', async () => {
+    const s = setup();
+    wednesdays(s);
+    const [r] = await s.reader.situation('u1');
+    // quarta 18/11 10h teria prazo sexta 13/11 (passado); vale quarta 25/11, prazo sexta 20/11 10h
+    expect(r.nextSlot).toEqual(d('2026-11-25T13:00:00Z'));
+    expect(r.deadline).toEqual(d('2026-11-20T13:00:00Z'));
+  });
+
+  it('bookingDeadline por disciplina segue a mesma regra', async () => {
+    const s = setup();
+    wednesdays(s);
+    const r = await s.reader.bookingDeadline('u1', { disciplineId: '2' });
+    expect(r.deadline).toEqual(d('2026-11-20T13:00:00Z'));
+  });
+
+  it('bookingDeadline por sessionStart é literal, mesmo no passado', async () => {
+    const s = setup();
+    const r = await s.reader.bookingDeadline('u1', { sessionStart: d('2026-11-18T13:00:00Z') });
+    expect(r.deadline).toEqual(d('2026-11-13T13:00:00Z'));
   });
 });

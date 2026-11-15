@@ -83,7 +83,7 @@ export class SiasbReader {
     const holidays = await this.calendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
     return disciplines.map((disc) => {
       const state = states.find((s) => s.disciplineId === disc.id)?.state ?? 'NO_PATIENT';
-      const nextSlot = nextSlotStart(slots, disc.id, now);
+      const nextSlot = this.nextUsableSlot(slots, disc.id, now, holidays);
       return {
         disciplineId: disc.id,
         disciplineName: disc.name,
@@ -110,23 +110,41 @@ export class SiasbReader {
     input: { disciplineId: string } | { sessionStart: Date },
   ): Promise<BookingDeadline> {
     const now = this.now();
-    let start: Date;
     if ('sessionStart' in input) {
+      // Literal: o prazo dessa sessão exata, mesmo que já tenha passado.
       await this.requireAccount(userId);
-      start = input.sessionStart;
-    } else {
-      const sessions = await this.withSession(userId, (session) =>
-        this.siasb.sessions(session, ...this.historyWindow(now)),
+      const start = input.sessionStart;
+      const holidays = await this.calendar.holidays(
+        new Date(Math.min(now.getTime(), start.getTime())),
+        new Date(Math.max(now.getTime(), start.getTime())),
       );
-      const next = nextSlotStart(deduceSlots(sessions.filter(countsForSlots)), input.disciplineId, now);
-      if (!next) throw new SiasbReadError('siasb_no_slot');
-      start = next;
+      return { deadline: this.deadlineFor(start, holidays), estimated: true, holidaysConsidered: holidays.known };
     }
-    const holidays = await this.calendar.holidays(
-      new Date(Math.min(now.getTime(), start.getTime())),
-      new Date(Math.max(now.getTime(), start.getTime())),
+    const sessions = await this.withSession(userId, (session) =>
+      this.siasb.sessions(session, ...this.historyWindow(now)),
     );
-    return { deadline: this.deadlineFor(start, holidays), estimated: true, holidaysConsidered: holidays.known };
+    const slots = deduceSlots(sessions.filter(countsForSlots));
+    const holidays = await this.calendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
+    const next = this.nextUsableSlot(slots, input.disciplineId, now, holidays);
+    if (!next) throw new SiasbReadError('siasb_no_slot');
+    return { deadline: this.deadlineFor(next, holidays), estimated: true, holidaysConsidered: holidays.known };
+  }
+
+  /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */
+  private nextUsableSlot(
+    slots: ReturnType<typeof deduceSlots>,
+    disciplineId: string,
+    now: Date,
+    holidays: { known: boolean; dates: string[] },
+  ): Date | null {
+    let cursor = now;
+    for (let i = 0; i < 6; i++) {
+      const slot = nextSlotStart(slots, disciplineId, cursor);
+      if (!slot) return null;
+      if (this.deadlineFor(slot, holidays).getTime() > now.getTime()) return slot;
+      cursor = slot;
+    }
+    return null;
   }
 
   /** Sem calendário oficial, 1 dia útil de margem: o erro cai para o lado de chegar cedo. */
@@ -153,11 +171,13 @@ export class SiasbReader {
       await this.accounts.setStatus(account.id, 'REAUTH_NEEDED');
       throw new ReconectarError();
     }
+    let skipStore = false;
     try {
       return await fn(session);
     } catch (e) {
       if (e instanceof SiasbError) {
         if (e.code === 'REAUTH_NEEDED') {
+          skipStore = true;
           await this.accounts.setStatus(account.id, 'REAUTH_NEEDED');
           throw new ReconectarError();
         }
@@ -165,8 +185,13 @@ export class SiasbReader {
       }
       throw e;
     } finally {
-      if (session.dirty) {
-        await this.accounts.updateSecret(account.id, this.cipher.encrypt(encodeSession(session)), session.expiresAt ?? undefined);
+      if (session.dirty && !skipStore) {
+        // Melhor esforço: falha ao regravar (ex.: conta apagada no meio) nunca troca o resultado da leitura.
+        try {
+          await this.accounts.updateSecret(account.id, this.cipher.encrypt(encodeSession(session)), session.expiresAt ?? undefined);
+        } catch {
+          /* ignorado de propósito */
+        }
       }
     }
   }
