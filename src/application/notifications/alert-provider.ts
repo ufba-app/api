@@ -4,14 +4,14 @@ export interface AlertResult {
   sent: number;
   /** Avisos dados como enviados sem enviar (`Notifier.record` com `suppressed`). */
   suppressed: number;
-  /** Nada a avisar agora (sem aparelho, silêncio, ajuste desligado, duplicata, nada devido). */
+  /** Nada a avisar agora (sem aparelho, ajuste desligado, duplicata, fora do horário da fonte, nada devido). */
   skipped: number;
   failed: number;
 }
 
 /**
  * Contrato de uma fonte de avisos para o `notify-cron` (`node dist/src/notify-job.js`). A fonte só decide O QUE avisar e
- * QUANDO (lendo o banco, nunca a fonte externa) e envia pelo `Notifier`; o canal, o silêncio e a anti-duplicata são dele.
+ * QUANDO (lendo o banco, nunca a fonte externa) e envia pelo `Notifier`; o canal e a anti-duplicata são dele.
  */
 export interface AlertProvider {
   /** Nome curto da fonte (`siasb`), só para a linha de contagens do log. */

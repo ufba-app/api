@@ -79,17 +79,12 @@ describe('Notifier.send', () => {
     expect(await t.notifier.send(U, msg())).toBe('sent');
   });
 
-  it.each([
-    ['21:59', 'sent'],
-    ['22:00', 'quiet'],
-    ['06:59', 'quiet'],
-    ['07:00', 'sent'],
-  ])('silêncio 22h-7h na Bahia: às %s → %s (quiet não envia e não registra)', async (hhmm, expected) => {
+  it.each(['21:59', '22:00', '03:00', '06:59', '07:00'])('é neutro quanto a horário: às %s envia (silêncio é regra de quem avisa, não do canal)', async (hhmm) => {
     const t = setup(() => new Date(`2026-11-18T${hhmm}:00-03:00`));
     await t.devices.register(U, { subscription: sub(1) });
-    expect(await t.notifier.send(U, msg())).toBe(expected);
-    expect(t.log.rows.size).toBe(expected === 'quiet' ? 0 : 1);
-    expect(t.sender.sent).toHaveLength(expected === 'quiet' ? 0 : 1);
+    expect(await t.notifier.send(U, msg())).toBe('sent');
+    expect(t.log.rows.size).toBe(1);
+    expect(t.sender.sent).toHaveLength(1);
   });
 
   it('duplicata: o mesmo (pessoa, tipo, assunto, instante) envia UMA vez só, mesmo em chamadas simultâneas', async () => {
