@@ -20,7 +20,21 @@ export class ConnectionStatus {
     private readonly slots: SigaaMasterSlotRepository,
     private readonly siasbLink: SiasbLink,
     private readonly now: () => number = Date.now,
+    /** Teto de espera pelo SIASB no /me; estourou, vale `offered: false` (nada é guardado). */
+    private readonly offerTimeoutMs: number = 2500,
   ) {}
+
+  private async offered(userId: string): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.offerTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.siasbLink.offer(userId).then((o) => o.offered, () => false), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /**
    * SIASB: conectado dispensa consultar o SIASB ("oferecido" é verdade). Sessão com fim estimado já passado vale como
@@ -30,7 +44,7 @@ export class ConnectionStatus {
     try {
       const s = await this.siasbLink.status(p.userId);
       if (s.state === 'disconnected') {
-        const offered = await this.siasbLink.offer(p.userId).then((o) => o.offered, () => false);
+        const offered = await this.offered(p.userId);
         return { offered, status: 'disconnected', expiresAt: null };
       }
       const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();

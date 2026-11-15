@@ -1328,6 +1328,23 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await send('DELETE', '/connections/siasb')).status).toBe(401);
     });
 
+    it('Origin de fora com X-UFBA válido: 403 csrf_rejected no POST e no DELETE', async () => {
+      const cookie = await aluno('siasb-origem');
+      // csrf:false derruba X-UFBA E Origin; aqui o X-UFBA vai certo e só a Origin é de fora.
+      const headers = { 'x-ufba': '1', origin: 'https://evil.example', cookie };
+      const p = await fetch(`${base}/connections/siasb`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ password: SENHA_SIASB }),
+      });
+      expect(p.status).toBe(403);
+      expect(((await p.json()) as any).error).toBe('csrf_rejected');
+      const d = await fetch(`${base}/connections/siasb`, { method: 'DELETE', headers });
+      expect(d.status).toBe(403);
+      expect(((await d.json()) as any).error).toBe('csrf_rejected');
+      expect((await meOf(cookie)).connections.siasb.status).toBe('disconnected');
+    });
+
     it('oferecido, conecta (connected + expiresAt), desconecta (disconnected)', async () => {
       const cookie = await aluno('siasb-fluxo');
       expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null });

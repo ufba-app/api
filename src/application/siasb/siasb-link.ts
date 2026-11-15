@@ -7,6 +7,7 @@ import { SiasbError, type SiasbCourse, type SiasbSource } from '../ports/siasb-s
 import type { Secret } from '../shared/secret';
 
 const COURSES_TTL_MS = 10 * 60 * 1000;
+const FAILURE_TTL_MS = 60 * 1000;
 const ACCOUNT_KEY = 'siasb';
 
 export type SiasbLinkState = 'disconnected' | 'connected' | 'reconnect_required';
@@ -34,6 +35,8 @@ function toLinkError(e: unknown): LinkError {
  */
 export class SiasbLink {
   private readonly coursesCache = new Map<string, { courses: SiasbCourse[]; expiresAt: number }>();
+  /** Falha recente ao listar cursos (só para `offer`): evita bater no SIASB a cada /me enquanto ele está fora. */
+  private readonly failures = new Map<string, number>();
 
   constructor(
     private readonly siasb: SiasbSource,
@@ -48,10 +51,15 @@ export class SiasbLink {
     const none = { offered: false, courses: [] as SiasbCourse[] };
     const registration = await this.registration(userId);
     if (!registration) return none;
+    const hit = this.coursesCache.get(userId);
+    const cached = !!hit && hit.expiresAt > this.now();
+    if (!cached && (this.failures.get(userId) ?? 0) > this.now()) return none;
     try {
       const courses = await this.courses(userId, registration);
+      this.failures.delete(userId);
       return courses.length > 0 ? { offered: true, courses } : none;
     } catch {
+      this.failures.set(userId, this.now() + FAILURE_TTL_MS);
       return none;
     }
   }

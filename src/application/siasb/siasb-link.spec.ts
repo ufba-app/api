@@ -181,6 +181,30 @@ describe('SiasbLink.offer', () => {
     siasb.failure = new SiasbError('UNAVAILABLE');
     expect(await link.offer('u1')).toEqual({ offered: false, courses: [] });
   });
+
+  it('falha fica 60 s em cache: duas chamadas fazem uma só ao SIASB; depois de 60 s tenta de novo', async () => {
+    const { link, siasb, advance } = setup();
+    siasb.failure = new SiasbError('UNAVAILABLE');
+    await link.offer('u1');
+    await link.offer('u1');
+    expect(siasb.courseCalls).toBe(1);
+    advance(59_000);
+    await link.offer('u1');
+    expect(siasb.courseCalls).toBe(1);
+    advance(2_000);
+    await link.offer('u1');
+    expect(siasb.courseCalls).toBe(2);
+  });
+
+  it('sucesso depois da janela de falha volta a oferecer', async () => {
+    const { link, siasb, advance } = setup();
+    siasb.failure = new SiasbError('UNAVAILABLE');
+    expect((await link.offer('u1')).offered).toBe(false);
+    siasb.failure = null;
+    advance(61_000);
+    expect((await link.offer('u1')).offered).toBe(true);
+    expect((await link.offer('u1')).offered).toBe(true);
+  });
 });
 
 describe('SiasbLink.connect', () => {
