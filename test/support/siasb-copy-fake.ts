@@ -1,5 +1,6 @@
 import {
   SiasbCopyRepository,
+  type ClaimResult,
   type SyncedAttendance,
   type SyncedSession,
   type SyncResult,
@@ -58,6 +59,11 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     };
   }
 
+  /** Só para testes: cria a linha de estado como o `claim` cria (sem trava). */
+  seedState(userId: string): void {
+    this.ensure(userId);
+  }
+
   private ensure(userId: string): Stored {
     let s = this.states.get(userId);
     if (!s) {
@@ -74,18 +80,20 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
   }
 
   async recordAttempt(userId: string, r: { result: SyncResult; at: Date; nextRunAt: Date | null }): Promise<void> {
-    const s = this.ensure(userId);
+    const s = this.states.get(userId);
+    if (!s) return;
     s.lastAttemptAt = r.at;
     s.result = r.result;
     s.nextRunAt = r.nextRunAt;
     if (r.result === 'OK') s.lastSuccessAt = r.at;
   }
 
-  async claim(userId: string, now: Date, leaseMs: number): Promise<boolean> {
+  async claim(userId: string, now: Date, leaseMs: number): Promise<ClaimResult> {
+    if (!this.states.has(userId) && !this.accounts.has(userId)) return 'no_account';
     const s = this.ensure(userId);
-    if (s.lockedUntil && s.lockedUntil >= now) return false;
+    if (s.lockedUntil && s.lockedUntil >= now) return 'busy';
     s.lockedUntil = new Date(now.getTime() + leaseMs);
-    return true;
+    return 'claimed';
   }
 
   async release(userId: string): Promise<void> {

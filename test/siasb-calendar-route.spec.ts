@@ -69,6 +69,7 @@ describe('GET /me/siasb/sessions', () => {
         ],
       },
     );
+    copy.seedState('u1');
     await copy.recordAttempt('u1', { result: 'OK', at: new Date(), nextRunAt: null });
 
     const link = {

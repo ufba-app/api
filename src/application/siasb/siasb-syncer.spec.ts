@@ -101,7 +101,7 @@ describe('SiasbSyncer', () => {
       nextRunAt: new Date(NOW.getTime() + SYNC_INTERVAL_MS),
     });
     // trava liberada
-    expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe(true);
+    expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe('claimed');
   });
 
   it('firstName vazio é cifrado e não quebra', async () => {
@@ -180,16 +180,24 @@ describe('SiasbSyncer', () => {
       throw new Error('x');
     });
     await syncer.syncUser(USER);
-    expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe(true);
+    expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe('claimed');
   });
 
-  it('claim que lança (usuário apagado): DISCONNECTED, sem ler nem gravar', async () => {
+  it('sem conta SIASB: DISCONNECTED, sem ler e sem criar linha de estado', async () => {
     const { reader, copy, syncer } = setup(() => snap());
-    jest.spyOn(copy, 'claim').mockRejectedValue(new Error('FK'));
+    copy.accounts.delete(USER);
     const rec = jest.spyOn(copy, 'recordAttempt');
     expect(await syncer.syncUser(USER)).toBe('DISCONNECTED');
     expect(reader.snapshot).not.toHaveBeenCalled();
     expect(rec).not.toHaveBeenCalled();
+    expect(await copy.state(USER)).toBeNull();
+  });
+
+  it('erro genérico de claim escapa de syncUser (não vira DISCONNECTED)', async () => {
+    const { reader, copy, syncer } = setup(() => snap());
+    jest.spyOn(copy, 'claim').mockRejectedValue(new Error('db down'));
+    await expect(syncer.syncUser(USER)).rejects.toThrow('db down');
+    expect(reader.snapshot).not.toHaveBeenCalled();
   });
 
   it('recordAttempt que lança nunca escapa e a trava é liberada', async () => {

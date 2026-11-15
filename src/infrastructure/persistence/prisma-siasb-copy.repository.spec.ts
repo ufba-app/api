@@ -33,9 +33,9 @@ function setup() {
     sourceAccount: { findMany: jest.fn() },
     siasbSyncedAttendance: { findMany: jest.fn(), deleteMany: jest.fn() },
     siasbSyncedSession: { findMany: jest.fn(), deleteMany: jest.fn() },
+    $executeRaw: jest.fn().mockResolvedValue(1),
     siasbSyncState: {
       findUnique: jest.fn(),
-      upsert: jest.fn(),
       updateMany: jest.fn(),
       createMany: jest.fn(),
       deleteMany: jest.fn(),
@@ -186,40 +186,32 @@ describe('PrismaSiasbCopyRepository', () => {
     });
   });
 
-  it('recordAttempt: lastSuccessAt só em OK', async () => {
+  it('recordAttempt: updateMany (sem upsert, sem recriar linha órfã); lastSuccessAt só em OK', async () => {
     const { repo, prisma } = setup();
     const at = new Date('2026-11-15T10:00:00Z');
     await repo.recordAttempt(U, { result: 'OK', at, nextRunAt: null });
-    expect(prisma.siasbSyncState.upsert.mock.calls[0][0].update).toEqual({
-      lastAttemptAt: at,
-      result: 'OK',
-      nextRunAt: null,
-      lastSuccessAt: at,
+    expect(prisma.siasbSyncState.updateMany.mock.calls[0][0]).toEqual({
+      where: { userId: U },
+      data: { lastAttemptAt: at, result: 'OK', nextRunAt: null, lastSuccessAt: at },
     });
     await repo.recordAttempt(U, { result: 'UNAVAILABLE', at, nextRunAt: null });
-    const last = prisma.siasbSyncState.upsert.mock.calls[1][0];
-    expect(last.update).toEqual({
-      lastAttemptAt: at,
-      result: 'UNAVAILABLE',
-      nextRunAt: null,
-    });
-    expect(last.create).toEqual({
-      userId: U,
-      lastAttemptAt: at,
-      result: 'UNAVAILABLE',
-      nextRunAt: null,
+    expect(prisma.siasbSyncState.updateMany.mock.calls[1][0]).toEqual({
+      where: { userId: U },
+      data: { lastAttemptAt: at, result: 'UNAVAILABLE', nextRunAt: null },
     });
   });
 
-  it('claim: cria a linha se faltar e toma a trava com um UPDATE condicional', async () => {
+  it('claim: INSERT só com conta SIASB (EXISTS) e depois UPDATE condicional da trava', async () => {
     const { repo, prisma } = setup();
     const now = new Date('2026-11-15T12:00:00Z');
     prisma.siasbSyncState.updateMany.mockResolvedValue({ count: 1 });
-    await expect(repo.claim(U, now, 60_000)).resolves.toBe(true);
-    expect(prisma.siasbSyncState.createMany).toHaveBeenCalledWith({
-      data: [{ userId: U }],
-      skipDuplicates: true,
-    });
+    await expect(repo.claim(U, now, 60_000)).resolves.toBe('claimed');
+    const [strings, ...values] = prisma.$executeRaw.mock.calls[0] as [string[], ...unknown[]];
+    const sql = strings.join('?');
+    expect(sql).toContain('INSERT INTO siasb_sync_state');
+    expect(sql).toContain("WHERE EXISTS (SELECT 1 FROM source_accounts WHERE user_id = ?::uuid AND provider = 'SIASB')");
+    expect(sql).toContain('ON CONFLICT DO NOTHING');
+    expect(values).toEqual([U, U]);
     expect(prisma.siasbSyncState.updateMany).toHaveBeenCalledWith({
       where: {
         userId: U,
@@ -227,8 +219,16 @@ describe('PrismaSiasbCopyRepository', () => {
       },
       data: { lockedUntil: new Date(now.getTime() + 60_000) },
     });
+  });
+
+  it('claim: trava válida com linha existente é busy; sem linha (sem conta) é no_account', async () => {
+    const { repo, prisma } = setup();
+    const now = new Date('2026-11-15T12:00:00Z');
     prisma.siasbSyncState.updateMany.mockResolvedValue({ count: 0 });
-    await expect(repo.claim(U, now, 60_000)).resolves.toBe(false);
+    prisma.siasbSyncState.findUnique.mockResolvedValue({ userId: U });
+    await expect(repo.claim(U, now, 60_000)).resolves.toBe('busy');
+    prisma.siasbSyncState.findUnique.mockResolvedValue(null);
+    await expect(repo.claim(U, now, 60_000)).resolves.toBe('no_account');
   });
 
   it('release limpa a trava', async () => {

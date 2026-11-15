@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   SiasbCopyRepository,
+  type ClaimResult,
   type SyncedAttendance,
   type SyncedSession,
   type SyncResult,
@@ -124,19 +125,17 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       nextRunAt: r.nextRunAt,
     };
     const success = r.result === 'OK' ? { lastSuccessAt: r.at } : {};
-    await this.prisma.siasbSyncState.upsert({
+    // A linha nasce no claim (só com conta SIASB); sem ela (ex.: desconectou no meio) não recria estado órfão.
+    await this.prisma.siasbSyncState.updateMany({
       where: { userId },
-      create: { userId, ...base, ...success },
-      update: { ...base, ...success },
+      data: { ...base, ...success },
     });
   }
 
-  async claim(userId: string, now: Date, leaseMs: number): Promise<boolean> {
-    // cria a linha se faltar (sem sobrescrever) e toma a trava num único UPDATE condicional (atômico no Postgres)
-    await this.prisma.siasbSyncState.createMany({
-      data: [{ userId }],
-      skipDuplicates: true,
-    });
+  async claim(userId: string, now: Date, leaseMs: number): Promise<ClaimResult> {
+    // cria a linha se faltar (sem sobrescrever) SÓ se a pessoa tem conta SIASB, num único INSERT atômico; depois toma
+    // a trava num UPDATE condicional (atômico no Postgres)
+    await this.prisma.$executeRaw`INSERT INTO siasb_sync_state (user_id) SELECT ${userId}::uuid WHERE EXISTS (SELECT 1 FROM source_accounts WHERE user_id = ${userId}::uuid AND provider = 'SIASB') ON CONFLICT DO NOTHING`;
     const { count } = await this.prisma.siasbSyncState.updateMany({
       where: {
         userId,
@@ -144,7 +143,9 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       },
       data: { lockedUntil: new Date(now.getTime() + leaseMs) },
     });
-    return count === 1;
+    if (count === 1) return 'claimed';
+    const row = await this.prisma.siasbSyncState.findUnique({ where: { userId }, select: { userId: true } });
+    return row ? 'busy' : 'no_account';
   }
 
   async release(userId: string): Promise<void> {

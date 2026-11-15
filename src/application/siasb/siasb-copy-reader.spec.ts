@@ -58,6 +58,7 @@ async function setup(now = NOW) {
       ],
     },
   );
+  copy.seedState('u1');
   await copy.recordAttempt('u1', { result: 'OK', at: new Date(now.getTime() - 60_000), nextRunAt: null });
   return { copy, reader: new SiasbCopyReader(copy, cipher, () => now) };
 }
@@ -121,6 +122,7 @@ describe('SiasbCopyReader.calendar', () => {
 
   it('stale: último resultado diferente de OK', async () => {
     const { copy, reader } = await setup();
+    copy.seedState('u1');
     await copy.recordAttempt('u1', { result: 'UNAVAILABLE', at: new Date(NOW.getTime() - 1000), nextRunAt: null });
     const r = await reader.calendar('u1', FROM, TO);
     expect(r.stale).toBe(true);

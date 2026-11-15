@@ -10,7 +10,8 @@ export const SYNC_LEASE_MS = 10 * 60_000;
 
 /**
  * Sincroniza a cópia do SIASB de uma pessoa: trava, lê (snapshot), cifra o primeiro nome do paciente, grava a janela
- * e registra o estado. Nunca lança nem loga mensagem de erro (podem trazer nome de paciente).
+ * e registra o estado. Só o `claim` pode lançar (falha de infraestrutura); nunca loga mensagem de erro (podem trazer nome
+ * de paciente).
  */
 export class SiasbSyncer {
   constructor(
@@ -22,15 +23,10 @@ export class SiasbSyncer {
 
   async syncUser(userId: string): Promise<SyncOutcome> {
     const start = this.now();
-    let claimed: boolean;
-    try {
-      claimed = await this.copy.claim(userId, start, SYNC_LEASE_MS);
-    } catch {
-      // O único erro esperado aqui é o usuário ter sido apagado (chave estrangeira): conta como desconectado.
-      // A mensagem não é lida nem logada.
-      return 'DISCONNECTED';
-    }
-    if (!claimed) return 'BUSY';
+    // Erro de claim (ex.: banco fora) ESCAPA: o job conta como falha e a rota responde 5xx genérico.
+    const claimed = await this.copy.claim(userId, start, SYNC_LEASE_MS);
+    if (claimed === 'no_account') return 'DISCONNECTED';
+    if (claimed === 'busy') return 'BUSY';
     try {
       let outcome: SyncOutcome;
       try {

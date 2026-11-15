@@ -358,6 +358,7 @@ describe('SiasbLink.status e disconnect', () => {
     expect((await link.status('u1')).syncedAt).toBeNull();
     copy.accounts.set('u1', 'OK');
     const at = new Date('2026-11-15T10:00:00Z');
+    copy.seedState('u1');
     await copy.recordAttempt('u1', { result: 'OK', at, nextRunAt: null });
     expect((await link.status('u1')).syncedAt).toEqual(at);
   });
@@ -417,6 +418,7 @@ describe('SiasbLink.status e disconnect', () => {
     const at = new Date('2026-11-15T10:00:00Z');
     for (const u of ['u1', 'u2']) {
       await copy.replaceWindow(u, { from: at, to: at }, { attendances: [att], sessions: [] });
+      copy.seedState(u);
       await copy.recordAttempt(u, { result: 'OK', at, nextRunAt: null });
     }
     await link.disconnect('u1');

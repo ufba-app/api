@@ -25,6 +25,8 @@ export interface SyncedSession {
 
 export type SyncResult = 'OK' | 'RECONNECT_REQUIRED' | 'UNAVAILABLE';
 
+export type ClaimResult = 'claimed' | 'busy' | 'no_account';
+
 export interface SyncState {
   lastAttemptAt: Date | null;
   lastSuccessAt: Date | null;
@@ -53,10 +55,13 @@ export abstract class SiasbCopyRepository {
   /** Cópia e estado. */
   abstract deleteAll(userId: string): Promise<void>;
   abstract state(userId: string): Promise<SyncState | null>;
-  /** `lastSuccessAt = at` só se `OK`; falha não apaga o último sucesso. */
+  /** `lastSuccessAt = at` só se `OK`; falha não apaga o último sucesso. Sem linha de estado, não faz nada (ela nasce no `claim`). */
   abstract recordAttempt(userId: string, r: { result: SyncResult; at: Date; nextRunAt: Date | null }): Promise<void>;
-  /** false se a trava vale (outra execução em curso). */
-  abstract claim(userId: string, now: Date, leaseMs: number): Promise<boolean>;
+  /**
+   * Cria a linha de estado SÓ se a pessoa tem conta SIASB e toma a trava. `'busy'` se a trava vale (outra execução em
+   * curso); `'no_account'` se não há conta nem linha (nada é criado).
+   */
+  abstract claim(userId: string, now: Date, leaseMs: number): Promise<ClaimResult>;
   abstract release(userId: string): Promise<void>;
   /**
    * Conta SIASB `OK` e (sem estado, ou sem agenda, ou `nextRunAt <= now`), por `nextRunAt` crescente (sem estado e sem

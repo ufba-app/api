@@ -73,13 +73,20 @@ describe('InMemorySiasbCopy', () => {
     expect(await repo.sessions(U, W.from, W.to)).toEqual([]);
   });
 
-  it('claim: false enquanto a trava vale; true depois do prazo ou do release', async () => {
+  it('claim: busy enquanto a trava vale; claimed depois do prazo ou do release', async () => {
     const t0 = d('2026-11-15T12:00:00Z');
-    expect(await repo.claim(U, t0, 60_000)).toBe(true);
-    expect(await repo.claim(U, new Date(t0.getTime() + 30_000), 60_000)).toBe(false);
-    expect(await repo.claim(U, new Date(t0.getTime() + 61_000), 60_000)).toBe(true);
+    expect(await repo.claim(U, t0, 60_000)).toBe('claimed');
+    expect(await repo.claim(U, new Date(t0.getTime() + 30_000), 60_000)).toBe('busy');
+    expect(await repo.claim(U, new Date(t0.getTime() + 61_000), 60_000)).toBe('claimed');
     await repo.release(U);
-    expect(await repo.claim(U, new Date(t0.getTime() + 62_000), 60_000)).toBe(true);
+    expect(await repo.claim(U, new Date(t0.getTime() + 62_000), 60_000)).toBe('claimed');
+  });
+
+  it('claim: sem conta e sem linha é no_account e não cria estado; recordAttempt sem linha não faz nada', async () => {
+    const t0 = d('2026-11-15T12:00:00Z');
+    expect(await repo.claim('ghost', t0, 60_000)).toBe('no_account');
+    await repo.recordAttempt('ghost', { result: 'OK', at: t0, nextRunAt: null });
+    expect(await repo.state('ghost')).toBeNull();
   });
 
   it('dueUsers: ignora REAUTH_NEEDED, respeita limit, ordena por nextRunAt e inclui quem não tem estado', async () => {
@@ -88,6 +95,7 @@ describe('InMemorySiasbCopy', () => {
     repo.accounts.set('u-late', 'OK');
     repo.accounts.set('u-future', 'OK');
     repo.accounts.set('u-early', 'OK');
+    for (const u of ['u-late', 'u-early', 'u-future', 'u-reauth']) repo.seedState(u);
     await repo.recordAttempt('u-late', {
       result: 'OK',
       at: now,
@@ -134,6 +142,7 @@ describe('InMemorySiasbCopy', () => {
       attendances: [att('a1')],
       sessions: [ses('s', '2026-11-12T10:00:00Z')],
     });
+    repo.seedState(U);
     await repo.recordAttempt(U, { result: 'OK', at: W.from, nextRunAt: null });
     await repo.deleteAll(U);
     expect(await repo.attendances(U)).toEqual([]);
@@ -144,6 +153,7 @@ describe('InMemorySiasbCopy', () => {
   it('recordAttempt: OK grava lastSuccessAt; falha não o apaga', async () => {
     const t1 = d('2026-11-15T10:00:00Z');
     const t2 = d('2026-11-15T11:00:00Z');
+    repo.seedState(U);
     await repo.recordAttempt(U, { result: 'OK', at: t1, nextRunAt: t2 });
     await repo.recordAttempt(U, {
       result: 'UNAVAILABLE',
