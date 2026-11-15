@@ -15,9 +15,9 @@ Código de saída: **0** se a leitura rodou (inclusive quando a página falhou: 
 
 ## Serviço no Railway
 
-O `railway.json` da raiz é da **API** (healthcheck `/health`, reinício em falha) e vale para todo serviço deste repo que o use. O cron tem config própria, **`railway.cron.json`**: aponte o serviço `calendar-cron` para ele (Settings → Config-as-code → caminho do arquivo, `railwayConfigFile`).
+A configuração de deploy do cron **mora no serviço `calendar-cron` do Railway**, não em arquivo do repositório (o Config as Code do Railway foi descontinuado: o `railway.json` deixa de valer em 01/12/2026 e serviço novo nem pode usá-lo). Mudar qualquer valor abaixo exige mexer no painel do Railway (ou pedir ao orquestrador).
 
-| campo | valor (vem de `railway.cron.json`) |
+| campo | valor (configurado no serviço) |
 |---|---|
 | Repositório | `ufba-app/api` (o mesmo da API) |
 | Build | `Dockerfile` |

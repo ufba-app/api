@@ -12,8 +12,17 @@ Public Suffix List e o cookie de sessão não funciona entre eles.
 | API | `ufba-app/platform` (este) | `api.ufba.app` |
 | Web | `ufba-app/web` | `meu.ufba.app` |
 
-A API builda pelo `Dockerfile` (ver `railway.json`). No start, roda `prisma migrate deploy` e depois sobe. Se a
+A API builda pelo `Dockerfile`. No start, roda `prisma migrate deploy` e depois sobe. Se a
 migração falhar, o container não sobe e o deploy anterior continua no ar. Healthcheck: `GET /health`.
+
+## Configuração de deploy (mora no serviço, não no repositório)
+
+O Config as Code do Railway foi descontinuado (o `railway.json` deixa de valer em 01/12/2026 e serviço novo nem pode usá-lo), então **não há `railway.json` neste repositório**: a configuração de deploy fica em cada serviço do Railway. Mudar qualquer valor exige mexer no painel do Railway (ou pedir ao orquestrador); alterar arquivo no repo não muda nada.
+
+| serviço | configuração |
+|---|---|
+| `api` | build pelo `Dockerfile`; healthcheck `/health` com timeout de 120 s; reinício `ON_FAILURE` com até 5 tentativas |
+| `calendar-cron` | comando de start `node dist/src/calendar-job.js`; agendamento (cron, UTC) `0 9 * * 1`; **sem** healthcheck; reinício `NEVER` (detalhes e variáveis em `docs/CALENDARIO-CRON.md`) |
 
 ## Variáveis da API
 
