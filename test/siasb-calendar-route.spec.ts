@@ -80,7 +80,7 @@ describe('GET /me/siasb/sessions', () => {
       controllers: [SiasbController],
       providers: [
         { provide: SiasbLink, useValue: link },
-        { provide: SiasbCopyReader, useValue: new SiasbCopyReader(copy, cipher) },
+        { provide: SiasbCopyReader, useValue: new SiasbCopyReader(copy, cipher, { holidays: async () => ({ known: false, dates: [] }) }) },
       ],
     })
       .overrideGuard(SessionGuard)

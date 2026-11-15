@@ -1,5 +1,10 @@
+import type { ClinicalSession } from '../../domain/siasb/types';
+import type { AcademicCalendar } from '../ports/academic-calendar';
 import type { SecretCipher } from '../ports/secret-cipher';
-import type { SiasbCopyRepository } from '../ports/siasb-copy';
+import type { SiasbCopyRepository, SyncState } from '../ports/siasb-copy';
+
+import { DAY_MS, MAX_AHEAD_DAYS } from './session-period';
+import { computeSituation, historyWindow, type DisciplineSituation } from './situation';
 
 export const STALE_AFTER_MS = 3 * 60 * 60_000;
 
@@ -24,6 +29,7 @@ export class SiasbCopyReader {
   constructor(
     private readonly copy: SiasbCopyRepository,
     private readonly cipher: SecretCipher,
+    private readonly academicCalendar: AcademicCalendar,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -45,9 +51,7 @@ export class SiasbCopyReader {
         names.set(a.id, '');
       }
     }
-    const syncedAt = state?.lastSuccessAt ?? null;
-    const stale =
-      !state || state.result !== 'OK' || !syncedAt || this.now().getTime() - syncedAt.getTime() > STALE_AFTER_MS;
+    const { syncedAt, stale } = this.freshness(state);
     return {
       syncedAt,
       stale,
@@ -64,5 +68,54 @@ export class SiasbCopyReader {
         rescheduledStartAt: s.rescheduledStartAt,
       })),
     };
+  }
+
+  /** Situação de cada disciplina a partir da cópia (mesma regra do leitor ao vivo; sessões de [agora − 60 d, agora + 45 d]). */
+  async situation(userId: string): Promise<{ syncedAt: Date | null; stale: boolean; items: DisciplineSituation[] }> {
+    const now = this.now();
+    const [from, to] = historyWindow(now);
+    const [state, disciplines, attendances, sessions, holidays] = await Promise.all([
+      this.copy.state(userId),
+      this.copy.disciplines(userId),
+      this.copy.attendances(userId),
+      this.copy.sessions(userId, from, to),
+      this.academicCalendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS)),
+    ]);
+    const clinicalSessions: ClinicalSession[] = sessions.map((s) => ({
+      id: s.id,
+      attendanceId: s.attendanceId,
+      disciplineId: s.disciplineId,
+      disciplineName: s.disciplineName,
+      firstName: '',
+      professorName: s.professorName,
+      locationName: s.locationName,
+      startAt: s.startAt,
+      endAt: s.endAt,
+      rescheduledStartAt: s.rescheduledStartAt,
+      statusLabel: s.statusLabel,
+    }));
+    const items = computeSituation({
+      disciplines,
+      activeAttendances: attendances
+        .filter((a) => !a.concluded)
+        .map((a) => ({
+          id: a.id,
+          disciplineId: a.disciplineId,
+          firstName: '',
+          treatmentType: a.treatmentType,
+          concluded: false,
+        })),
+      sessions: clinicalSessions,
+      now,
+      holidays,
+    });
+    return { ...this.freshness(state), items };
+  }
+
+  private freshness(state: SyncState | null): { syncedAt: Date | null; stale: boolean } {
+    const syncedAt = state?.lastSuccessAt ?? null;
+    const stale =
+      !state || state.result !== 'OK' || !syncedAt || this.now().getTime() - syncedAt.getTime() > STALE_AFTER_MS;
+    return { syncedAt, stale };
   }
 }

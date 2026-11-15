@@ -1,6 +1,7 @@
 import { InMemorySiasbCopy } from '../../../test/support/siasb-copy-fake';
 import type { SecretCipher } from '../ports/secret-cipher';
 import type { SyncedAttendance, SyncedSession } from '../ports/siasb-copy';
+import { AcademicCalendar } from '../ports/academic-calendar';
 import { STALE_AFTER_MS, SiasbCopyReader } from './siasb-copy-reader';
 
 /** Cifra falsa e reversível (sem AES, para respeitar a regra de camadas). */
@@ -12,6 +13,17 @@ class FakeCipher implements SecretCipher {
     const [plain, used] = JSON.parse(Buffer.from(secret.ciphertext, 'base64').toString());
     if (used !== aad) throw new Error('aad');
     return plain as string;
+  }
+}
+
+class FakeCalendar extends AcademicCalendar {
+  calls: { from: Date; to: Date }[] = [];
+  constructor(private readonly result = { known: false, dates: [] as string[] }) {
+    super();
+  }
+  async holidays(from: Date, to: Date) {
+    this.calls.push({ from, to });
+    return this.result;
   }
 }
 
@@ -61,7 +73,7 @@ async function setup(now = NOW) {
   );
   copy.seedState('u1');
   await copy.recordAttempt('u1', { result: 'OK', at: new Date(now.getTime() - 60_000), nextRunAt: null });
-  return { copy, reader: new SiasbCopyReader(copy, cipher, () => now) };
+  return { copy, reader: new SiasbCopyReader(copy, cipher, new FakeCalendar(), () => now) };
 }
 
 const FROM = new Date('2026-11-10T00:00:00Z');
@@ -100,6 +112,7 @@ describe('SiasbCopyReader.calendar', () => {
           throw new Error(`falha com ${NOME}`);
         },
       },
+      new FakeCalendar(),
       () => NOW,
     );
     const r = await broken.calendar('u1', FROM, TO);
@@ -132,7 +145,115 @@ describe('SiasbCopyReader.calendar', () => {
 
   it('stale: último sucesso mais velho que 3 h', async () => {
     const { copy } = await setup();
-    const later = new SiasbCopyReader(copy, cipher, () => new Date(NOW.getTime() + STALE_AFTER_MS));
+    const later = new SiasbCopyReader(copy, cipher, new FakeCalendar(), () => new Date(NOW.getTime() + STALE_AFTER_MS));
     expect((await later.calendar('u1', FROM, TO)).stale).toBe(true);
+  });
+});
+
+describe('SiasbCopyReader.situation', () => {
+  const DAY = 86_400_000;
+  const iso = (days: number, hour = 13) => {
+    const t = new Date(NOW.getTime() + days * DAY);
+    t.setUTCHours(hour, 0, 0, 0);
+    return t.toISOString();
+  };
+  const att = (id: string, disciplineId: string, concluded = false): SyncedAttendance => ({
+    ...attendance('u1', id),
+    disciplineId,
+    concluded,
+  });
+  const sess = (id: string, attendanceId: string, disciplineId: string, startAt: string, statusLabel: string) => ({
+    ...session(id, attendanceId, startAt),
+    disciplineId,
+    statusLabel,
+  });
+
+  async function build(
+    data: { disciplines?: { id: string; name: string }[]; attendances?: SyncedAttendance[]; sessions?: SyncedSession[] },
+    calendar = new FakeCalendar(),
+    withState = true,
+  ) {
+    const copy = new InMemorySiasbCopy();
+    copy.accounts.set('u1', 'OK');
+    await copy.replaceWindow(
+      'u1',
+      { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-12-31T00:00:00Z') },
+      { disciplines: data.disciplines ?? [], attendances: data.attendances ?? [], sessions: data.sessions ?? [] },
+    );
+    if (withState) {
+      copy.seedState('u1');
+      await copy.recordAttempt('u1', { result: 'OK', at: new Date(NOW.getTime() - 60_000), nextRunAt: null });
+    }
+    return { copy, calendar, reader: new SiasbCopyReader(copy, cipher, calendar, () => NOW) };
+  }
+
+  const DISCS = [
+    { id: 'd1', name: 'Clinica 1' },
+    { id: 'd2', name: 'Clinica 2' },
+    { id: 'd3', name: 'Clinica 3' },
+    { id: 'd4', name: 'Clinica 4' },
+  ];
+
+  it('NO_PATIENT, NO_SESSION e SCHEDULED; atendimento concluído não conta como ativo', async () => {
+    const { reader } = await build({
+      disciplines: DISCS,
+      attendances: [att('a2', 'd2'), att('a3', 'd3'), att('a4', 'd4', true)],
+      sessions: [
+        sess('s3p', 'a3', 'd3', iso(-7), 'Atendido'),
+        sess('s3p2', 'a3', 'd3', iso(-14), 'Atendido'),
+        sess('s3', 'a3', 'd3', iso(7), 'Confirmado'),
+        sess('s4', 'a4', 'd4', iso(7), 'Confirmado'),
+      ],
+    });
+    const r = await reader.situation('u1');
+    expect(r.stale).toBe(false);
+    expect(r.syncedAt).toEqual(new Date(NOW.getTime() - 60_000));
+    const by = Object.fromEntries(r.items.map((x) => [x.disciplineId, x]));
+    expect(by.d1.state).toBe('NO_PATIENT');
+    expect(by.d2.state).toBe('NO_SESSION');
+    expect(by.d3.state).toBe('SCHEDULED');
+    expect(by.d4.state).toBe('NO_PATIENT');
+    expect(by.d3.nextSlot).toBeInstanceOf(Date);
+    expect(by.d3.deadline).toBeInstanceOf(Date);
+    expect(by.d1.nextSlot).toBeNull();
+  });
+
+  it('ignora sessões fora de [agora - 60 d, agora + 45 d]', async () => {
+    const { reader } = await build({
+      disciplines: [DISCS[1], DISCS[2]],
+      attendances: [att('a2', 'd2'), att('a3', 'd3')],
+      sessions: [sess('s2', 'a2', 'd2', iso(50), 'Confirmado'), sess('s3', 'a3', 'd3', iso(-70), 'Atendido')],
+    });
+    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x]));
+    expect(by.d2).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
+    expect(by.d3).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
+  });
+
+  it('consulta feriados na mesma janela do leitor ao vivo e holidaysConsidered segue o known', async () => {
+    const known = new FakeCalendar({ known: true, dates: [] });
+    const a = await build({ disciplines: [DISCS[0]] }, known);
+    const [item] = (await a.reader.situation('u1')).items;
+    expect(item.holidaysConsidered).toBe(true);
+    expect(known.calls).toEqual([{ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) }]);
+    const b = await build({ disciplines: [DISCS[0]] });
+    expect((await b.reader.situation('u1')).items[0].holidaysConsidered).toBe(false);
+  });
+
+  it('cópia vazia e sem sincronização: syncedAt null, stale, nenhum item', async () => {
+    const { reader } = await build({}, new FakeCalendar(), false);
+    expect(await reader.situation('u1')).toEqual({ syncedAt: null, stale: true, items: [] });
+  });
+
+  it('disciplinas sem sincronização continuam NO_PATIENT e stale', async () => {
+    const { reader } = await build({ disciplines: [DISCS[0]] }, new FakeCalendar(), false);
+    const r = await reader.situation('u1');
+    expect(r.stale).toBe(true);
+    expect(r.syncedAt).toBeNull();
+    expect(r.items.map((i) => i.state)).toEqual(['NO_PATIENT']);
+  });
+
+  it('só enxerga a cópia da própria pessoa', async () => {
+    const { reader } = await build({ disciplines: [DISCS[0]] });
+    expect((await reader.situation('u2')).items).toEqual([]);
   });
 });

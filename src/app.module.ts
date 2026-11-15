@@ -194,8 +194,9 @@ export function buildLiveSources(
     },
     {
       provide: SiasbCopyReader,
-      useFactory: (copy: SiasbCopyRepository, cipher: SecretCipher) => new SiasbCopyReader(copy, cipher),
-      inject: [SiasbCopyRepository, SecretCipher],
+      useFactory: (copy: SiasbCopyRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>
+        new SiasbCopyReader(copy, cipher, calendar),
+      inject: [SiasbCopyRepository, SecretCipher, AcademicCalendar],
     },
     // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
