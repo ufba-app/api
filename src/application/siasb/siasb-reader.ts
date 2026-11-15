@@ -251,6 +251,31 @@ export class SiasbReader {
     return computeProgress({ disciplines, active, inactive, sessions, range: used, isDefault: !range, now });
   }
 
+  /**
+   * Leitura para a cópia: atendimentos ativos e inativos, disciplinas e as sessões de [agora − 120 dias, agora + 45 dias]
+   * (165 dias, abaixo do teto de 190: uma só chamada de sessões), tudo numa única sessão guardada.
+   */
+  async snapshot(userId: string): Promise<{
+    window: { from: Date; to: Date };
+    attendances: (ClinicalAttendance & { disciplineName: string })[];
+    sessions: ClinicalSession[];
+  }> {
+    const now = this.now();
+    const window = {
+      from: new Date(now.getTime() - PROGRESS_DEFAULT_DAYS * DAY_MS),
+      to: new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS),
+    };
+    const { disciplines, active, inactive, sessions } = await this.withSession(userId, async (session) => ({
+      disciplines: await this.siasb.disciplines(session),
+      active: await this.siasb.attendances(session, 'active'),
+      inactive: await this.siasb.attendances(session, 'inactive'),
+      sessions: await this.siasb.sessions(session, window.from, window.to),
+    }));
+    const names = new Map(disciplines.map((d) => [d.id, d.name]));
+    const attendances = [...active, ...inactive].map((a) => ({ ...a, disciplineName: names.get(a.disciplineId) ?? '' }));
+    return { window, attendances, sessions };
+  }
+
   /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */
   private nextUsableSlot(
     slots: ReturnType<typeof deduceSlots>,
