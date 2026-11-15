@@ -92,12 +92,36 @@ function isLoopback(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-/** https, ou http só em loopback (clientes CLI como o Claude Code). Sem fragmento. */
+/** Esquemas que nunca servem de redirect (executam código, leem arquivo ou não são "de aplicativo"). */
+const BLOCKED_SCHEMES = new Set([
+  'javascript:',
+  'data:',
+  'vbscript:',
+  'file:',
+  'blob:',
+  'about:',
+  'ftp:',
+  'ws:',
+  'wss:',
+  'mailto:',
+  'tel:',
+  'sms:',
+  'chrome:',
+  'chrome-extension:',
+]);
+
+/**
+ * https; http só em loopback (clientes CLI como o Claude Code, porta livre: ver redirect-uri.ts); ou esquema PRIVADO de
+ * aplicativo nativo (`cursor://…`, `vscode://…`, `com.exemplo.app:/cb`; RFC 8252 §7.1), comparado de forma EXATA, sem curinga.
+ * Sem credenciais na URL e sem fragmento.
+ */
 export function isValidRedirectUri(uri: string): boolean {
   try {
     const u = new URL(uri);
-    if (u.hash) return false;
-    return u.protocol === 'https:' || (u.protocol === 'http:' && isLoopback(u.hostname));
+    if (u.hash || u.username || u.password) return false;
+    if (u.protocol === 'https:') return true;
+    if (u.protocol === 'http:') return isLoopback(u.hostname);
+    return !BLOCKED_SCHEMES.has(u.protocol) && !uri.includes('*') && /^[a-z][a-z0-9+.-]*:$/.test(u.protocol);
   } catch {
     return false;
   }
@@ -119,7 +143,7 @@ export class OAuthService {
   async registerClient(body: { redirect_uris?: unknown; client_name?: unknown }): Promise<OAuthClient> {
     const uris = body.redirect_uris;
     if (!Array.isArray(uris) || uris.length === 0 || !uris.every((u) => typeof u === 'string' && isValidRedirectUri(u))) {
-      throw new OAuthError('invalid_redirect_uri', 'redirect_uris deve listar URLs https (ou http em localhost)');
+      throw new OAuthError('invalid_redirect_uri', 'redirect_uris deve listar URLs https, http em localhost ou esquema privado do aplicativo');
     }
     const client: OAuthClient = {
       clientId: randomToken(16),
