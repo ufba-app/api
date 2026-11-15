@@ -1,0 +1,616 @@
+{
+  "document": {
+    "issuedOn": "2026-08-19"
+  },
+  "program": {
+    "name": "ENGENHARIA DA COMPUTAÇÃO/EPOLI - SALVADOR - BACHARELADO - PRESENCIAL - N",
+    "curriculum": "G20251 - 2025.2",
+    "currentTerm": 8,
+    "completionDeadline": {
+      "standard": "2030.1",
+      "maximum": "2033.1"
+    }
+  },
+  "indices": {
+    "cr": 8.1597,
+    "iap": 0.8434
+  },
+  "components": [
+    {
+      "term": "2023.1",
+      "kind": "OB",
+      "code": "FISD36",
+      "name": "FÍSICA GERAL TEÓRICA I",
+      "hours": 60,
+      "grade": 6.8,
+      "status": "APR"
+    },
+    {
+      "term": "2023.1",
+      "kind": "OB",
+      "code": "FISD42",
+      "name": "FÍSICA GERAL EXPERIMENTAL I",
+      "hours": 30,
+      "grade": 8.5,
+      "status": "APR"
+    },
+    {
+      "term": "2023.1",
+      "kind": "OB",
+      "code": "MATA01",
+      "name": "GEOMETRIA ANALÍTICA",
+      "hours": 60,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2023.1",
+      "kind": "OB",
+      "code": "MATA02",
+      "name": "CÁLCULO A",
+      "hours": 90,
+      "grade": 9,
+      "status": "APR"
+    },
+    {
+      "term": "2023.1",
+      "kind": "OB",
+      "code": "QUI029",
+      "name": "QUIMICA GERAL",
+      "hours": 60,
+      "grade": 7.6,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "ENGC26",
+      "name": "SISTEMAS LÓGICOS",
+      "hours": 30,
+      "grade": 8.6,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "ENGG51",
+      "name": "INTRODUÇÃO À ENGENHARIA DE COMPUTAÇÃO",
+      "hours": 30,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "FISD34",
+      "name": "FÍSICA GERAL TEÓRICA II",
+      "hours": 60,
+      "grade": 8.2,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "FISD41",
+      "name": "FÍSICA GERAL EXPERIMENTAL II",
+      "hours": 30,
+      "grade": 8.1,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "MATA03",
+      "name": "CÁLCULO B",
+      "hours": 90,
+      "grade": 9.5,
+      "status": "APR"
+    },
+    {
+      "term": "2023.2",
+      "kind": "OB",
+      "code": "MATA07",
+      "name": "ÁLGEBRA LINEAR A",
+      "hours": 60,
+      "grade": 9,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": null,
+      "code": "ENGA47",
+      "name": "TECNOLOGIA DOS MATERIAIS PARA A ENGENHARIA ELÉTRICA",
+      "hours": 30,
+      "grade": null,
+      "status": "TRANC"
+    },
+    {
+      "term": "2024.1",
+      "kind": "OB",
+      "code": "ENGC40",
+      "name": "ELETRÔNICA DIGITAL",
+      "hours": 30,
+      "grade": 8,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": "OB",
+      "code": "FISD37",
+      "name": "FÍSICA GERAL TEÓRICA III",
+      "hours": 60,
+      "grade": 9.5,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": "OB",
+      "code": "FISD40",
+      "name": "FÍSICA GERAL EXPERIMENTAL III",
+      "hours": 30,
+      "grade": 8.1,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": "OB",
+      "code": "MATA04",
+      "name": "CÁLCULO C",
+      "hours": 90,
+      "grade": 7.9,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": "OB",
+      "code": "MATA37",
+      "name": "INTRODUÇÃO À LÓGICA DE PROGRAMAÇÃO",
+      "hours": 60,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2024.1",
+      "kind": null,
+      "code": "MATA97",
+      "name": "MATEMÁTICA DISCRETA II",
+      "hours": 60,
+      "grade": null,
+      "status": "TRANC"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "ADM012",
+      "name": "ADMINISTRACAO",
+      "hours": 60,
+      "grade": 7.8,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "EB",
+      "code": "ENG269",
+      "name": "CIÊNCIAS DO AMBIENTE",
+      "hours": 60,
+      "grade": 8.6,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "ENGC30",
+      "name": "MECÂNICA DOS SÓLIDOS",
+      "hours": 60,
+      "grade": 5,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "ENGC32",
+      "name": "ANÁLISE DE CIRCUITOS I",
+      "hours": 60,
+      "grade": 7,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "ENGC50",
+      "name": "SISTEMAS MICROPROCESSADOS",
+      "hours": 60,
+      "grade": 8.5,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "MAT236",
+      "name": "MÉTODOS ESTATÍSTICOS",
+      "hours": 60,
+      "grade": 5.5,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": "OB",
+      "code": "MATA55",
+      "name": "PROGRAMAÇÃO ORIENTADA A OBJETOS",
+      "hours": 60,
+      "grade": 8.5,
+      "status": "APR"
+    },
+    {
+      "term": "2024.2",
+      "kind": null,
+      "code": "MATA97",
+      "name": "MATEMÁTICA DISCRETA II",
+      "hours": 60,
+      "grade": 4,
+      "status": "REP"
+    },
+    {
+      "term": "2025.1",
+      "kind": "OB",
+      "code": "ENGC24",
+      "name": "SINAIS E SISTEMAS I",
+      "hours": 60,
+      "grade": 7.7,
+      "status": "APR"
+    },
+    {
+      "term": "2025.1",
+      "kind": null,
+      "code": "ENGC41",
+      "name": "DISPOSITIVOS ELETRÔNICOS",
+      "hours": 60,
+      "grade": null,
+      "status": "TRANC"
+    },
+    {
+      "term": "2025.1",
+      "kind": "OB",
+      "code": "ENGG52",
+      "name": "LABORATÓRIO INTEGRADO I-A",
+      "hours": 30,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2025.1",
+      "kind": "OB",
+      "code": "ENGG62",
+      "name": "METODOLOGIA E EXPRESSÃO DO CONHECIMENTO CIENTÍFICO",
+      "hours": 30,
+      "grade": 8.6,
+      "status": "APR"
+    },
+    {
+      "term": "2025.1",
+      "kind": null,
+      "code": "MATA49",
+      "name": "PROGRAMAÇÃO DE SOFTWARE BÁSICO",
+      "hours": 60,
+      "grade": null,
+      "status": "TRANC"
+    },
+    {
+      "term": "2025.1",
+      "kind": "OB",
+      "code": "MATA62",
+      "name": "ENGENHARIA DE SOFTWARE I",
+      "hours": 60,
+      "grade": 7.6,
+      "status": "APR"
+    },
+    {
+      "term": "2025.2",
+      "kind": "OB",
+      "code": "ENG370",
+      "name": "FENÔMENOS DE TRANSPORTES I",
+      "hours": 60,
+      "grade": 8.5,
+      "status": "APR"
+    },
+    {
+      "term": "2025.2",
+      "kind": "OB",
+      "code": "ENGC33",
+      "name": "SINAIS E SISTEMAS II",
+      "hours": 60,
+      "grade": 7.8,
+      "status": "APR"
+    },
+    {
+      "term": "2025.2",
+      "kind": "OB",
+      "code": "ENGG58",
+      "name": "INTERFACE HOMEM-MÁQUINA",
+      "hours": 60,
+      "grade": 8.5,
+      "status": "APR"
+    },
+    {
+      "term": "2025.2",
+      "kind": "OB",
+      "code": "MAT174",
+      "name": "CÁLCULO NUMÉRICO I",
+      "hours": 60,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2025.2",
+      "kind": "OB",
+      "code": "MATA40",
+      "name": "ESTRUTURAS DE DADOS E ALGORITMOS I",
+      "hours": 60,
+      "grade": 8.3,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "ENGC25",
+      "name": "ANALISE DE CIRCUITOS II",
+      "hours": 60,
+      "grade": 5,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "ENGC41",
+      "name": "DISPOSITIVOS ELETRÔNICOS",
+      "hours": 60,
+      "grade": 7.8,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "ENGC63",
+      "name": "PROCESSAMENTO DIGITAL DE SINAIS",
+      "hours": 60,
+      "grade": 8,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "ENGG53",
+      "name": "LABORATÓRIO INTEGRADO II-A",
+      "hours": 30,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "MATA49",
+      "name": "PROGRAMAÇÃO DE SOFTWARE BÁSICO",
+      "hours": 60,
+      "grade": 9,
+      "status": "APR"
+    },
+    {
+      "term": "2026.1",
+      "kind": "OB",
+      "code": "MATA52",
+      "name": "ANÁLISE E PROJETO DE ALGORITMOS",
+      "hours": 60,
+      "grade": 10,
+      "status": "APR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OB",
+      "code": "ENGG54",
+      "name": "LABORATÓRIO INTEGRADO III-A",
+      "hours": 30,
+      "grade": null,
+      "status": "MATR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OB",
+      "code": "ENGG56",
+      "name": "PROJETO DE CIRCUITOS INTEGRADOS DIGITAIS",
+      "hours": 60,
+      "grade": null,
+      "status": "MATR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OP",
+      "code": "ENGG64",
+      "name": "VISÃO COMPUTACIONAL",
+      "hours": 60,
+      "grade": null,
+      "status": "MATR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OP",
+      "code": "ENGG67",
+      "name": "TÓPICOS ESPECIAIS EM ENGENHARIA DE COMPUTAÇÃO I",
+      "hours": 60,
+      "grade": null,
+      "status": "MATR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OB",
+      "code": "MATA58",
+      "name": "SISTEMAS OPERACIONAIS",
+      "hours": 60,
+      "grade": null,
+      "status": "MATR"
+    },
+    {
+      "term": "2026.2",
+      "kind": "OB",
+      "code": "MATA59",
+      "name": "REDES DE COMPUTADORES I",
+      "hours": 60,
+      "grade": null,
+      "status": "MATR"
+    }
+  ],
+  "hours": {
+    "mandatory": {
+      "required": 3150,
+      "completed": 2100,
+      "pending": 1050
+    },
+    "elective": {
+      "required": 360,
+      "completed": 0,
+      "pending": 360
+    },
+    "complementary": {
+      "required": 100,
+      "completed": 0,
+      "pending": 100
+    },
+    "total": {
+      "required": 3610,
+      "completed": 2100,
+      "pending": 1510
+    }
+  },
+  "pendingMandatory": {
+    "declaredTotal": 20,
+    "items": [
+      {
+        "code": "ENGA47",
+        "name": "TECNOLOGIA DOS MATERIAIS PARA A ENGENHARIA ELÉTRICA",
+        "hours": 30,
+        "enrolled": false
+      },
+      {
+        "code": "MATA97",
+        "name": "MATEMÁTICA DISCRETA II",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "MATA47",
+        "name": "LÓGICA PARA COMPUTAÇÃO",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "ENGG56",
+        "name": "PROJETO DE CIRCUITOS INTEGRADOS DIGITAIS",
+        "hours": 60,
+        "enrolled": true
+      },
+      {
+        "code": "MATA59",
+        "name": "REDES DE COMPUTADORES I",
+        "hours": 60,
+        "enrolled": true
+      },
+      {
+        "code": "ENGG54",
+        "name": "LABORATÓRIO INTEGRADO III-A",
+        "hours": 30,
+        "enrolled": true
+      },
+      {
+        "code": "MATA58",
+        "name": "SISTEMAS OPERACIONAIS",
+        "hours": 60,
+        "enrolled": true
+      },
+      {
+        "code": "MATA51",
+        "name": "TEORIA DA COMPUTAÇÃO",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "MATA61",
+        "name": "COMPILADORES",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "MATA82",
+        "name": "SISTEMAS DE TEMPO REAL",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "ENGG57",
+        "name": "LABORATÓRIO INTEGRADO IV-A",
+        "hours": 30,
+        "enrolled": false
+      },
+      {
+        "code": "ENGD33",
+        "name": "PROGRAMAÇÃO EM TEMPO REAL PARA SISTEMAS EMBARCADOS",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "ECO151",
+        "name": "ECONOMIA E FINANÇAS",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "ENGG55",
+        "name": "REDES INDUSTRIAIS",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "GENG0044",
+        "name": "TRABALHO DE CONCLUSÃO DE CURSO EM ENGENHARIA DE COMPUTAÇÃO",
+        "hours": 15,
+        "enrolled": false
+      },
+      {
+        "code": "GENG0011",
+        "name": "ESTÁGIO EM ENGENHARIA DE COMPUTAÇÃO",
+        "hours": 210,
+        "enrolled": false
+      },
+      {
+        "code": "GENG0090",
+        "name": "TRABALHO DE CONCLUSÃO DO CURSO DE ENG DE COMPUTAÇÃO II",
+        "hours": 15,
+        "enrolled": false
+      },
+      {
+        "code": "GDIR0012",
+        "name": "LEGISLAÇÃO SOCIAL",
+        "hours": 60,
+        "enrolled": false
+      },
+      {
+        "code": "ENADE",
+        "name": "ENADE INGRESSANTE PENDENTE",
+        "hours": 0,
+        "enrolled": false
+      },
+      {
+        "code": "ENADE",
+        "name": "ENADE CONCLUINTE PENDENTE",
+        "hours": 0,
+        "enrolled": false
+      }
+    ]
+  },
+  "equivalences": [
+    "Cumpriu GENG0032 - CIÊNCIAS DO AMBIENTE (60h) através de ENG269 - CIÊNCIAS DO AMBIENTE (60h)"
+  ],
+  "notes": [
+    "Semestre 2024.1 definido como atípico (www.ufba.br/Resolucoes/5861)",
+    "Semestre 2025.2 definido como atípico conforme Resolução CONSEPE 03/2025 ( Art.1º §3º)",
+    "Semestre 2026.1 definido como atípico conforme Resolução CONSEPE 01/2026 ( Art.4º )"
+  ]
+}
