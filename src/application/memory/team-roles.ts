@@ -6,16 +6,31 @@ import { TeamRoleRepository, UserLister } from './team-ports';
 
 const LEVEL: Record<GrantLevel, number> = { read: 1, write: 2 };
 
-/** Concessões vindas dos papéis: por projeto, vale o maior nível entre os papéis da pessoa. */
+/** Todo estudante com conta lê a documentação; escrever (publicar no docs.ufba.app) é só do mantenedor. */
+export const BASELINE_READ = [{ workspace: 'ufba-app', project: 'docs' }] as const;
+
+/**
+ * Concessões do time: (1) base para TODA pessoa com conta, leitura nos projetos de `BASELINE_READ` (a documentação);
+ * (2) o papel de mantenedor, que o admin atribui. Por projeto vale o maior nível.
+ */
 export class DbTeamGrantSource extends TeamGrantSource {
-  constructor(private readonly roles: TeamRoleRepository) {
+  constructor(
+    private readonly roles: TeamRoleRepository,
+    private readonly projects?: Pick<MemoryProjectRepository, 'listAll'>,
+    private readonly baseline: readonly { workspace: string; project: string }[] = BASELINE_READ,
+  ) {
     super();
   }
 
   async grantsFor(userId: string): Promise<{ projectId: string; level: GrantLevel }[]> {
-    const mine = new Set(await this.roles.rolesOf(userId));
-    if (mine.size === 0) return [];
     const best = new Map<string, GrantLevel>();
+    if (this.projects && this.baseline.length > 0) {
+      for (const p of await this.projects.listAll()) {
+        if (this.baseline.some((b) => b.workspace === p.workspace && b.project === p.project)) best.set(p.id, 'read');
+      }
+    }
+    const mine = new Set(await this.roles.rolesOf(userId));
+    if (mine.size === 0) return [...best].map(([projectId, level]) => ({ projectId, level }));
     for (const r of await this.roles.listRoles()) {
       if (!mine.has(r.key)) continue;
       for (const g of r.grants) {
@@ -55,7 +70,12 @@ export class MemoryAdmins {
 
 export interface TeamOverview {
   roles: { key: string; description: string; grants: { workspace: string; project: string; title: string; level: GrantLevel }[] }[];
+  /** Quem tem papel (hoje: os mantenedores). */
   members: { userId: string; name: string | null; email: string | null; roles: string[] }[];
+}
+
+export interface TeamSearchResult {
+  people: { userId: string; name: string | null; email: string | null; roles: string[] }[];
 }
 
 export interface SyncOverview {
@@ -82,7 +102,8 @@ export class TeamRoles {
     for (const a of await this.roles.listAssignments()) {
       rolesOfUser.set(a.userId, [...(rolesOfUser.get(a.userId) ?? []), a.roleKey]);
     }
-    const people = await this.lister.list(500);
+    const holders = [...rolesOfUser.keys()];
+    const people = holders.length > 0 ? await this.lister.byIds(holders) : [];
     return {
       roles: (await this.roles.listRoles()).map((r) => ({
         key: r.key,
@@ -92,7 +113,24 @@ export class TeamRoles {
           return p ? [{ workspace: p.workspace, project: p.project, title: p.title, level: g.level }] : [];
         }),
       })),
-      members: people.map((u) => ({ userId: u.id, name: u.name, email: u.email, roles: (rolesOfUser.get(u.id) ?? []).sort() })),
+      members: people
+        .map((u) => ({ userId: u.id, name: u.name, email: u.email, roles: (rolesOfUser.get(u.id) ?? []).sort() }))
+        .sort((a, b) => (a.name ?? a.email ?? '').localeCompare(b.name ?? b.email ?? '', 'pt-BR')),
+    };
+  }
+
+  /** Busca de pessoas para atribuir o papel: mínimo de 2 letras, no máximo 20 resultados. */
+  async searchPeople(adminId: string, query: unknown): Promise<TeamSearchResult> {
+    await this.admins.require(adminId);
+    const q = typeof query === 'string' ? query.trim().slice(0, 100) : '';
+    if (q.length < 2) return { people: [] };
+    const rolesOfUser = new Map<string, string[]>();
+    for (const a of await this.roles.listAssignments()) {
+      rolesOfUser.set(a.userId, [...(rolesOfUser.get(a.userId) ?? []), a.roleKey]);
+    }
+    const found = await this.lister.search(q, 20);
+    return {
+      people: found.map((u) => ({ userId: u.id, name: u.name, email: u.email, roles: (rolesOfUser.get(u.id) ?? []).sort() })),
     };
   }
 

@@ -19,4 +19,8 @@ export abstract class TeamRoleRepository {
 /** Lista de pessoas (para o admin escolher quem recebe papel). */
 export abstract class UserLister {
   abstract list(limit: number): Promise<{ id: string; name: string | null; email: string | null }[]>;
+  /** Busca por parte do nome ou do e-mail (sem diferenciar maiúsculas), no máximo `limit` pessoas. */
+  abstract search(query: string, limit: number): Promise<{ id: string; name: string | null; email: string | null }[]>;
+  /** Pessoas por id (para listar quem tem papel sem varrer todo mundo). */
+  abstract byIds(ids: string[]): Promise<{ id: string; name: string | null; email: string | null }[]>;
 }

@@ -46,6 +46,22 @@ export class PrismaUserLister extends UserLister {
     super();
   }
 
+  search(query: string, limit: number) {
+    return this.prisma.user.findMany({
+      where: {
+        email: { not: null },
+        OR: [{ name: { contains: query, mode: 'insensitive' } }, { email: { contains: query, mode: 'insensitive' } }],
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+      take: limit,
+    });
+  }
+
+  byIds(ids: string[]) {
+    return this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } });
+  }
+
   list(limit: number) {
     return this.prisma.user.findMany({
       where: { email: { not: null } },

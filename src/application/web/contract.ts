@@ -354,6 +354,10 @@ export const TeamResponse = z.object({
   members: z.array(TeamMemberView),
 });
 
+export const TeamSearchQuery = z.object({ q: z.string().max(100).optional() });
+
+export const TeamSearchResponse = z.object({ people: z.array(TeamMemberView) });
+
 export const MemorySyncResponse = z.object({
   failing: z.array(
     z.object({
