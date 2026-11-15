@@ -3,7 +3,13 @@
  * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte.
  */
 
-import type { BookingDeadline, DisciplineSituation } from '../../application/siasb/siasb-reader';
+import type {
+  BookingDeadline,
+  DisciplineSituation,
+  PatientsByDiscipline,
+  SchedulingContext,
+} from '../../application/siasb/siasb-reader';
+import type { Progress } from '../../application/siasb/progress';
 import type { ClinicalSession } from '../../domain/siasb/types';
 
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
@@ -21,6 +27,10 @@ export interface McpClinica {
   situation(userId: string): Promise<DisciplineSituation[]>;
   sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]>;
   bookingDeadline(userId: string, input: { disciplineId: string } | { sessionStart: Date }): Promise<BookingDeadline>;
+  patients(userId: string): Promise<PatientsByDiscipline[]>;
+  vacancies(userId: string): Promise<{ disciplineId: string; disciplineName: string; count: number }[]>;
+  schedulingContext(userId: string, attendanceId: string, term?: string): Promise<SchedulingContext>;
+  progress(userId: string, range?: { from: Date; to: Date }): Promise<Progress>;
 }
 
 /** Ferramentas `memory_*` (proxy do ai-memory + `memory_status`). Opcional: sem ele o /mcp só tem as ferramentas da casa. */

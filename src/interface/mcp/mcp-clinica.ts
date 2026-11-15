@@ -21,4 +21,16 @@ export class McpClinicaImpl implements McpClinica {
   bookingDeadline(userId: string, input: { disciplineId: string } | { sessionStart: Date }) {
     return this.reader.bookingDeadline(userId, input);
   }
+  patients(userId: string) {
+    return this.reader.patients(userId);
+  }
+  vacancies(userId: string) {
+    return this.reader.vacancies(userId);
+  }
+  schedulingContext(userId: string, attendanceId: string, term?: string) {
+    return this.reader.schedulingContext(userId, attendanceId, term);
+  }
+  progress(userId: string, range?: { from: Date; to: Date }) {
+    return this.reader.progress(userId, range);
+  }
 }
