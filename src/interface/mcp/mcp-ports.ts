@@ -24,6 +24,8 @@ export interface McpPrincipal {
   baseUrl?: string;
   /** Cliente OAuth do token e a chave K (só em tokens OAuth emitidos com credencial do SIGAA). */
   cliente?: { clientId: string; chave?: Buffer };
+  /** Chaves de permissão LIGADAS pela pessoa (`user_permissions`); sem a chave, a ferramenta de escrita nem é registrada. */
+  permissions?: ReadonlySet<string>;
 }
 
 /** Autenticação do /mcp: os mesmos autenticadores do REST (chave de API `plt_` e token OAuth do serviço). */

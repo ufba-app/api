@@ -559,6 +559,27 @@ export const ROUTES: Route[] = [
     body: z.object({}),
     ok: [204, null],
   },
+  // permissões por fonte
+  {
+    id: "listPermissions",
+    method: "get",
+    path: "/me/permissions",
+    tag: "permissions",
+    auth: "session",
+    summary: "Permissões por fonte que a pessoa pode ligar para o Claude (padrão desligadas)",
+    ok: [200, C.PermissionsResponse],
+  },
+  {
+    id: "setPermission",
+    method: "put",
+    path: "/me/permissions/{key}",
+    tag: "permissions",
+    auth: "session",
+    summary: "Liga ou desliga uma permissão (ligar sem a fonte conectada: 409 permission_unavailable)",
+    params: { key: z.enum(C.PERMISSION_KEYS) },
+    body: C.PermissionBody,
+    ok: [204, null],
+  },
   {
     id: "getAdminMemorySync",
     method: "get",

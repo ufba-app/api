@@ -30,6 +30,8 @@ import {
   ConnectMoodleBody,
   ConnectSigaaBody,
   AcademicConsentBody,
+  PERMISSION_KEYS,
+  PermissionBody,
   CreatePairingBody,
   CreateSessionBody,
   DeliverPairingBody,
@@ -40,6 +42,8 @@ import {
 } from '../../application/web/contract';
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { WebSessionService } from '../../application/web/web-session.service';
+import { PermissionsService } from '../../application/permissions/permissions.service';
+import { z } from 'zod';
 import { ApiErrorFilter } from './api-error.filter';
 import {
   OptionalSessionGuard,
@@ -231,6 +235,31 @@ export class SigaaPasskeyController {
   async remove(@Principal() p: WebPrincipal | null, @Param('credentialId') credentialId: string): Promise<void> {
     if (!/^[A-Za-z0-9_-]{1,1364}$/.test(credentialId)) throw invalidRequest();
     await this.passkeys.remove(must(p), credentialId);
+  }
+}
+
+/**
+ * Permissões por fonte: o que a pessoa libera para o Claude fazer (padrão desligado). Só a sessão do painel liga; nenhuma
+ * ferramenta MCP altera permissões.
+ */
+@Controller('me/permissions')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class PermissionsController {
+  constructor(private readonly permissions: PermissionsService) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async list(@Principal() p: WebPrincipal | null) {
+    return { items: await this.permissions.list(must(p).userId) };
+  }
+
+  @Put(':key')
+  @HttpCode(204)
+  async set(@Principal() p: WebPrincipal | null, @Param('key') key: string, @Body() b: unknown): Promise<void> {
+    const who = must(p);
+    const k = parseInput(z.enum(PERMISSION_KEYS), key, invalidRequest);
+    await this.permissions.set(who.userId, k, parseInput(PermissionBody, b, invalidRequest).enabled);
   }
 }
 

@@ -31,6 +31,14 @@ export class ConnectionStatus {
     return { status: slots > 0 ? 'locked' : 'password_required', login: cofre.login, passkey };
   }
 
+  /** A pessoa tem conexão com a fonte, em qualquer estado (inclusive reconectar)? Fonte desconhecida: não. */
+  async hasSource(userId: string, source: string): Promise<boolean> {
+    if (source === 'sigaa') return (await this.cofre.cofre(userId)) !== null;
+    if (source === 'moodle') return (await this.accountsOf(userId, 'MOODLE')).length > 0;
+    if (source === 'classroom') return (await this.accountsOf(userId, 'CLASSROOM')).length > 0;
+    return false;
+  }
+
   async sigaaOpens(p: WebPrincipal): Promise<boolean> {
     return (await this.openSigaa(p)) !== null;
   }

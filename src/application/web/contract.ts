@@ -35,6 +35,7 @@ export const API_ERROR_CODES = [
   "invalid_email_domain",
   "not_admin",
   "calendar_unavailable",
+  "permission_unavailable",
   "calendar_log_not_reprocessable",
   "role_not_found",
   "passkey_limit_reached",
@@ -594,6 +595,28 @@ export const CalendarAlertsResponse = z.object({
   /** O último calendário publicado já terminou e nada novo apareceu. */
   expired: z.object({ term: z.string(), termEnd: z.string() }).nullable(),
 });
+
+// ---- permissões por fonte (o que a pessoa libera para o Claude fazer) ----
+
+/** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
+export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
+export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+
+export const PermissionView = z.object({
+  key: z.enum(PERMISSION_KEYS),
+  source: z.string(),
+  /** pt-BR, vindos da API: a tela não escreve texto de permissão. */
+  title: z.string(),
+  description: z.string(),
+  risk: z.enum(["low", "high"]),
+  /** Sem linha no banco = desligada. */
+  enabled: z.boolean(),
+  /** A pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar). */
+  available: z.boolean(),
+  unavailableReason: z.literal("source_not_connected").nullable(),
+});
+export const PermissionsResponse = z.object({ items: z.array(PermissionView) });
+export const PermissionBody = z.object({ enabled: z.boolean() });
 
 export const MemorySyncResponse = z.object({
   failing: z.array(

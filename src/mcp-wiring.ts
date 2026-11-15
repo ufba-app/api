@@ -21,6 +21,8 @@ import { ClientDirectory } from './application/oauth/client-directory';
 import { AuthorizationRequests } from './application/web/authorization-requests.service';
 import { AuthorizedApps } from './application/web/authorized-apps.service';
 import { ConnectionStatus } from './application/web/connection-status';
+import { PermissionsService } from './application/permissions/permissions.service';
+import { UserPermissionRepository } from './application/ports/permissions';
 import { ConnectionsService } from './application/web/connections.service';
 import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
 import { SigaaPairings } from './application/web/sigaa-pairings.service';
@@ -124,11 +126,22 @@ export const mcpProviders: Provider[] = [
       identity: IdentityService,
       bindings: SourceBindings,
       slots: SigaaMasterSlotRepository,
+      permissions: PermissionsService,
     ) =>
-      new ConnectionsService(users, cofre, sigaa, moodle, classroom, accounts, identity, bindings, slots, {
-        webOrigin: webEnv().webOrigin,
-        institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br',
-      }),
+      new ConnectionsService(
+        users,
+        cofre,
+        sigaa,
+        moodle,
+        classroom,
+        accounts,
+        identity,
+        bindings,
+        slots,
+        { webOrigin: webEnv().webOrigin, institutionalDomain: process.env.GOOGLE_ALLOWED_DOMAIN || 'ufba.br' },
+        Date.now,
+        (userId, source) => permissions.sourceDisconnected(userId, source),
+      ),
     inject: [
       USER_DIRECTORY,
       CofreSigaa,
@@ -139,7 +152,13 @@ export const mcpProviders: Provider[] = [
       IdentityService,
       SourceBindings,
       SigaaMasterSlotRepository,
+      PermissionsService,
     ],
+  },
+  {
+    provide: PermissionsService,
+    useFactory: (repo: UserPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
+    inject: [UserPermissionRepository, ConnectionStatus],
   },
   {
     provide: AuthorizationRequests,
@@ -193,13 +212,15 @@ export const mcpProviders: Provider[] = [
   { provide: MCP_MEMORY, useExisting: MemoryProxy },
   {
     provide: MCP_AUTH,
-    useFactory: (authenticators: Authenticator[]) => new AuthenticatorsMcpAuth(authenticators),
-    inject: [AUTHENTICATORS],
+    useFactory: (authenticators: Authenticator[], permissions: PermissionsService) =>
+      new AuthenticatorsMcpAuth(authenticators, permissions),
+    inject: [AUTHENTICATORS, PermissionsService],
   },
 ];
 
 /** O que o módulo global exporta para o `McpModule` e o `BearerGuard`. */
 export const mcpExports = [
+  PermissionsService,
   WebSessionService,
   ConnectionsService,
   SigaaPasskeys,

@@ -56,6 +56,16 @@ async function run<T>(fn: () => Promise<T>) {
   }
 }
 
+/**
+ * Registra uma ferramenta de ESCRITA só se a pessoa ligou a permissão `key` no painel. Sem a chave a ferramenta nem existe
+ * para o cliente (não aparece em `tools/list`). Ligar e desligar vale na próxima requisição.
+ */
+export function registerPermissionedTool(p: McpPrincipal, key: string, register: () => void): boolean {
+  if (!p.permissions?.has(key)) return false;
+  register();
+  return true;
+}
+
 /** Cria um servidor MCP para uma requisição, com ferramentas finas sobre os casos de uso. */
 export function buildMcpServer(uc: McpUseCases, p: McpPrincipal, memory?: McpMemory): McpServer {
   const withMemory = memory?.enabled() === true;
