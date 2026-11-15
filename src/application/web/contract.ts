@@ -40,6 +40,9 @@ export const API_ERROR_CODES = [
   "not_admin",
   "calendar_unavailable",
   "permission_unavailable",
+  "push_unavailable",
+  "too_many_devices",
+  "push_device_gone",
   "calendar_log_not_reprocessable",
   "role_not_found",
   "passkey_limit_reached",
@@ -672,6 +675,47 @@ export const PermissionView = z.object({
 });
 export const PermissionsResponse = z.object({ items: z.array(PermissionView) });
 export const PermissionBody = z.object({ enabled: z.boolean() });
+
+// ---- notificações (Web Push) ----
+
+/** Chaves dos avisos (enum fechado): "<fonte>.<aviso>". Chave nova precisa de texto em NOTIFICATION_CATALOG. */
+export const NOTIFICATION_KEYS = ["siasb.alerts"] as const;
+export type NotificationKey = (typeof NOTIFICATION_KEYS)[number];
+
+export const PushConfigResponse = z.object({ publicKey: z.string() });
+
+const base64url = z.string().regex(/^[A-Za-z0-9_-]+$/);
+/** A assinatura que o navegador devolve do `pushManager.subscribe` (`toJSON()`). */
+export const PushSubscriptionInput = z.object({
+  endpoint: z.string().url().max(2048),
+  keys: z.object({ p256dh: base64url.max(200), auth: base64url.max(100) }),
+});
+export const RegisterPushDeviceBody = z.object({
+  subscription: PushSubscriptionInput,
+  label: z.string().trim().min(1).max(60).optional(),
+});
+export const RegisterPushDeviceResponse = z.object({ id: z.string().uuid() });
+
+/** Nunca devolve endpoint nem chaves. */
+export const PushDeviceView = z.object({
+  id: z.string().uuid(),
+  label: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  lastSuccessAt: z.string().datetime().nullable(),
+});
+export const PushDevicesResponse = z.object({ items: z.array(PushDeviceView) });
+
+export const NotificationSettingView = z.object({
+  key: z.enum(NOTIFICATION_KEYS),
+  source: z.string(),
+  /** pt-BR, vindos da API: a tela não escreve texto de aviso. */
+  title: z.string(),
+  description: z.string(),
+  /** Sem linha no banco = o padrão do catálogo. */
+  enabled: z.boolean(),
+});
+export const NotificationSettingsResponse = z.object({ items: z.array(NotificationSettingView) });
+export const NotificationSettingBody = z.object({ enabled: z.boolean() });
 
 /** O botão "Abrir o SIGAA já logado": o painel abre `launchUrl` numa navegação de página inteira (token de uso único, 30 s). */
 export const SigaaLaunchResponse = z.object({ launchUrl: z.string().url() });
