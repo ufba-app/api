@@ -1,12 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable } from '@nestjs/common';
 import {
   SiasbCopyRepository,
   type SyncedAttendance,
   type SyncedSession,
   type SyncResult,
   type SyncState,
-} from "../../application/ports/siasb-copy";
-import { PrismaService } from "./prisma.service";
+} from '../../application/ports/siasb-copy';
+import { PrismaService } from './prisma.service';
 
 /** Cópia por aluno do SIASB (`siasb_attendances`, `siasb_sessions`, `siasb_sync_state`). `DELETE /me` apaga por cascade. */
 @Injectable()
@@ -23,7 +23,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     return this.prisma.$transaction(async (tx) => {
       // conta checada dentro da transação: desconectar o SIASB no meio da sincronização não deixa cópia órfã
       const account = await tx.sourceAccount.findFirst({
-        where: { userId, provider: "SIASB" },
+        where: { userId, provider: 'SIASB' },
         select: { id: true },
       });
       if (!account) return false;
@@ -46,10 +46,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       await tx.siasbSyncedSession.deleteMany({
         where: {
           userId,
-          OR: [
-            { startAt: { gte: window.from, lte: window.to } },
-            { id: { in: data.sessions.map((s) => s.id) } },
-          ],
+          OR: [{ startAt: { gte: window.from, lte: window.to } }, { id: { in: data.sessions.map((s) => s.id) } }],
         },
       });
       if (data.sessions.length) {
@@ -61,14 +58,10 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     });
   }
 
-  async sessions(
-    userId: string,
-    from: Date,
-    to: Date,
-  ): Promise<SyncedSession[]> {
+  async sessions(userId: string, from: Date, to: Date): Promise<SyncedSession[]> {
     const rows = await this.prisma.siasbSyncedSession.findMany({
       where: { userId, startAt: { gte: from, lte: to } },
-      orderBy: { startAt: "asc" },
+      orderBy: { startAt: 'asc' },
     });
     return rows.map((r) => ({
       id: r.id,
@@ -92,7 +85,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       id: r.id,
       disciplineId: r.disciplineId,
       disciplineName: r.disciplineName,
-      treatmentType: r.treatmentType as SyncedAttendance["treatmentType"],
+      treatmentType: r.treatmentType as SyncedAttendance['treatmentType'],
       concluded: r.concluded,
       firstName: {
         ciphertext: r.firstNameCiphertext,
@@ -123,16 +116,13 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     };
   }
 
-  async recordAttempt(
-    userId: string,
-    r: { result: SyncResult; at: Date; nextRunAt: Date | null },
-  ): Promise<void> {
+  async recordAttempt(userId: string, r: { result: SyncResult; at: Date; nextRunAt: Date | null }): Promise<void> {
     const base = {
       lastAttemptAt: r.at,
       result: r.result,
       nextRunAt: r.nextRunAt,
     };
-    const success = r.result === "OK" ? { lastSuccessAt: r.at } : {};
+    const success = r.result === 'OK' ? { lastSuccessAt: r.at } : {};
     await this.prisma.siasbSyncState.upsert({
       where: { userId },
       create: { userId, ...base, ...success },
@@ -166,7 +156,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
   async dueUsers(now: Date, limit: number): Promise<string[]> {
     // poucas contas SIASB: filtra e ordena em memória em vez de um SQL com junção e NULLS FIRST
     const accounts = await this.prisma.sourceAccount.findMany({
-      where: { provider: "SIASB", status: "OK" },
+      where: { provider: 'SIASB', status: 'OK' },
       select: {
         userId: true,
         user: {
@@ -181,10 +171,8 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     const due: { userId: string; at: number }[] = [];
     for (const a of accounts) {
       const s = a.user.siasbSyncState;
-      if (!s || (!s.nextRunAt && !s.lastAttemptAt))
-        due.push({ userId: a.userId, at: -Infinity });
-      else if (s.nextRunAt && s.nextRunAt <= now)
-        due.push({ userId: a.userId, at: s.nextRunAt.getTime() });
+      if (!s || (!s.nextRunAt && !s.lastAttemptAt)) due.push({ userId: a.userId, at: -Infinity });
+      else if (s.nextRunAt && s.nextRunAt <= now) due.push({ userId: a.userId, at: s.nextRunAt.getTime() });
     }
     return due
       .sort((x, y) => x.at - y.at)

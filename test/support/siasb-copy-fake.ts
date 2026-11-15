@@ -4,13 +4,13 @@ import {
   type SyncedSession,
   type SyncResult,
   type SyncState,
-} from "../../src/application/ports/siasb-copy";
+} from '../../src/application/ports/siasb-copy';
 
 type Stored = SyncState & { lockedUntil: Date | null };
 
 /** Cópia do SIASB em memória (mesma semântica do Postgres). `accounts` simula a conta SIASB de cada pessoa. */
 export class InMemorySiasbCopy extends SiasbCopyRepository {
-  accounts = new Map<string, "OK" | "REAUTH_NEEDED">();
+  accounts = new Map<string, 'OK' | 'REAUTH_NEEDED'>();
   private attendanceRows = new Map<string, Map<string, SyncedAttendance>>();
   private sessionRows = new Map<string, Map<string, SyncedSession>>();
   private states = new Map<string, Stored>();
@@ -21,26 +21,17 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean> {
     if (!this.accounts.has(userId)) return false;
-    this.attendanceRows.set(
-      userId,
-      new Map(data.attendances.map((a) => [a.id, { ...a }])),
-    );
-    const sessions =
-      this.sessionRows.get(userId) ?? new Map<string, SyncedSession>();
+    this.attendanceRows.set(userId, new Map(data.attendances.map((a) => [a.id, { ...a }])));
+    const sessions = this.sessionRows.get(userId) ?? new Map<string, SyncedSession>();
     for (const [id, s] of sessions) {
-      if (s.startAt >= window.from && s.startAt <= window.to)
-        sessions.delete(id);
+      if (s.startAt >= window.from && s.startAt <= window.to) sessions.delete(id);
     }
     for (const s of data.sessions) sessions.set(s.id, { ...s });
     this.sessionRows.set(userId, sessions);
     return true;
   }
 
-  async sessions(
-    userId: string,
-    from: Date,
-    to: Date,
-  ): Promise<SyncedSession[]> {
+  async sessions(userId: string, from: Date, to: Date): Promise<SyncedSession[]> {
     return [...(this.sessionRows.get(userId)?.values() ?? [])]
       .filter((s) => s.startAt >= from && s.startAt <= to)
       .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
@@ -82,15 +73,12 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     return s;
   }
 
-  async recordAttempt(
-    userId: string,
-    r: { result: SyncResult; at: Date; nextRunAt: Date | null },
-  ): Promise<void> {
+  async recordAttempt(userId: string, r: { result: SyncResult; at: Date; nextRunAt: Date | null }): Promise<void> {
     const s = this.ensure(userId);
     s.lastAttemptAt = r.at;
     s.result = r.result;
     s.nextRunAt = r.nextRunAt;
-    if (r.result === "OK") s.lastSuccessAt = r.at;
+    if (r.result === 'OK') s.lastSuccessAt = r.at;
   }
 
   async claim(userId: string, now: Date, leaseMs: number): Promise<boolean> {
@@ -108,13 +96,11 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
   async dueUsers(now: Date, limit: number): Promise<string[]> {
     const due: { userId: string; at: number }[] = [];
     for (const [userId, status] of this.accounts) {
-      if (status !== "OK") continue;
+      if (status !== 'OK') continue;
       const s = this.states.get(userId);
       if (!s) due.push({ userId, at: -Infinity });
-      else if (s.nextRunAt && s.nextRunAt <= now)
-        due.push({ userId, at: s.nextRunAt.getTime() });
-      else if (!s.nextRunAt && !s.lastAttemptAt)
-        due.push({ userId, at: -Infinity });
+      else if (s.nextRunAt && s.nextRunAt <= now) due.push({ userId, at: s.nextRunAt.getTime() });
+      else if (!s.nextRunAt && !s.lastAttemptAt) due.push({ userId, at: -Infinity });
     }
     return due
       .sort((a, b) => a.at - b.at)

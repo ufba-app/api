@@ -1,11 +1,11 @@
-import type { EncryptedSecret } from "./repositories";
+import type { EncryptedSecret } from './repositories';
 
 /** Atendimento (paciente) do aluno no SIASB. Só o primeiro nome do paciente, cifrado. */
 export interface SyncedAttendance {
   id: string;
   disciplineId: string;
   disciplineName: string;
-  treatmentType: "TRIAGE" | "PLANNING" | "URGENCY" | "UNKNOWN";
+  treatmentType: 'TRIAGE' | 'PLANNING' | 'URGENCY' | 'UNKNOWN';
   concluded: boolean;
   firstName: EncryptedSecret;
 }
@@ -23,7 +23,7 @@ export interface SyncedSession {
   statusLabel: string;
 }
 
-export type SyncResult = "OK" | "RECONNECT_REQUIRED" | "UNAVAILABLE";
+export type SyncResult = 'OK' | 'RECONNECT_REQUIRED' | 'UNAVAILABLE';
 
 export interface SyncState {
   lastAttemptAt: Date | null;
@@ -47,20 +47,13 @@ export abstract class SiasbCopyRepository {
     data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean>;
   /** Ordenadas por `startAt`. */
-  abstract sessions(
-    userId: string,
-    from: Date,
-    to: Date,
-  ): Promise<SyncedSession[]>;
+  abstract sessions(userId: string, from: Date, to: Date): Promise<SyncedSession[]>;
   abstract attendances(userId: string): Promise<SyncedAttendance[]>;
   /** Cópia e estado. */
   abstract deleteAll(userId: string): Promise<void>;
   abstract state(userId: string): Promise<SyncState | null>;
   /** `lastSuccessAt = at` só se `OK`; falha não apaga o último sucesso. */
-  abstract recordAttempt(
-    userId: string,
-    r: { result: SyncResult; at: Date; nextRunAt: Date | null },
-  ): Promise<void>;
+  abstract recordAttempt(userId: string, r: { result: SyncResult; at: Date; nextRunAt: Date | null }): Promise<void>;
   /** false se a trava vale (outra execução em curso). */
   abstract claim(userId: string, now: Date, leaseMs: number): Promise<boolean>;
   abstract release(userId: string): Promise<void>;
