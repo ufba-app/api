@@ -48,9 +48,9 @@ export interface McpClinica {
 /** Ferramentas `memory_*` (proxy do ai-memory + `memory_status`). Opcional: sem ele o /mcp só tem as ferramentas da casa. */
 export interface McpMemory {
   enabled(): boolean;
-  listTools(userId: string): Promise<{ name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> }[]>;
+  listTools(userId: string, client?: { name?: string | null }): Promise<{ name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> }[]>;
   /** `null` quando o nome não é de memória. */
-  call(userId: string, name: string, args: Record<string, unknown>): Promise<{ content: unknown[]; structuredContent?: Record<string, unknown>; isError?: boolean } | null>;
+  call(userId: string, name: string, args: Record<string, unknown>, client?: { name?: string | null }): Promise<{ content: unknown[]; structuredContent?: Record<string, unknown>; isError?: boolean } | null>;
 }
 
 export type Fonte = 'moodle' | 'classroom' | 'sigaa';
@@ -66,6 +66,8 @@ export interface McpPrincipal {
   permissions?: ReadonlySet<string>;
   /** A pessoa tem conexão SIASB (qualquer estado), decidido por requisição. Liga as ferramentas `clinica_*`. */
   siasb?: boolean;
+  /** `clientInfo.name` do `initialize` deste token (guardado entre as requisições); ausente = cliente desconhecido. */
+  clientName?: string;
 }
 
 /** Autenticação do /mcp: os mesmos autenticadores do REST (chave de API `plt_` e token OAuth do serviço). */

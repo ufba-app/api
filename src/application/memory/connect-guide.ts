@@ -12,6 +12,26 @@ export const CONNECT_COMMANDS = {
 
 export type GuideOs = keyof typeof CONNECT_COMMANDS;
 
+/**
+ * Clientes de CHAT web/desktop: sem terminal nem acesso ao computador da pessoa, então a conexão de computador não faz
+ * sentido (o agente ofereceria um comando que ele nem pode rodar). Vem do `clientInfo.name` do `initialize` do MCP, em
+ * minúsculas. Os nomes NÃO são documentados oficialmente (o MCP só diz que `name` existe), então a lista é a dos valores
+ * observados na prática; cliente que não está aqui cai no texto condicional (a rede de segurança da camada 2).
+ */
+const WEB_CHAT_CLIENTS = new Set(['claude-ai', 'claude.ai', 'claude-desktop', 'claude desktop', 'chatgpt', 'openai-mcp', 'openai', 'perplexity']);
+
+export function isWebChatClient(name: string | null | undefined): boolean {
+  const n = name?.trim().toLowerCase();
+  if (!n) return false;
+  return WEB_CHAT_CLIENTS.has(n) || n.startsWith('chatgpt') || n.startsWith('openai');
+}
+
+/** Hint do `memory_status` sem computador: em chat web não oferece nada; nos demais, só sob condição. */
+export const HINT_NO_COMPUTER_WEB = 'Nenhum computador conectado.';
+export const HINT_NO_COMPUTER_CONDITIONAL =
+  'Nenhum computador conectado. Só se você roda num terminal ou editor com acesso ao computador da pessoa E ela quiser a captura ' +
+  'automática, ofereça `memory_connect_computer`; num chat web, não mencione isso.';
+
 export const MEMORY_CONNECT_TOOL: RemoteTool = {
   name: 'memory_connect_computer',
   description:

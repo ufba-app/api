@@ -2,6 +2,7 @@ import { Controller, Delete, Get, Inject, Optional, Post, Req, Res } from '@nest
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
 import { buildMcpServer } from './mcp-tools';
+import { McpClientTracker } from './client-tracker';
 import { baseUrl } from './oauth/base-url';
 import { resolveSiasbFlag } from './clinica-tools';
 import { MCP_AUTH, MCP_CLINICA, MCP_MEMORY, MCP_USE_CASES, McpAuth, McpClinica, McpMemory, McpUseCases } from './mcp-ports';
@@ -13,6 +14,9 @@ function rpcError(res: Response, status: number, code: number, message: string):
 /** Transporte Streamable HTTP sem sessão: um servidor e um transporte por requisição. */
 @Controller('mcp')
 export class McpController {
+  /** `clientInfo.name` do `initialize` por token: o `/mcp` é sem sessão e só o `initialize` o traz. */
+  private readonly clients = new McpClientTracker();
+
   constructor(
     @Inject(MCP_USE_CASES) private readonly useCases: McpUseCases,
     @Inject(MCP_AUTH) private readonly auth: McpAuth,
@@ -33,7 +37,13 @@ export class McpController {
     }
 
     const siasb = await resolveSiasbFlag(this.clinica, principal.userId);
-    const server = buildMcpServer(this.useCases, { ...principal, baseUrl: baseUrl(req), siasb }, this.memory, this.clinica);
+    const clientName = this.clients.resolve(req.headers.authorization, req.body);
+    const server = buildMcpServer(
+      this.useCases,
+      { ...principal, baseUrl: baseUrl(req), siasb, ...(clientName ? { clientName } : {}) },
+      this.memory,
+      this.clinica,
+    );
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

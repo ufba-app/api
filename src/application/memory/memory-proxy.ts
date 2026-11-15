@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Secret } from '../shared/secret';
-import { connectComputerGuide, MEMORY_CONNECT_TOOL } from './connect-guide';
+import { connectComputerGuide, HINT_NO_COMPUTER_CONDITIONAL, HINT_NO_COMPUTER_WEB, isWebChatClient, MEMORY_CONNECT_TOOL } from './connect-guide';
 import { MemoryComputerDirectory } from './device-ports';
 import {
   MemoryAccess,
@@ -16,13 +16,29 @@ import { MemoryUsers } from './memory-users';
 import { MemoryGrantSync } from './project-ports';
 import { RateWindow } from './rate-window';
 
+/** Quem chama o MCP (`clientInfo.name` do `initialize`); ausente = desconhecido. */
+export interface MemoryClient {
+  name?: string | null;
+}
+
 export const MEMORY_INSTRUCTIONS =
   'Este servidor também dá acesso à memória compartilhada da equipe (ferramentas `memory_*`). Sempre informe ' +
   '`workspace` e `project` explicitamente. A memória guarda o que você escreve; nunca grave senhas, tokens ou dados ' +
   'pessoais de outras pessoas. Existe captura automática das sessões quando o computador da pessoa está conectado e o ' +
   'repositório tem um `.ai-memory.toml` (sem ele, nada é capturado). Chame `memory_status` no começo de uma conversa ' +
-  'em que a memória seja relevante. Se não houver computador conectado e a pessoa quiser captura automática, ' +
-  'ofereça `memory_connect_computer`. Nunca execute comandos de instalação sem pedir permissão antes.';
+  'em que a memória seja relevante. Só se você roda num terminal ou editor com acesso ao computador da pessoa E ela quiser ' +
+  'a captura automática, e não houver computador conectado, ofereça `memory_connect_computer`; num chat web, não ' +
+  'mencione a conexão de computador. Nunca execute comandos de instalação sem pedir permissão antes.';
+
+/** Para cliente de chat web/desktop (sem terminal): nada de oferta de conectar computador. */
+export const MEMORY_INSTRUCTIONS_WEB =
+  'Este servidor também dá acesso à memória compartilhada da equipe (ferramentas `memory_*`). Sempre informe ' +
+  '`workspace` e `project` explicitamente. A memória guarda o que você escreve; nunca grave senhas, tokens ou dados ' +
+  'pessoais de outras pessoas. Chame `memory_status` no começo de uma conversa em que a memória seja relevante.';
+
+/** As instruções certas para o cliente (`clientInfo.name`); sem nome (desconhecido) vale o texto condicional. */
+export const memoryInstructionsFor = (clientName?: string | null): string =>
+  isWebChatClient(clientName) ? MEMORY_INSTRUCTIONS_WEB : MEMORY_INSTRUCTIONS;
 
 export const MAX_BODY_BYTES = 1024 * 1024;
 export const CALLS_PER_MINUTE = 30;
@@ -109,14 +125,16 @@ export class MemoryProxy {
   }
 
   /** `memory_status` sempre (quando liberado) + as do memory que passam no filtro. Memory fora do ar: só a da casa. */
-  async listTools(userId: string): Promise<RemoteTool[]> {
+  async listTools(userId: string, client?: MemoryClient): Promise<RemoteTool[]> {
     if (!this.enabled() || !(await this.access.canUse(userId))) return [];
+    // Chat web não tem terminal: a ferramenta de conectar computador nem aparece.
+    const own = isWebChatClient(client?.name) ? [MEMORY_STATUS_TOOL] : [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL];
     try {
       await this.users.ensure(userId);
       await this.syncGrants(userId);
-      return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL, ...(await this.remoteTools(userId))];
+      return [...own, ...(await this.remoteTools(userId))];
     } catch {
-      return [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL];
+      return own;
     }
   }
 
@@ -125,19 +143,22 @@ export class MemoryProxy {
     userId: string,
     name: string,
     args: Record<string, unknown> = {},
+    client?: MemoryClient,
   ): Promise<RemoteToolResult | null> {
     if (!name.startsWith('memory_')) return null;
+    const web = isWebChatClient(client?.name);
     if (!this.enabled()) return failure(MSG.unavailable);
     if (name !== 'memory_status' && name !== MEMORY_CONNECT_TOOL.name && !isForwardable(name)) {
       return failure(`A ferramenta ${name} não está disponível neste servidor.`);
     }
     if (!(await this.access.canUse(userId))) return failure(MSG.notAllowed);
+    if (name === MEMORY_CONNECT_TOOL.name && web) return failure(`A ferramenta ${name} não está disponível neste cliente.`);
     // Só texto: não fala com o memory nem cria usuário (funciona mesmo com o memory fora do ar).
     if (name === MEMORY_CONNECT_TOOL.name) return { content: [{ type: 'text', text: connectComputerGuide(args.os, this.webOrigin()) }] };
     try {
       await this.users.ensure(userId);
       await this.syncGrants(userId);
-      return name === 'memory_status' ? await this.status(userId) : await this.forward(userId, name, args);
+      return name === 'memory_status' ? await this.status(userId, web) : await this.forward(userId, name, args);
     } catch (e) {
       if (name === 'memory_status') return this.statusDown();
       return failure(e instanceof MemoryAdminError && e.kind === 'forbidden' ? MSG.refused : MSG.unavailable);
@@ -201,7 +222,7 @@ export class MemoryProxy {
     return tools;
   }
 
-  private async status(userId: string): Promise<RemoteToolResult> {
+  private async status(userId: string, web = false): Promise<RemoteToolResult> {
     await this.users.ensure(userId);
     if (!(await this.admin.ping())) return this.statusDown();
     const computers = (await this.computers.active(userId)).map((c) => ({
@@ -215,7 +236,9 @@ export class MemoryProxy {
       connected_computers: computers,
       hint: computers.length
         ? 'Há computador conectado.'
-        : 'Nenhum computador conectado. Ofereça `memory_connect_computer`.',
+        : web
+          ? HINT_NO_COMPUTER_WEB
+          : HINT_NO_COMPUTER_CONDITIONAL,
     });
   }
 
