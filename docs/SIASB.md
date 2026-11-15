@@ -16,7 +16,7 @@ Desenho completo: `docs/superpowers/specs/2026-11-15-siasb-design.md`. Ferrament
 
 Casos de uso em `src/application/siasb/siasb-link.ts` (`SiasbLink`):
 
-1. **Oferta (`offer`).** O web só mostra "Conectar SIASB" quando a pessoa tem matrícula (vinda do SIGAA) **e** `GET /auth/course-options?username=<matrícula>` devolve ao menos um curso. A matrícula **nunca é pedida à mão**: sai do perfil. A lista de cursos fica 10 min em cache; uma falha ao listar vale "não oferecido" por 1 min, para o `/me` não bater no SIASB enquanto ele está fora.
+1. **Oferta (`offer`).** O web só mostra "Conectar SIASB" quando a pessoa tem matrícula (gravada ao confirmar a importação da vida acadêmica; não depende de reconectar o SIGAA) **e** `GET /auth/course-options?username=<matrícula>` devolve ao menos um curso. A matrícula **nunca é pedida à mão**: sai do perfil (só os dígitos são usados). Quem já tem conexão só precisa da matrícula importada: se ela for apagada (`DELETE /me/academic`), `offered` vira `false` sem consultar o SIASB, o `status` não muda e um novo login é recusado com a mensagem de importar a vida acadêmica. A lista de cursos fica 10 min em cache; uma falha ao listar vale "não oferecido" por 1 min, para o `/me` não bater no SIASB enquanto ele está fora.
 2. **Conexão (`connect`, `POST /connections/siasb { password }`).**
    - confere o vínculo (`assertCompatible`) **antes** de falar com o SIASB;
    - lista os cursos e escolhe o padrão (`isDefault`) ou o primeiro;
@@ -134,7 +134,7 @@ Erros da conexão:
 
 | Status | `error` | Quando |
 |---|---|---|
-| 400 | `invalid_request` | corpo inválido, ou a pessoa não tem matrícula no perfil |
+| 400 | `invalid_request` | corpo inválido, ou a pessoa não tem matrícula (a vida acadêmica precisa estar importada) |
 | 409 | `source_account_mismatch` | a conta do SIASB não é a da matrícula (ou a conta já está ligada a outra matrícula) |
 | 409 | `source_account_taken` | essa matrícula já está ligada a outra conta do ufba.app |
 | 422 | `siasb_credentials_rejected` | o SIASB recusou a matrícula ou a senha |

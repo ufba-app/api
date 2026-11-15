@@ -90,8 +90,9 @@ ou o AVA ligados à conta: excluir e entrar de novo. O web confirma antes de cha
 - `sigaa.status = locked`: não há senha utilizável nesta sessão, mas existe cópia mestra (passkey). A tela oferece
   "Desbloquear" (um toque). `sigaa.passkey.slots` diz quantas cópias existem.
 - `classroom.available = false`: o servidor não tem Google configurado (esconder o bloco).
-- `siasb.offered`: o SIASB é oferecido (a pessoa tem matrícula pelo SIGAA e o SIASB lista ao menos um curso dela). Quem
-  já tem conexão conta como oferecido, sem consultar o SIASB; falha ao consultar vale `false`, nunca derruba o `/me`.
+- `siasb.offered`: o SIASB é oferecido (a pessoa confirmou a importação da vida acadêmica, que grava a matrícula, e o SIASB lista ao menos um curso
+  dela). Quem já tem conexão só precisa da matrícula importada, sem consultar o SIASB: se a importação for apagada
+  (`DELETE /me/academic`), `offered` vira `false` e o `status` não muda. Falha ao consultar vale `false`, nunca derruba o `/me`.
 - `siasb.status`: `connected`, `reconnect_required` ou `disconnected`. `reconnect_required` vem de uma conta marcada
   (o SIASB recusou o cookie) **ou** de `expiresAt` já no passado (cookie de 30 dias vencido).
 - `siasb.expiresAt`: fim do cookie (ISO 8601); `null` se desconectado ou sem estimativa.
@@ -249,11 +250,11 @@ POST /connections/siasb   { "password": "string" }   → 204
 DELETE /connections/siasb                            → 204
 ```
 
-- A **matrícula não vai no corpo**: vem do perfil da pessoa (a do SIGAA). O web só oferece "Conectar SIASB" quando
+- A **matrícula não vai no corpo**: vem do perfil acadêmico da pessoa (gravado ao confirmar a importação da vida acadêmica). O web só oferece "Conectar SIASB" quando
   `connections.siasb.offered = true` e nunca pede a matrícula à mão.
 - Faz 1 login real; o SIASB devolve o `username` da sessão, que precisa ser a matrícula da pessoa. A senha **não é
   guardada**: fica só o cookie do SIASB, cifrado, com a data de expiração (validade de 30 dias, fixa).
-- Erros: `400 invalid_request` (sem matrícula no perfil), `409 source_account_mismatch` (a conta do SIASB não é da
+- Erros: `400 invalid_request` (sem matrícula: a vida acadêmica precisa estar importada), `409 source_account_mismatch` (a conta do SIASB não é da
   matrícula, ou a conta já está ligada a outra matrícula; recusado antes de falar com o SIASB quando o vínculo já
   existe), `409 source_account_taken` (matrícula de outra conta), `422 siasb_credentials_rejected`,
   `422 siasb_password_migration_required` (entrar uma vez no site do SIASB para atualizar a senha) e

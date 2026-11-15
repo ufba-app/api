@@ -28,7 +28,9 @@ class FakeSiasb extends SiasbSource {
   username = REG;
   failure: SiasbError | null = null;
   expiresAt: Date | null = new Date('2026-12-01T00:00:00Z');
-  async courseOptions() {
+  courseRegistrations: string[] = [];
+  async courseOptions(registration: string) {
+    this.courseRegistrations.push(registration);
     this.courseCalls++;
     if (this.failure) throw this.failure;
     return this.courses;
@@ -124,15 +126,16 @@ function setup(registration: string | null = REG) {
   const bindingRepo = new FakeBindingRepo();
   const cipher = new FakeCipher();
   let t = 1_000_000;
+  const regs = new FakeRegs(registration);
   const link = new SiasbLink(
     siasb,
-    new FakeRegs(registration),
+    regs,
     new SourceBindings(bindingRepo, new FakeHasher()),
     accounts,
     cipher,
     () => t,
   );
-  return { siasb, accounts, bindingRepo, cipher, link, advance: (ms: number) => (t += ms) };
+  return { siasb, accounts, bindingRepo, cipher, link, regs, advance: (ms: number) => (t += ms) };
 }
 
 const pwd = () => Secret.of(SENHA);
@@ -204,6 +207,48 @@ describe('SiasbLink.offer', () => {
     advance(61_000);
     expect((await link.offer('u1')).offered).toBe(true);
     expect((await link.offer('u1')).offered).toBe(true);
+  });
+});
+
+describe('SiasbLink: matrícula ausente, apagada ou fora do padrão', () => {
+  it('hasRegistration: false sem matrícula e sem dígitos; true com matrícula, sem chamar o SIASB', async () => {
+    for (const [v, expected] of [[null, false], ['', false], ['abc', false], [REG, true]] as const) {
+      const { link, siasb } = setup(v);
+      expect(await link.hasRegistration('u1')).toBe(expected);
+      expect(siasb.courseCalls).toBe(0);
+    }
+  });
+
+  it('matrícula apagada (DELETE /me/academic) com conta já conectada: status não muda, offer false, login recusado', async () => {
+    const { link, siasb, accounts, regs } = setup();
+    await link.connect('u1', pwd());
+    regs.value = null;
+    siasb.courseCalls = 0;
+    siasb.loginCalls = [];
+    expect(await link.status('u1')).toEqual({ state: 'connected', expiresAt: new Date('2026-12-01T00:00:00Z') });
+    expect(await link.offer('u1')).toEqual({ offered: false, courses: [] });
+    const err = await link.connect('u1', pwd()).catch((e) => e);
+    expect(err).toBeInstanceOf(LinkError);
+    expect(err.message).toMatch(/vida acadêmica/);
+    expect(siasb.courseCalls + siasb.loginCalls.length).toBe(0);
+    expect(accounts.rows).toHaveLength(1);
+  });
+
+  it('matrícula no formato gravado por saveProfile (só dígitos): oferece e conecta', async () => {
+    const { link, siasb } = setup('222333444');
+    siasb.username = '222333444';
+    expect((await link.offer('u1')).offered).toBe(true);
+    await link.connect('u1', pwd());
+    expect(siasb.loginCalls[0].registration).toBe('222333444');
+  });
+
+  it('normaliza espaços, pontos e traço para courseOptions e login', async () => {
+    const { link, siasb } = setup(' 2223.334-44 ');
+    siasb.username = '222333444';
+    expect((await link.offer('u1')).offered).toBe(true);
+    expect(siasb.courseRegistrations).toEqual(['222333444']);
+    await link.connect('u1', pwd());
+    expect(siasb.loginCalls[0].registration).toBe('222333444');
   });
 });
 

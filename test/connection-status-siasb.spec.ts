@@ -2,6 +2,32 @@ import { ConnectionStatus } from '../src/application/web/connection-status';
 
 const principal = { userId: 'u1', clientId: 'c' } as never;
 
+function connected(hasRegistration: () => Promise<boolean>, state = 'connected') {
+  const offer = jest.fn();
+  const link = { status: async () => ({ state, expiresAt: null }), offer, hasRegistration };
+  const s = new ConnectionStatus({} as never, {} as never, {} as never, {} as never, link as never, Date.now, 30);
+  return { s, offer };
+}
+
+describe('ConnectionStatus.siasb: conta já conectada e matrícula', () => {
+  it('com matrícula: offered true, status preservado, sem consultar o SIASB', async () => {
+    const { s, offer } = connected(async () => true);
+    expect(await s.siasb(principal)).toEqual({ offered: true, status: 'connected', expiresAt: null });
+    expect(offer).not.toHaveBeenCalled();
+  });
+
+  it('matrícula apagada: offered false, status NÃO vira erro, sem consultar o SIASB', async () => {
+    const { s, offer } = connected(async () => false, 'reconnect_required');
+    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'reconnect_required', expiresAt: null });
+    expect(offer).not.toHaveBeenCalled();
+  });
+
+  it('falha ao olhar a matrícula: mantém o status e offered false', async () => {
+    const { s } = connected(() => Promise.reject(new Error('x')));
+    expect(await s.siasb(principal)).toEqual({ offered: false, status: 'connected', expiresAt: null });
+  });
+});
+
 function status(offer: () => Promise<{ offered: boolean; courses: never[] }>, timeoutMs: number) {
   const link = { status: async () => ({ state: 'disconnected', expiresAt: null }), offer };
   return new ConnectionStatus({} as never, {} as never, {} as never, {} as never, link as never, Date.now, timeoutMs);

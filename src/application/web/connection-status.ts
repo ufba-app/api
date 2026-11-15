@@ -37,7 +37,7 @@ export class ConnectionStatus {
   }
 
   /**
-   * SIASB: conectado dispensa consultar o SIASB ("oferecido" é verdade). Sessão com fim estimado já passado vale como
+   * SIASB: já conectado, "oferecido" depende só de a matrícula estar importada (sem consultar o SIASB). Sessão com fim estimado já passado vale como
    * reconnect_required. Falha ao consultar nunca derruba o /me.
    */
   async siasb(p: WebPrincipal): Promise<Me['connections']['siasb']> {
@@ -48,8 +48,10 @@ export class ConnectionStatus {
         return { offered, status: 'disconnected', expiresAt: null };
       }
       const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
+      // Já conectado: só o banco decide a oferta (matrícula importada); matrícula apagada não vira erro nem consulta o SIASB.
+      const offered = await this.siasbLink.hasRegistration(p.userId).catch(() => false);
       return {
-        offered: true,
+        offered,
         status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
         expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
       };

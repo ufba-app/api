@@ -13,6 +13,9 @@ const ACCOUNT_KEY = 'siasb';
 
 export type SiasbLinkState = 'disconnected' | 'connected' | 'reconnect_required';
 
+const NO_REGISTRATION_MESSAGE =
+  'Para conectar o SIASB, importe antes a sua vida acadêmica no painel: é de lá que vem a sua matrícula.';
+
 const digits = (s: string) => s.replace(/[^0-9]/g, '');
 
 /** Mensagens em pt-BR por falha do SIASB. Nunca levam senha, cookie nem matrícula. */
@@ -65,10 +68,15 @@ export class SiasbLink {
     }
   }
 
+  /** A pessoa tem matrícula importada (vida acadêmica confirmada)? Só olha o banco; nunca fala com o SIASB. */
+  async hasRegistration(userId: string): Promise<boolean> {
+    return (await this.registration(userId)) !== null;
+  }
+
   async connect(userId: string, password: Secret): Promise<void> {
     const registration = await this.registration(userId);
     if (!registration) {
-      throw new LinkError('Não achamos sua matrícula para conectar o SIASB.', 'invalid_request');
+      throw new LinkError(NO_REGISTRATION_MESSAGE, 'invalid_request');
     }
     const subject = siasbSubject(registration);
     await this.bindings.assertCompatible(userId, subject);
@@ -112,7 +120,8 @@ export class SiasbLink {
   /** Matrícula só com dígitos; `null` se não há ou não tem dígito (tratada como ausente). */
   private async registration(userId: string): Promise<string | null> {
     const r = await this.registrations.find(userId);
-    return r && digits(r) ? r : null;
+    const only = r ? digits(r) : '';
+    return only === '' ? null : only;
   }
 
   private async courses(userId: string, registration: string): Promise<SiasbCourse[]> {
