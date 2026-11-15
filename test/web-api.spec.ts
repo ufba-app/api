@@ -1280,6 +1280,35 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(await segunda.text()).not.toContain(SENHA);
     });
 
+    it('visual de espera (brasão pulsando): CSP inalterada, um único script (o que envia), nada externo, senha só no campo', async () => {
+      const { cookie, path } = await conectadoComToken('launch7');
+      const r = await abrir(`${base}${path}`, NAV, cookie);
+      const csp = r.headers.get('content-security-policy')!;
+      const nonce = /script-src 'nonce-([^']+)'/.exec(csp)![1];
+      expect(csp).toBe(
+        `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; form-action https://sigaa.ufba.br; frame-ancestors 'none'; base-uri 'none'`,
+      );
+      const html = await r.text();
+      // brasão no lugar do texto, com role=status e rótulo
+      expect(html).toContain('role="status" aria-label="Abrindo o SIGAA"');
+      expect(html).toContain('<svg class="mark"');
+      expect(html).not.toContain('Abrindo o SIGAA…');
+      expect(html).toContain('prefers-color-scheme:dark');
+      expect(html).toContain('prefers-reduced-motion:reduce');
+      // nenhum script novo: só o que envia o formulário, com o nonce da resposta
+      const scripts = html.match(/<script\b[^>]*>[\s\S]*?<\/script>/g) ?? [];
+      expect(scripts).toEqual([`<script nonce="${nonce}">document.getElementById('f').submit();</script>`]);
+      expect(html.match(/<style\b[^>]*>/g)).toEqual([`<style nonce="${nonce}">`]);
+      // nada externo: nenhum src, link, import, url() remoto; href só para ids do próprio SVG; a única URL absoluta é a do SIGAA
+      expect(html).not.toMatch(/\ssrc=|<link\b|<img\b|<iframe\b|@import|url\(\s*['"]?(https?:|\/\/|data:)/i);
+      expect(html.match(/href="[^"]*"/g)!.every((h) => h.startsWith('href="#b-'))).toBe(true);
+      expect(html.match(/https?:\/\/[^"'\s<>)]+/g)!.filter((u) => !u.startsWith('http://www.w3.org/'))).toEqual(['https://sigaa.ufba.br/sigaa/logar.do?dispatch=logOn']);
+      // a senha aparece uma vez só, no value do campo (e não no CSS, no SVG nem em texto)
+      expect(html.split(SENHA).length - 1).toBe(1);
+      expect(html).toContain(`<input type="hidden" name="user.senha" value="${SENHA}">`);
+      expect(html).toContain('accept-charset="ISO-8859-1"');
+    });
+
     it('só navegação de página inteira: fetch/XHR (ou sem os cabeçalhos Sec-Fetch) leva 403 e NÃO gasta o token', async () => {
       const { cookie, path } = await conectadoComToken('launch4');
       expect((await abrir(`${base}${path}`, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }, cookie)).status).toBe(403);
