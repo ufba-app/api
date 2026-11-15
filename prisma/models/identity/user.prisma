@@ -18,6 +18,9 @@ model User {
   sigaaMasterSlots SigaaMasterSlot[]
   sigaaPairings    SigaaPairing[]
   sigaaVault       SigaaVault?
+  academicConsent  AcademicConsent?
+  academicImport   AcademicImport?
+  academicImportLog AcademicImportLog[]
   sourceBindings   SourceBinding[]
   memoryUser       MemoryUser?
   ownedProjects    MemoryProject[]

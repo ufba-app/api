@@ -1,0 +1,75 @@
+// Importação da vida acadêmica (docs/specs/2026-11-15-vida-academica.md §4 e §5). Três tabelas, todas ligadas à pessoa
+// (apagadas em cascata com a conta). Nada aqui guarda identidade (nome, CPF, nascimento) nem o PDF nem o texto enviado ao
+// provedor de IA: só o contrato lido (que a pessoa confirma), contagens e o aceite.
+
+// O aceite de enviar disciplinas e notas (sem identidade) a um provedor de IA. Uma linha por pessoa; revogar apaga a linha.
+model AcademicConsent {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+  // Versão do texto aceito: texto novo pede aceite novo.
+  version    Int
+  @@map("academic_consents")
+}
+
+enum AcademicImportStatus {
+  RUNNING
+  NEEDS_CONFIRMATION
+  READY
+  FAILED
+}
+
+// O estado da importação atual da pessoa (uma linha). `draft` é o contrato lido, à espera da confirmação; sai ao confirmar,
+// ao falhar ou ao vencer (7 dias). `failure` é só um código, nunca conteúdo.
+model AcademicImport {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status  AcademicImportStatus
+  failure String?
+
+  // Curso do catálogo (Program.sigaaId) a que este histórico pertence, quando deu para resolver.
+  programId String? @map("program_id")
+
+  draft   Json?
+  // Perfil do portal do discente (matrícula, curso, ingresso) lido na mesma sessão; vai para o StudentProfile ao confirmar.
+  profile Json?
+
+  verified        Boolean?
+  reader          String?
+  componentsCount Int?      @map("components_count")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  // Quando a pessoa confirmou e o histórico foi gravado.
+  importedAt      DateTime? @map("imported_at")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("academic_imports")
+}
+
+// Uma linha por tentativa: base do limite por pessoa (3 por dia) e do teto de gasto do mês. Só contagens.
+model AcademicImportLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  startedAt       DateTime @default(now()) @map("started_at")
+  // Código do resultado: OK, NEEDS_CONFIRMATION ou o código da falha. Nunca conteúdo.
+  result          String?
+  verified        Boolean?
+  componentsCount Int?     @map("components_count")
+  inputTokens     Int?     @map("input_tokens")
+  outputTokens    Int?     @map("output_tokens")
+  latencyMs       Int?     @map("latency_ms")
+
+  @@index([userId, startedAt])
+  @@index([startedAt])
+  @@map("academic_import_log")
+}

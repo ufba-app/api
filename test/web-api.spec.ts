@@ -34,6 +34,11 @@ import { MemoryProjectRepository } from '../src/application/memory/project-ports
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
+import { AcademicRepository, TranscriptSource } from '../src/application/ports/academic';
+import { CatalogRepository, CatalogSource } from '../src/application/ports/catalog';
+import { PdfTextExtractor, TRANSCRIPT_READER } from '../src/application/ports/transcript';
+import { FakeCatalogSource, InMemoryCatalog } from './support/catalog-fake';
+import { FakeExtractor, FakeReader, FakeTranscriptSource, InMemoryAcademic, curriculumOf, perfectTranscript } from './support/academic-fake';
 import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
 import { InMemoryPairings } from './support/pairing-fake';
 import { WebSessionService } from '../src/application/web/web-session.service';
@@ -69,6 +74,13 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const accounts: SourceAccountRecord[] = [];
   const slotsRepo = new InMemorySlots();
   const pairingsRepo = new InMemoryPairings();
+  // Vida acadêmica: tudo falso (sem rede, sem SIGAA, sem IA).
+  const academicRepo = new InMemoryAcademic();
+  const academicSource = new FakeTranscriptSource();
+  const academicReader = new FakeReader();
+  const academicExtractor = new FakeExtractor();
+  const catalogRepo = new InMemoryCatalog();
+  const catalogSource = new FakeCatalogSource();
   const sigaaValidations: string[] = [];
   // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
   const users = new (class extends MemoryUserDirectory {
@@ -184,6 +196,18 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(slotsRepo)
       .overrideProvider(SigaaPairingRepository)
       .useValue(pairingsRepo)
+      .overrideProvider(AcademicRepository)
+      .useValue(academicRepo)
+      .overrideProvider(TranscriptSource)
+      .useValue(academicSource)
+      .overrideProvider(PdfTextExtractor)
+      .useValue(academicExtractor)
+      .overrideProvider(TRANSCRIPT_READER)
+      .useValue(academicReader)
+      .overrideProvider(CatalogRepository)
+      .useValue(catalogRepo)
+      .overrideProvider(CatalogSource)
+      .useValue(catalogSource)
       .overrideProvider(SigaaCredentialRepository)
       .useValue(credsRepo)
       .overrideProvider(SigaaVaultRepository)
@@ -919,6 +943,115 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('o pacote lacrado nunca aparece em log ou erro', async () => {
       for (const s of [PUB, IV, CT]) expect(saida.join('\n')).not.toContain(s);
+    });
+  });
+
+  describe('vida acadêmica (histórico lido pela IA e adequado ao currículo Ativo)', () => {
+    beforeAll(() => {
+      catalogSource.programs = [{ sigaaId: '10', name: 'ENGENHARIA DA COMPUTAÇÃO', campus: 'SALVADOR', level: 'G' }];
+      catalogSource.components = curriculumOf(perfectTranscript());
+    });
+
+    async function conectado(who: string) {
+      const cookie = await signIn(who);
+      expect((await send('POST', '/connections/sigaa', { cookie, body: { login: who, password: SENHA } })).status).toBe(204);
+      return cookie;
+    }
+
+    async function esperar(cookie: string, status: string) {
+      for (let i = 0; i < 100; i++) {
+        const s = (await (await get('/me/academic', cookie)).json()) as any;
+        if (s.status === status) return s;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error(`a importação não chegou a ${status}`);
+    }
+
+    it('fluxo completo: consentir, importar em segundo plano, confirmar, ver a grade do curso e apagar', async () => {
+      const cookie = await conectado('acad1');
+      const inicial = (await (await get('/me/academic', cookie)).json()) as any;
+      expect(inicial).toMatchObject({ available: true, consent: false, status: 'NONE', summary: null, draft: null, curriculumStatus: 'NONE' });
+
+      // Sem consentimento, não importa.
+      const semAceite = await send('POST', '/me/academic/import', { cookie, body: {} });
+      expect(semAceite.status).toBe(409);
+      expect(((await semAceite.json()) as any).error).toBe('consent_required');
+
+      expect((await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } })).status).toBe(204);
+      expect(((await (await get('/me/academic', cookie)).json()) as any).consent).toBe(true);
+
+      // Importa: 202 na hora; a leitura roda em segundo plano.
+      expect((await send('POST', '/me/academic/import', { cookie, body: {} })).status).toBe(202);
+      const lido = await esperar(cookie, 'NEEDS_CONFIRMATION');
+      expect(lido).toMatchObject({ verified: true, reader: 'ai', failure: null, curriculumStatus: 'READY', summary: null });
+      expect(lido.draft.components).toHaveLength(49);
+      expect(lido.draft.verification).toMatchObject({ verified: true, reader: 'ai' });
+      expect(JSON.stringify(lido)).not.toMatch(/docente|instructor|senha/i);
+
+      // Antes de confirmar, nada de grade nem de histórico gravado.
+      expect((await get('/me/academic/curriculum', cookie)).status).toBe(404);
+
+      expect((await send('POST', '/me/academic/confirm', { cookie, body: {} })).status).toBe(204);
+      const pronto = (await (await get('/me/academic', cookie)).json()) as any;
+      expect(pronto).toMatchObject({ status: 'READY', draft: null, curriculumStatus: 'READY' });
+      expect(pronto.importedAt).toBeTruthy();
+      expect(pronto.summary).toMatchObject({ currentTerm: expect.any(Number), indices: { cr: expect.any(Number) } });
+
+      const grade = await get('/me/academic/curriculum', cookie);
+      expect(grade.status).toBe(200);
+      expect(grade.headers.get('cache-control')).toBe('no-store');
+      const g = (await grade.json()) as any;
+      expect(g).toMatchObject({ estimate: true, curriculumCode: 'G20251' });
+      expect(g.required.find((c: any) => c.code === 'FISD36').state).toBe('DONE');
+      expect(Object.keys(g.hours)).toEqual(['required', 'elective', 'complementary', 'total']);
+
+      expect((await send('DELETE', '/me/academic', { cookie })).status).toBe(204);
+      expect(((await (await get('/me/academic', cookie)).json()) as any)).toMatchObject({ status: 'NONE', consent: true, summary: null });
+    });
+
+    it('SIGAA fechado nesta sessão: 409 source_not_connected', async () => {
+      const cookie = await signIn('acad2'); // sem conectar o SIGAA
+      await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } });
+      const r = await send('POST', '/me/academic/import', { cookie, body: {} });
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as any).error).toBe('source_not_connected');
+    });
+
+    it('falha da fonte vira estado FAILED com o código (sem a mensagem do erro) e dá para tentar de novo', async () => {
+      const cookie = await conectado('acad3');
+      await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true } });
+      academicReader.fail = true;
+      await send('POST', '/me/academic/import', { cookie, body: {} });
+      const falhou = await esperar(cookie, 'FAILED');
+      expect(falhou).toMatchObject({ failure: 'READER_FAILED', draft: null });
+      expect(JSON.stringify(falhou)).not.toContain('sem crédito');
+      academicReader.fail = false;
+      expect((await send('POST', '/me/academic/import', { cookie, body: {} })).status).toBe(202);
+      await esperar(cookie, 'NEEDS_CONFIRMATION');
+    });
+
+    it('confirmar sem rascunho: 404 import_not_found', async () => {
+      const cookie = await signIn('acad4');
+      const r = await send('POST', '/me/academic/confirm', { cookie, body: {} });
+      expect(r.status).toBe(404);
+      expect(((await r.json()) as any).error).toBe('import_not_found');
+    });
+
+    it('exige sessão e CSRF; corpo inválido no consentimento dá 400', async () => {
+      const cookie = await signIn('acad5');
+      expect((await get('/me/academic')).status).toBe(401);
+      expect((await send('PUT', '/me/academic/consent', { body: { accepted: true } })).status).toBe(401);
+      expect((await send('PUT', '/me/academic/consent', { cookie, body: { accepted: true }, csrf: false })).status).toBe(403);
+      expect((await send('POST', '/me/academic/import', { cookie, body: {}, csrf: false })).status).toBe(403);
+      expect((await send('PUT', '/me/academic/consent', { cookie, body: { accepted: 'sim' } })).status).toBe(400);
+      expect((await get('/me/academic', cookie)).headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('o histórico, as notas e a senha nunca aparecem em log ou erro', async () => {
+      const log = saida.join('\n');
+      expect(log).not.toContain('FÍSICA GERAL TEÓRICA I');
+      expect(log).not.toContain(SENHA);
+      expect(log).not.toContain('MARIA DA SILVA SANTOS');
     });
   });
 

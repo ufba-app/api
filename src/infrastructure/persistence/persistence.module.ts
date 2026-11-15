@@ -34,6 +34,8 @@ import { PrismaSigaaMasterSlotRepository } from './prisma-sigaa-master-slot.repo
 import { PrismaSigaaPairingRepository } from './prisma-sigaa-pairing.repository';
 import { PrismaSigaaVaultRepository } from './prisma-sigaa-vault.repository';
 import { PrismaCatalogRepository } from './prisma-catalog.repository';
+import { PrismaAcademicRepository } from './prisma-academic.repository';
+import { AcademicRepository } from '../../application/ports/academic';
 import { CatalogRepository } from '../../application/ports/catalog';
 import { PrismaService } from './prisma.service';
 
@@ -51,6 +53,7 @@ import { PrismaService } from './prisma.service';
     { provide: SigaaPairingRepository, useClass: PrismaSigaaPairingRepository },
     { provide: SigaaVaultRepository, useClass: PrismaSigaaVaultRepository },
     { provide: CatalogRepository, useClass: PrismaCatalogRepository },
+    { provide: AcademicRepository, useClass: PrismaAcademicRepository },
     { provide: SourceBindingRepository, useClass: PrismaSourceBindingRepository },
     { provide: MemoryUserRepository, useClass: PrismaMemoryUserRepository },
     { provide: DeviceAuthorizationRepository, useClass: PrismaDeviceAuthorizationRepository },
@@ -73,6 +76,7 @@ import { PrismaService } from './prisma.service';
     SigaaPairingRepository,
     SigaaVaultRepository,
     CatalogRepository,
+    AcademicRepository,
     SourceBindingRepository,
     MemoryUserRepository,
     DeviceAuthorizationRepository,

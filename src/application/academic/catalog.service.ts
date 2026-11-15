@@ -86,6 +86,11 @@ export class CatalogService {
     return run;
   }
 
+  /** Há uma importação deste curso em andamento agora? */
+  importing(programId: string): boolean {
+    return this.running.has(programId);
+  }
+
   /** O que está guardado, sem tocar no SIGAA. */
   async read(programId: string): Promise<{ curriculum: CatalogCurriculum; components: CatalogComponent[] } | null> {
     const curriculum = await this.repo.findCurriculum(programId);

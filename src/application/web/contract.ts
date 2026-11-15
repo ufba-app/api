@@ -39,6 +39,11 @@ export const API_ERROR_CODES = [
   "passkey_not_found",
   "pairing_not_found",
   "pairing_already_delivered",
+  "consent_required",
+  "import_in_progress",
+  "import_unavailable",
+  "import_not_found",
+  "curriculum_unavailable",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -100,6 +105,143 @@ export const SigaaPasskeyView = z.object({
 });
 
 export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyView) });
+
+// ---- vida acadêmica (histórico lido pela IA e adequado ao currículo Ativo do curso) ----
+
+const AcademicHours = z.object({ required: z.number(), completed: z.number(), pending: z.number() });
+
+/** O que foi lido do histórico (o contrato da leitura, sem docente nem identidade). Rascunho até a pessoa confirmar. */
+export const AcademicDraft = z.object({
+  contractVersion: z.literal("1"),
+  document: z.object({ issuedOn: z.string() }),
+  program: z.object({
+    name: z.string(),
+    curriculum: z.string(),
+    currentTerm: z.number(),
+    completionDeadline: z.object({ standard: z.string(), maximum: z.string() }),
+  }),
+  indices: z.object({ cr: z.number().nullable(), iap: z.number().nullable() }),
+  components: z.array(
+    z.object({
+      /** Como impresso; "--" nas linhas sem semestre (aproveitamento). */
+      term: z.string(),
+      kind: z.string().nullable(),
+      code: z.string(),
+      name: z.string(),
+      hours: z.number(),
+      grade: z.number().nullable(),
+      status: z.string(),
+    }),
+  ),
+  hours: z.object({
+    mandatory: AcademicHours,
+    elective: AcademicHours,
+    complementary: AcademicHours,
+    total: AcademicHours,
+  }),
+  pendingMandatory: z.object({
+    declaredTotal: z.number(),
+    items: z.array(z.object({ code: z.string(), name: z.string(), hours: z.number(), enrolled: z.boolean() })),
+  }),
+  equivalences: z.array(z.string()),
+  notes: z.array(z.string()),
+  verification: z.object({
+    /** Falso: a confirmação é obrigatória e a tela mostra os avisos. */
+    verified: z.boolean(),
+    warnings: z.array(z.string()),
+    reader: z.enum(["ai", "parser"]),
+  }),
+});
+
+export const AcademicSummary = z.object({
+  programName: z.string(),
+  /** O currículo do próprio aluno, como impresso no histórico ("G20251 - 2025.2"). */
+  curriculum: z.string(),
+  currentTerm: z.number(),
+  completionDeadline: z.object({ standard: z.string(), maximum: z.string() }),
+  indices: z.object({ cr: z.number().nullable(), iap: z.number().nullable() }),
+  hours: AcademicDraft.shape.hours,
+});
+
+export const AcademicFailure = z.enum([
+  "REDACTION_REFUSED",
+  "READER_FAILED",
+  "SIGAA_UNAVAILABLE",
+  "PDF_INVALID",
+  "SESSION_EXPIRED",
+  "TIMEOUT",
+]);
+
+export const AcademicState = z.object({
+  /** A leitura está disponível neste servidor (há chave do provedor de IA). Falso: esconder a oferta. */
+  available: z.boolean(),
+  consent: z.boolean(),
+  status: z.enum(["NONE", "RUNNING", "NEEDS_CONFIRMATION", "READY", "FAILED"]),
+  failure: AcademicFailure.nullable(),
+  verified: z.boolean().nullable(),
+  reader: z.string().nullable(),
+  importedAt: z.string().datetime().nullable(),
+  /** A grade do curso: `NONE` (sem histórico), `READY`, `IMPORTING` (sendo buscada) ou `UNAVAILABLE`. */
+  curriculumStatus: z.enum(["NONE", "READY", "IMPORTING", "UNAVAILABLE"]),
+  /** Só com o histórico gravado. */
+  summary: AcademicSummary.nullable(),
+  /** Só em `NEEDS_CONFIRMATION`: o que foi lido, para a tela de confirmação. */
+  draft: AcademicDraft.nullable(),
+});
+
+export const AcademicConsentBody = z.object({ accepted: z.boolean() });
+
+const ComponentProgressView = z.object({
+  code: z.string(),
+  name: z.string(),
+  hours: z.number(),
+  nature: z.enum(["REQUIRED", "ELECTIVE", "COMPLEMENTARY"]),
+  term: z.number().nullable(),
+  state: z.enum(["DONE", "DONE_VIA_EQUIVALENCE", "ENROLLED", "AVAILABLE", "BLOCKED"]),
+  /** Códigos que cumpriram este componente por equivalência. */
+  via: z.array(z.string()),
+  /** Códigos do pré-requisito que o aluno ainda não cumpriu (só em BLOCKED). */
+  missingPrerequisites: z.array(z.string()),
+  /** O pré-requisito não é uma expressão de códigos verificável (ex.: carga mínima): conferir no SIGAA. */
+  prerequisiteUnverifiable: z.boolean(),
+  prerequisiteExpr: z.string().nullable(),
+  equivalenceExpr: z.string().nullable(),
+  late: z.boolean(),
+});
+
+const NatureHoursView = z.object({
+  needed: z.number(),
+  completed: z.number(),
+  remaining: z.number(),
+  source: z.enum(["document", "estimate"]),
+});
+
+/** A grade do curso (currículo Ativo) marcada com o que o aluno já fez. Sempre uma ESTIMATIVA. */
+export const AcademicProgress = z.object({
+  curriculumCode: z.string(),
+  /** O aluno está no mesmo currículo do Ativo; nulo se o histórico não diz. */
+  sameCurriculum: z.boolean().nullable(),
+  estimate: z.literal(true),
+  required: z.array(ComponentProgressView),
+  electives: z.array(ComponentProgressView),
+  complementary: z.array(ComponentProgressView),
+  hours: z.object({
+    required: NatureHoursView,
+    elective: NatureHoursView,
+    complementary: NatureHoursView,
+    total: NatureHoursView,
+  }),
+  percentComplete: z.number().nullable(),
+  requiredHoursToTake: z.number(),
+  currentTerm: z.number().nullable(),
+  terms: z.object({ min: z.number(), avg: z.number(), max: z.number() }),
+  divergences: z.object({
+    obsoletePending: z.array(z.string()),
+    substitutedPending: z.array(z.object({ code: z.string(), substitutedBy: z.string() })),
+    satisfiedByAdequation: z.array(z.string()),
+    newInCurriculum: z.array(z.string()),
+  }),
+});
 
 // ---- DK: chave do cofre da senha do SIGAA ----
 
