@@ -55,7 +55,7 @@ import { AcademicRepository, TranscriptSource } from './application/ports/academ
 import { PdfTextExtractor, TRANSCRIPT_READER, TranscriptReader } from './application/ports/transcript';
 import { ConnectionStatus } from './application/web/connection-status';
 import { AnthropicTranscriptReader } from './infrastructure/sources/sigaa/history/anthropic-transcript-reader';
-import { NotWiredTranscriptSource } from './infrastructure/sources/sigaa/history/not-wired-transcript-source';
+import { SessionTranscriptSource } from './infrastructure/sources/sigaa/history/session-transcript-source';
 import { PdfParseTextExtractor } from './infrastructure/sources/sigaa/history/pdf-text-extractor';
 import { CatalogRepository, CatalogSource } from './application/ports/catalog';
 import { SigaaLive } from './infrastructure/sources/sigaa/sigaa-live';
@@ -312,7 +312,7 @@ export function buildLiveSources(
     // Vida acadêmica: histórico lido pela IA (docs/specs/2026-11-15-vida-academica.md). Sem ANTHROPIC_API_KEY o leitor é
     // `null` e a importação não existe. O PDF vem de uma fonte que a fase 5 liga ao SIGAA (hoje "não ligada").
     { provide: PdfTextExtractor, useFactory: () => new PdfParseTextExtractor() },
-    { provide: TranscriptSource, useFactory: () => new NotWiredTranscriptSource() },
+    { provide: TranscriptSource, useFactory: (sessoes: SessoesSigaa) => new SessionTranscriptSource(sessoes), inject: [SessoesSigaa] },
     {
       provide: TRANSCRIPT_READER,
       useFactory: () => (process.env.ANTHROPIC_API_KEY ? new AnthropicTranscriptReader() : null),

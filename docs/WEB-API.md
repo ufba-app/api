@@ -275,8 +275,7 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
   pré-requisito), horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`. 404 `import_not_found`
   sem histórico gravado; 409 `curriculum_unavailable` enquanto a grade do curso não está pronta.
 
-Até a fase 5, a fonte do PDF no SIGAA **não está ligada**: a importação só existe com `ANTHROPIC_API_KEY` configurada e, antes da
-fase 5, qualquer tentativa termina em `SIGAA_UNAVAILABLE`.
+A fonte do PDF está ligada (fase 5): a importação baixa o "Histórico Escolar" pela sessão do SIGAA da pessoa (reaproveita o cookie guardado; a senha só é aberta se for preciso logar) em 2 requisições (portal e menu "Emitir Histórico"). A importação só existe com `ANTHROPIC_API_KEY` configurada (`available: false` sem ela). Falha da fonte vira `SIGAA_UNAVAILABLE` (SIGAA fora do ar, página inesperada) ou `SESSION_EXPIRED` (senha recusada).
 
 ## 6. Autorizar um cliente de terceiros (ex.: Claude)
 
