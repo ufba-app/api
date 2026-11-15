@@ -85,7 +85,7 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
       description:
         'Situação da pessoa em cada disciplina de clínica do SIASB: `estado` (`sem_paciente`, `sem_sessao` ou ' +
         '`sessao_marcada`), `proximaClinica` (próximo horário conhecido) e `prazoEstimado` (até quando marcar o ' +
-        'paciente; é um prazo estimado). Horários com offset da Bahia (-03:00). ' + AO_VIVO,
+        'paciente; é um prazo estimado; vem nulo em `sessao_marcada`, onde já há sessão marcada). Horários com offset da Bahia (-03:00). ' + AO_VIVO,
       inputSchema: {},
     },
     () =>
@@ -100,7 +100,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
             disciplina: r.disciplineName,
             estado: ESTADOS[r.state],
             proximaClinica: iso(r.nextSlot),
-            prazoEstimado: iso(r.deadline),
+            // Já com sessão marcada (③) o prazo de marcação não se aplica: omitido (null). clinica_prazo_marcacao calcula sob demanda.
+            prazoEstimado: r.state === 'SCHEDULED' ? null : iso(r.deadline),
             feriadosConsiderados: r.holidaysConsidered,
           })),
         };

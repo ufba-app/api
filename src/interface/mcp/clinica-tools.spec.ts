@@ -225,7 +225,8 @@ describe('clinica_situacao', () => {
     expect(by['2'].estado).toBe('sem_sessao');
     expect(by['3'].estado).toBe('sessao_marcada');
     expect(by['3'].proximaClinica).toBe('2026-11-27T10:00:00-03:00');
-    expect(by['3'].prazoEstimado).toMatch(/^2026-11-\d\dT\d\d:\d\d:\d\d-03:00$/);
+    // ③ já tem sessão marcada: o prazo de marcação não se aplica
+    expect(by['3'].prazoEstimado).toBeNull();
     expect(out.aviso).toBe('Feriados e recessos não considerados; confirme o prazo no SIASB.');
     expect(texto(res)).toContain('prazo estimado');
   });
@@ -666,7 +667,7 @@ describe('clinica_progresso', () => {
     // Decorrido: 02/11 00:00 a 23/11 09:00 (Bahia) = 21,375 dias; 14 / 21,375 = 0,6549 -> 0,65. O bloco 16-23 ficou sem sessão.
     expect(out.ritmo.sessoesPorSemana).toBe(0.65);
     expect(out.observacao).toBeUndefined();
-    expect(out.ritmo.semanasSemSessao).toBe(1);
+    expect(out.ritmo.semanasSemSessao).toBe(2); // 09-16 só tem canceladas (não contam) e 16-23 está vazia
     expect(Array.isArray(out.ritmo.horariosHabituais)).toBe(true);
     expect(out.avisos).toEqual([]);
     expect(out.ritmo.nota).toContain('semanas contadas de 7 em 7 dias a partir do início do período');

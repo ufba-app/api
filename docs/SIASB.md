@@ -92,7 +92,7 @@ As 7 ferramentas (`src/interface/mcp/clinica-tools.ts`). **Visibilidade:** apare
 
 | Ferramenta | Entrada | Devolve | Chamadas ao SIASB (máx.) |
 |---|---|---|---|
-| `clinica_situacao` | nenhuma | por disciplina: `estado`, `proximaClinica`, `prazoEstimado`, `feriadosConsiderados` | 3 (disciplinas, atendimentos ativos, sessões) |
+| `clinica_situacao` | nenhuma | por disciplina: `estado`, `proximaClinica`, `prazoEstimado` (`null` em `sessao_marcada`), `feriadosConsiderados` | 3 (disciplinas, atendimentos ativos, sessões) |
 | `clinica_sessoes` | `de?`, `ate?` (ISO; padrão: próximos 14 dias; até 45 dias à frente) | sessões: disciplina, início, fim, local, professor, iniciais, situação, `reagendamentoPara` | 1 |
 | `clinica_prazo_marcacao` | exatamente um: `disciplinaId` ou `inicioSessao` | `prazoEstimado`, `feriadosConsiderados` | 1 com `disciplinaId`; 0 com `inicioSessao` |
 | `clinica_pacientes` | nenhuma | atendimentos ativos por disciplina: `atendimentoId`, `iniciais`, `tipo` (`triagem`, `planejamento`, `urgencia`, `desconhecido`) | 2 |
