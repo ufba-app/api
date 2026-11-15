@@ -38,6 +38,8 @@ import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
 import { SiasbReader } from './application/siasb/siasb-reader';
 import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbSyncProvider } from './application/siasb/siasb-sync-provider';
+import { SYNC_PROVIDERS } from './application/jobs/sync-provider';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
 import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AcademicCalendar } from './application/ports/academic-calendar';
@@ -178,6 +180,17 @@ export function buildLiveSources(
       useFactory: (reader: SiasbReader, copy: SiasbCopyRepository, cipher: SecretCipher) =>
         new SiasbSyncer(reader, copy, cipher),
       inject: [SiasbReader, SiasbCopyRepository, SecretCipher],
+    },
+    {
+      provide: SiasbSyncProvider,
+      useFactory: (syncer: SiasbSyncer, copy: SiasbCopyRepository) => new SiasbSyncProvider(syncer, copy),
+      inject: [SiasbSyncer, SiasbCopyRepository],
+    },
+    {
+      // Fontes sincronizadas pelo cron genérico (src/sync-job.ts). Nova fonte = acrescentar o provedor aqui.
+      provide: SYNC_PROVIDERS,
+      useFactory: (siasb: SiasbSyncProvider) => [siasb],
+      inject: [SiasbSyncProvider],
     },
     {
       provide: SiasbCopyReader,
@@ -412,6 +425,7 @@ export function buildLiveSources(
     SiasbLink,
     SiasbReader,
     SiasbSyncer,
+    SYNC_PROVIDERS,
     SiasbCopyReader,
     ConsultaService,
     MemoryAdmin,

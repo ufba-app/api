@@ -146,7 +146,7 @@ Erros da conexão:
 
 ## 10. Sincronização (fase 2A)
 
-Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railway** (`siasb-cron`, `docs/SIASB-CRON.md`) copia as sessões e os atendimentos de cada pessoa conectada para as tabelas `siasb_*`. O painel e a ferramenta `clinica_sessoes` leem dessa cópia, sem ir ao SIASB a cada pedido. A senha continua sem ser guardada; o job usa o jar de cookies da conexão.
+Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railway** (cron `sync-cron`, `docs/SYNC-CRON.md`) copia as sessões e os atendimentos de cada pessoa conectada para as tabelas `siasb_*`. O painel e a ferramenta `clinica_sessoes` leem dessa cópia, sem ir ao SIASB a cada pedido. A senha continua sem ser guardada; o job usa o jar de cookies da conexão.
 
 **O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por atendimento, disciplina, tipo de tratamento, se foi concluído e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
 
