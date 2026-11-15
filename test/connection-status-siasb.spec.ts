@@ -4,7 +4,7 @@ const principal = { userId: 'u1', clientId: 'c' } as never;
 
 function status(offer: () => Promise<{ offered: boolean; courses: never[] }>, timeoutMs: number) {
   const link = { status: async () => ({ state: 'disconnected', expiresAt: null }), offer };
-  return new ConnectionStatus({} as never, {} as never, {} as never, link as never, Date.now, timeoutMs);
+  return new ConnectionStatus({} as never, {} as never, {} as never, {} as never, link as never, Date.now, timeoutMs);
 }
 
 describe('ConnectionStatus.siasb: teto de espera pelo SIASB no /me', () => {
