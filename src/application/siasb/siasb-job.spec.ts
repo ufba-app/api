@@ -1,4 +1,9 @@
-import { runSiasbJob, SYNC_MAX_USERS_PER_RUN, SYNC_SPACING_MS } from './siasb-job';
+import {
+  runSiasbJob,
+  SYNC_MAX_CONSECUTIVE_UNAVAILABLE,
+  SYNC_MAX_USERS_PER_RUN,
+  SYNC_SPACING_MS,
+} from './siasb-job';
 import type { SyncOutcome } from './siasb-syncer';
 
 function setup(ids: string[], outcomes: Record<string, SyncOutcome | Error> = {}) {
@@ -56,6 +61,37 @@ describe('runSiasbJob', () => {
     expect(s.dueUsers).toHaveBeenCalledWith(s.now(), SYNC_MAX_USERS_PER_RUN);
     expect(SYNC_MAX_USERS_PER_RUN).toBe(200);
     expect(SYNC_SPACING_MS).toBe(1500);
+  });
+
+  it('3 UNAVAILABLE seguidos interrompem a rodada: os restantes não são chamados, código 0, log só com contagens', async () => {
+    const un: SyncOutcome = 'UNAVAILABLE';
+    const s = setup(['u-a', 'u-b', 'u-c', 'u-d', 'u-e'], { 'u-a': un, 'u-b': un, 'u-c': un });
+    const code = await runSiasbJob({
+      syncer: { syncUser: s.syncUser },
+      copy: { dueUsers: s.dueUsers },
+      now: s.now,
+      sleep: s.sleep,
+    });
+    expect(SYNC_MAX_CONSECUTIVE_UNAVAILABLE).toBe(3);
+    expect(code).toBe(0);
+    expect(s.calls).toEqual(['u-a', 'u-b', 'u-c']);
+    const text = out.join(' ');
+    expect(text).toContain('interrompida');
+    expect(text).toContain('3 unavailable');
+    expect(text).not.toMatch(/u-[a-e]/);
+  });
+
+  it('um resultado diferente no meio zera a sequência de UNAVAILABLE', async () => {
+    const un: SyncOutcome = 'UNAVAILABLE';
+    const s = setup(['u-a', 'u-b', 'u-c', 'u-d', 'u-e'], { 'u-a': un, 'u-b': un, 'u-c': 'OK', 'u-d': un, 'u-e': un });
+    await runSiasbJob({
+      syncer: { syncUser: s.syncUser },
+      copy: { dueUsers: s.dueUsers },
+      now: s.now,
+      sleep: s.sleep,
+    });
+    expect(s.calls).toEqual(['u-a', 'u-b', 'u-c', 'u-d', 'u-e']);
+    expect(out.join(' ')).not.toContain('interrompida');
   });
 
   it('dorme entre pessoas, não depois da última', async () => {
