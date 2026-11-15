@@ -23,18 +23,18 @@ import {
   SigaaCredentialRepository,
   SigaaMasterSlotRepository,
   SigaaPairingRepository,
+  SigaaVaultRepository,
   SourceAccountRecord,
   SourceBindingRepository,
   SourceAccountRepository,
   UserRepository,
-  type EncryptedSecret,
-  type SigaaCredentialRecord,
 } from '../src/application/ports/repositories';
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
 import { MemoryProjectRepository } from '../src/application/memory/project-ports';
 import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
+import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
 import { InMemoryPairings } from './support/pairing-fake';
 import { WebSessionService } from '../src/application/web/web-session.service';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
@@ -64,7 +64,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
   let oauth: OAuthService;
   let store: MemoryOAuthStore;
   let cofre: CofreSigaa;
-  const creds = new Map<string, SigaaCredentialRecord>();
+  const credsRepo = new InMemoryCredentials();
+  const vaultsRepo = new InMemoryVaults();
   const accounts: SourceAccountRecord[] = [];
   const slotsRepo = new InMemorySlots();
   const pairingsRepo = new InMemoryPairings();
@@ -75,7 +76,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       await super.deleteAccount(userId);
       for (let i = bindingRows.length - 1; i >= 0; i--) if (bindingRows[i].userId === userId) bindingRows.splice(i, 1);
       for (let i = accounts.length - 1; i >= 0; i--) if (accounts[i].userId === userId) accounts.splice(i, 1);
-      for (const [k, c] of creds) if (c.userId === userId) creds.delete(k);
+      await credsRepo.deleteAllOf(userId);
+      await vaultsRepo.delete(userId);
     }
   })();
   // O que o "AVA" diz do token capturado (cada teste ajusta).
@@ -183,16 +185,9 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .overrideProvider(SigaaPairingRepository)
       .useValue(pairingsRepo)
       .overrideProvider(SigaaCredentialRepository)
-      .useValue({
-        upsert: async (i: { userId: string; clientId: string; login: string; secret: EncryptedSecret }) => {
-          const rec: SigaaCredentialRecord = { id: `${i.userId}:${i.clientId}`, ...i, status: 'OK', createdAt: new Date() };
-          creds.set(rec.id, rec);
-          return rec;
-        },
-        find: async (u: string, c: string) => creds.get(`${u}:${c}`) ?? null,
-        setStatus: async () => undefined,
-        delete: async (u: string, c: string) => void creds.delete(`${u}:${c}`),
-      })
+      .useValue(credsRepo)
+      .overrideProvider(SigaaVaultRepository)
+      .useValue(vaultsRepo)
       .overrideProvider(SourceAccountRepository)
       .useValue({
         upsert: async (i: UpsertSourceAccountInput) => {
@@ -570,6 +565,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   describe('chave mestra do SIGAA (passkey)', () => {
     const CT = 'CANARIOcifradoNoNavegador0123456789_-abcdefghij';
     const SAL = 'S'.repeat(43);
+    const dksVistas: string[] = [];
     const slot = (n: number, extra: Record<string, unknown> = {}) => ({
       credentialId: `cred${n}-` + 'x'.repeat(16),
       prfSalt: SAL,
@@ -595,17 +591,25 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const me = (await (await get('/me', cookie)).json()) as any;
       expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra1', passkey: { slots: 1 } });
 
-      // Sair apaga a cópia do cliente; a mestra fica.
+      // Ao ativar, o navegador pediu a DK (e a cifrou com a passkey; aqui só guardamos para devolver no desbloqueio).
+      const chave = await get('/connections/sigaa/key', cookie);
+      expect(chave.status).toBe(200);
+      expect(chave.headers.get('cache-control')).toBe('no-store');
+      const { dk } = (await chave.json()) as any;
+      expect(dk).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      dksVistas.push(dk);
+
+      // Sair apaga a cópia da DK da sessão; o cofre e a cópia da passkey ficam.
       expect((await send('DELETE', '/session', { cookie })).status).toBe(204);
       const nova = await signIn('mestra1');
       const me2 = (await (await get('/me', nova)).json()) as any;
-      expect(me2.connections.sigaa).toEqual({ status: 'locked', login: null, passkey: { slots: 1 } });
+      expect(me2.connections.sigaa).toEqual({ status: 'locked', login: 'mestra1', passkey: { slots: 1 } });
 
-      // O navegador pede a cópia (id no corpo), abre com a passkey e conecta pelo caminho de sempre.
+      // O navegador pede a cópia (id no corpo), abre com a passkey e desbloqueia com a DK: sem digitar a senha.
       const s = await send('POST', '/sigaa/passkey/slot', { cookie: nova, body: { credentialId: slot(1).credentialId } });
       expect(s.status).toBe(200);
       expect(await s.json()).toEqual({ prfSalt: SAL, iv: slot(1).iv, ciphertext: CT });
-      expect((await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra1', password: SENHA } })).status).toBe(204);
+      expect((await send('POST', '/connections/sigaa/unlock', { cookie: nova, body: { dk } })).status).toBe(204);
       const me3 = (await (await get('/me', nova)).json()) as any;
       expect(me3.connections.sigaa.status).toBe('connected');
       const l2 = (await (await get('/sigaa/passkey', nova)).json()) as any;
@@ -661,7 +665,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
     });
 
-    it('senha recusada ao desbloquear descarta as cópias mestras (senha velha não é tentada a cada login)', async () => {
+    it('senha errada digitada NÃO apaga as passkeys (elas guardam a DK, não a senha)', async () => {
       const cookie = await conectado('mestra8');
       await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
       await send('DELETE', '/session', { cookie });
@@ -671,7 +675,44 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const recusada = await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra8', password: `${SENHA}-velha` } });
       expect(recusada.status).toBe(422);
       const me = (await (await get('/me', nova)).json()) as any;
-      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+      expect(me.connections.sigaa).toEqual({ status: 'locked', login: 'mestra8', passkey: { slots: 1 } });
+    });
+
+    it('trocar a senha COM a DK da sessão mantém as passkeys; digitá-la sem a DK cria DK nova e as apaga', async () => {
+      const cookie = await conectado('mestra11');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      // Sessão que tem a DK: digitar a senha de novo recifra só o cofre.
+      expect((await send('POST', '/connections/sigaa', { cookie, body: { login: 'mestra11', password: SENHA } })).status).toBe(204);
+      expect(((await (await get('/me', cookie)).json()) as any).connections.sigaa.passkey.slots).toBe(1);
+
+      // Sessão sem a DK (a pessoa digitou em vez de desbloquear): DK nova, e as passkeys (que guardam a velha) morrem.
+      await send('DELETE', '/session', { cookie });
+      const nova = await signIn('mestra11');
+      expect((await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra11', password: SENHA } })).status).toBe(204);
+      const me = (await (await get('/me', nova)).json()) as any;
+      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra11', passkey: { slots: 0 } });
+    });
+
+    it('a chave do cofre só sai com o SIGAA aberto nesta sessão; desbloquear com DK errada ou sem cofre falha', async () => {
+      const cookie = await conectado('mestra12');
+      await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
+      await send('DELETE', '/session', { cookie });
+      const nova = await signIn('mestra12');
+
+      const semAbrir = await get('/connections/sigaa/key', nova); // locked: esta sessão não abre
+      expect(semAbrir.status).toBe(409);
+      expect(((await semAbrir.json()) as any).error).toBe('source_not_connected');
+      expect((await get('/connections/sigaa/key')).status).toBe(401);
+
+      const errada = await send('POST', '/connections/sigaa/unlock', { cookie: nova, body: { dk: 'D'.repeat(43) } });
+      expect(errada.status).toBe(422);
+      expect(((await errada.json()) as any).error).toBe('invalid_credentials');
+      expect((await send('POST', '/connections/sigaa/unlock', { cookie: nova, body: { dk: 'curto' } })).status).toBe(400);
+      expect((await send('POST', '/connections/sigaa/unlock', { cookie: nova, body: { dk: 'D'.repeat(43) }, csrf: false })).status).toBe(403);
+
+      const semCofre = await signIn('mestra12-sem-cofre');
+      const r = await send('POST', '/connections/sigaa/unlock', { cookie: semCofre, body: { dk: 'D'.repeat(43) } });
+      expect(r.status).toBe(409);
     });
 
     it('as respostas com a cópia cifrada vão com Cache-Control: no-store', async () => {
@@ -711,9 +752,10 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await get('/sigaa/passkey')).status).toBe(401);
     });
 
-    it('o texto cifrado e o sal nunca aparecem em log ou erro', async () => {
+    it('o texto cifrado, o sal e a DK nunca aparecem em log ou erro', async () => {
       expect(saida.join('\n')).not.toContain(CT);
       expect(saida.join('\n')).not.toContain(SAL);
+      for (const d of dksVistas) expect(saida.join('\n')).not.toContain(d);
     });
   });
 

@@ -1,9 +1,10 @@
 import { Secret } from '../shared/secret';
 import type { LiveSource } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
-import type { SigaaCredentialRecord, SigaaCredentialRepository, SourceAccountRecord } from '../ports/repositories';
+import type { SourceAccountRecord } from '../ports/repositories';
 import { SourceError, type Provider, type SourceContext } from '../ports/source-gateway';
 import { CofreSigaa } from '../sigaa/cofre-sigaa';
+import { InMemoryCredentials, InMemoryVaults, cifraDeTeste as cifra } from '../../../test/support/sigaa-store-fake';
 import {
   ConsultaService,
   ContaAmbiguaError,
@@ -111,17 +112,7 @@ describe('ConsultaService: uma conta por consulta', () => {
 const SENHA = 'senha-falsa-de-teste';
 const K = Buffer.alloc(32, 7);
 
-/** Cifra falsa: o "cifrado" só abre com a mesma K (basta para o teste; a real é AES-GCM). */
-const cifra = (k: Buffer) => ({
-  encrypt: (s: string) => ({ ciphertext: `${k.toString('hex')}|${s}`, iv: '', authTag: '' }),
-  decrypt: (e: { ciphertext: string }) => {
-    const [kh, s] = e.ciphertext.split('|');
-    if (kh !== k.toString('hex')) throw new Error('Unsupported state or unable to authenticate data');
-    return s;
-  },
-});
-
-function buildSigaa(
+async function buildSigaa(
   opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError; sessaoViva?: boolean } = {},
 ) {
   const chamadas: SourceContext[] = [];
@@ -145,27 +136,15 @@ function buildSigaa(
   };
   const live = new LiveSources();
   live.register(source);
-  let rec: SigaaCredentialRecord | null =
-    opts.comCredencial === false
-      ? null
-      : {
-          id: 'cred1',
-          userId: 'u1',
-          clientId: 'c1',
-          login: 'aluno',
-          secret: cifra(K).encrypt(SENHA),
-          status: opts.status ?? 'OK',
-          createdAt: new Date(),
-        };
-  const setStatus = jest.fn(async (_id: string, status: 'OK' | 'REAUTH_NEEDED') => {
-    if (rec) rec = { ...rec, status };
-  });
-  const repo = {
-    find: async (u: string, c: string) => (rec && rec.userId === u && rec.clientId === c ? rec : null),
-    setStatus,
-    upsert: async () => rec!,
-  } as unknown as SigaaCredentialRepository;
-  const cofre = new CofreSigaa(repo, cifra);
+  const repo = new InMemoryCredentials();
+  const vaults = new InMemoryVaults();
+  const cofre = new CofreSigaa(repo, vaults, cifra);
+  const setStatus = jest.spyOn(vaults, 'setStatus');
+  if (opts.comCredencial !== false) {
+    await cofre.gravar({ userId: 'u1', clientId: 'c1' }, { login: 'aluno', senha: Secret.of(SENHA) }, K);
+    if (opts.status === 'REAUTH_NEEDED') await cofre.marcarInvalida('u1');
+    setStatus.mockClear();
+  }
   const accounts = { findByUserAndProvider: async () => [], listByUser: async () => [], setStatus: jest.fn() } as never;
   const cipher = { decrypt: () => 'nunca' } as never;
   return { svc: new ConsultaService(live, accounts, cipher, cofre), chamadas, aberturas, setStatus };
@@ -176,7 +155,7 @@ const NAO_CONECTADO = 'SIGAA não conectado neste aplicativo: conecte na tela de
 
 describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   it('SIGAA sem chave no token: erro de não conectado e zero chamadas à fonte', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     const err = await svc.listarCursos({ userId: 'u1', cliente: { clientId: 'c1' } }, 'SIGAA').catch((e) => e);
     expect(err).toBeInstanceOf(FonteNaoConectadaError);
     expect(err.message).toBe(NAO_CONECTADO);
@@ -184,7 +163,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('chave de API plt_ (sem cliente): mesmo erro', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     for (const consulta of [
       () => svc.listarCursos(U1, 'SIGAA'),
       () => svc.prazos(U1, 'SIGAA'),
@@ -200,13 +179,13 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('com chave mas sem credencial guardada para o cliente: mesmo erro, sem chamar a fonte', async () => {
-    const { svc, chamadas } = buildSigaa({ comCredencial: false });
+    const { svc, chamadas } = await buildSigaa({ comCredencial: false });
     await expect(svc.prazos(COM_CHAVE, 'SIGAA')).rejects.toThrow(NAO_CONECTADO);
     expect(chamadas).toEqual([]);
   });
 
   it('com chave: a fonte recebe a senha sob demanda (kind password-on-demand), que abre com a K do cliente', async () => {
-    const { svc, chamadas, aberturas } = buildSigaa();
+    const { svc, chamadas, aberturas } = await buildSigaa();
     await expect(svc.listarCursos(COM_CHAVE, 'SIGAA')).resolves.toEqual([{ id: 't1', nome: 'Cálculo' }]);
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0]).toEqual({
@@ -218,7 +197,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('com sessão viva a senha nunca é aberta (K só é usada quando precisa logar)', async () => {
-    const { svc, chamadas, aberturas } = buildSigaa({ sessaoViva: true });
+    const { svc, chamadas, aberturas } = await buildSigaa({ sessaoViva: true });
     await expect(svc.listarCursos(COM_CHAVE, 'SIGAA')).resolves.toEqual([{ id: 't1', nome: 'Cálculo' }]);
     await expect(svc.prazos(COM_CHAVE, 'SIGAA')).resolves.toEqual([]);
     expect(chamadas).toHaveLength(2);
@@ -226,7 +205,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('chave errada: não conectado, sem vazar nada e sem chamar a fonte', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     const outra: Quem = { userId: 'u1', cliente: { clientId: 'c1', chave: Buffer.alloc(32, 9) } };
     const err = await svc.prazos(outra, 'SIGAA').catch((e) => e);
     expect(err).toBeInstanceOf(FonteNaoConectadaError);
@@ -237,7 +216,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('credencial já marcada inválida: pede para reconectar, sem chamar a fonte', async () => {
-    const { svc, chamadas } = buildSigaa({ status: 'REAUTH_NEEDED' });
+    const { svc, chamadas } = await buildSigaa({ status: 'REAUTH_NEEDED' });
     const err = await svc.prazos(COM_CHAVE, 'SIGAA').catch((e) => e);
     expect(err).toBeInstanceOf(FonteNaoConectadaError);
     expect(err.message).toContain('conecte o SIGAA de novo');
@@ -245,22 +224,22 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('SIGAA recusa login e senha: marca a credencial e pede para reconectar, sem vazar a senha', async () => {
-    const { svc, setStatus } = buildSigaa({ falha: new SourceError('REAUTH_NEEDED', 'login recusado') });
+    const { svc, setStatus } = await buildSigaa({ falha: new SourceError('REAUTH_NEEDED', 'login recusado') });
     const err = await svc.prazos(COM_CHAVE, 'SIGAA').catch((e) => e);
     expect(err).toBeInstanceOf(FonteNaoConectadaError);
     expect(err.message).toContain('conecte o SIGAA de novo');
     expect(err.message).not.toContain(SENHA);
-    expect(setStatus).toHaveBeenCalledWith('cred1', 'REAUTH_NEEDED');
+    expect(setStatus).toHaveBeenCalledWith('u1', 'REAUTH_NEEDED');
   });
 
   it('outra falha da fonte passa adiante sem marcar a credencial', async () => {
-    const { svc, setStatus } = buildSigaa({ falha: new SourceError('UNAVAILABLE', 'SIGAA fora do ar') });
+    const { svc, setStatus } = await buildSigaa({ falha: new SourceError('UNAVAILABLE', 'SIGAA fora do ar') });
     await expect(svc.prazos(COM_CHAVE, 'SIGAA')).rejects.toBeInstanceOf(SourceError);
     expect(setStatus).not.toHaveBeenCalled();
   });
 
   it('`conta` diferente do login conectado: não conectado, sem chamar a fonte', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     await expect(svc.prazos(COM_CHAVE, 'SIGAA', 'outro')).rejects.toBeInstanceOf(FonteNaoConectadaError);
     expect(chamadas).toEqual([]);
     await expect(svc.prazos(COM_CHAVE, 'SIGAA', 'ALUNO')).resolves.toEqual([]);
@@ -268,7 +247,7 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('listar_contas mostra o SIGAA do cliente', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     await expect(svc.contas(COM_CHAVE)).resolves.toEqual([{ provider: 'SIGAA', conta: 'aluno', status: 'OK' }]);
     // chave plt_ (sem cliente) ou outro cliente: não aparece
     await expect(svc.contas(U1)).resolves.toEqual([]);
@@ -277,12 +256,12 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   });
 
   it('ver_aviso no SIGAA usa a fonte', async () => {
-    const { svc } = buildSigaa();
+    const { svc } = await buildSigaa();
     await expect(svc.verAviso(COM_CHAVE, 'SIGAA', undefined, 'av1')).resolves.toMatchObject({ id: 'av1' });
   });
 
   it('SIGAA não tem download nem conta de token nesta etapa', async () => {
-    const { svc, chamadas } = buildSigaa();
+    const { svc, chamadas } = await buildSigaa();
     await expect(svc.conta(COM_CHAVE, 'SIGAA')).rejects.toBeInstanceOf(FonteSemLeituraError);
     await expect(svc.baixar(COM_CHAVE, 'SIGAA', undefined, 'ref')).rejects.toBeInstanceOf(FonteSemLeituraError);
     expect(chamadas).toEqual([]);

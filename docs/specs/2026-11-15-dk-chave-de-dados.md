@@ -1,6 +1,6 @@
 # DK: chave de dados por pessoa para a senha do SIGAA (desenho)
 
-Status: **proposta**, sem código. Autor: agente da API (Alicerce), 15/11/2026. Depende de
+Status: **implementada** em `feat/dk-cofre` (cofre, `GET /connections/sigaa/key`, `POST /connections/sigaa/unlock`). Decidido com o André: opção A (o servidor abre a DK com a K da sessão e a entrega ao navegador) e **sem convivência com o formato antigo** (cópias antigas pedem reautorização; sem conversão automática nem coluna `kind`). Autor: agente da API (Alicerce), 15/11/2026. Depende de
 [`2026-11-14-chave-mestra-passkey.md`](2026-11-14-chave-mestra-passkey.md) (etapas 1 e 2 já na `main`). Combinado com o
 André: a DK é uma **etapa própria depois do QR**; esta é a hora de fazê-la porque o Mosaico ainda não construiu o lado do
 navegador, então o formato do que a passkey guarda ainda pode mudar sem retrabalho.

@@ -28,6 +28,7 @@ import {
   CreatePairingBody,
   CreateSessionBody,
   DeliverPairingBody,
+  UnlockSigaaBody,
   SaveSigaaPasskeyBody,
   SigaaPasskeySlotBody,
   parseInput,
@@ -123,6 +124,23 @@ export class ConnectionsController {
   @UseGuards(SessionGuard)
   async sigaaOff(@Principal() p: WebPrincipal | null): Promise<void> {
     await this.web.disconnectSigaa(must(p));
+  }
+
+  /** A DK do cofre para o navegador cifrá-la com a passkey (ativar). Só com o SIGAA aberto nesta sessão. */
+  @Get('sigaa/key')
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(SessionGuard)
+  sigaaKey(@Principal() p: WebPrincipal | null) {
+    return this.web.sigaaKey(must(p));
+  }
+
+  /** Desbloqueio com a DK (da passkey ou do pacote do QR): o SIGAA fica conectado nesta sessão. */
+  @Post('sigaa/unlock')
+  @HttpCode(204)
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(SessionGuard)
+  async sigaaUnlock(@Principal() p: WebPrincipal | null, @Body() b: unknown): Promise<void> {
+    await this.web.unlockSigaa(must(p), parseInput(UnlockSigaaBody, b, invalidRequest).dk);
   }
 
   @Post('moodle/start')

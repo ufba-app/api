@@ -34,6 +34,7 @@ import {
   SigaaCredentialRepository,
   SigaaMasterSlotRepository,
   SigaaPairingRepository,
+  SigaaVaultRepository,
   SourceAccountRepository,
   SourceBindingRepository,
 } from './application/ports/repositories';
@@ -160,9 +161,9 @@ export const mcpProviders: Provider[] = [
   // Uma única instância do cofre (o mapa de pendentes é em memória): CHAVE_DO_CLIENTE e SIGAA_LINK a reutilizam.
   {
     provide: CofreSigaa,
-    useFactory: (repo: SigaaCredentialRepository) =>
-      new CofreSigaa(repo, (k) => new AesSecretCipher(k.toString('base64'))),
-    inject: [SigaaCredentialRepository],
+    useFactory: (repo: SigaaCredentialRepository, vaults: SigaaVaultRepository) =>
+      new CofreSigaa(repo, vaults, (k) => new AesSecretCipher(k.toString('base64'))),
+    inject: [SigaaCredentialRepository, SigaaVaultRepository],
   },
   { provide: CHAVE_DO_CLIENTE, useExisting: CofreSigaa },
   { provide: SIGAA_LINK, useFactory: () => new SigaaLink() },

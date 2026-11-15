@@ -102,12 +102,28 @@ navegador** com o PRF da passkey; ele nunca abre a cópia. Rotas (cookie + CSRF)
 - `POST /sigaa/passkey/slot` `{ credentialId }` → `{ prfSalt, iv, ciphertext }` (o id vai no corpo, não na URL). 10 por
   minuto. 404 `passkey_not_found`. Marca `lastUnlockedAt`.
 - `DELETE /sigaa/passkey/{credentialId}` → 204 (a conexão do SIGAA não muda).
-- `DELETE /connections/sigaa` apaga também as cópias; `DELETE /me` apaga em cascata. Sair (`DELETE /session`) **não** apaga.
+- `DELETE /connections/sigaa` apaga o cofre, as cópias da DK (painel e apps) e as das passkeys; `DELETE /me` apaga em cascata. Sair (`DELETE /session`) apaga só a cópia da DK da sessão: o cofre e as passkeys **ficam**.
 
-Se o SIGAA **recusar** a senha em `POST /connections/sigaa`, o servidor apaga as cópias mestras da pessoa (a senha guardada não vale mais).
+**A passkey guarda a DK, não a senha** (docs/specs/2026-11-15-dk-chave-de-dados.md). A senha do SIGAA fica cifrada UMA vez
+por pessoa, num cofre (`sigaa_vaults`), com a DK (chave de dados aleatória, nunca guardada em claro). Cada sessão do
+painel e cada app autorizado guarda uma cópia da DK cifrada com a K do próprio token; cada passkey guarda outra, cifrada
+no navegador com o PRF (AAD `userId || credentialId || "2"`). Trocar a senha recifra só o cofre: as passkeys e os apps
+seguem valendo.
 
-Desbloquear: `GET /sigaa/passkey` → `get` da passkey com `evalByCredential` → `POST …/slot` → abrir no navegador →
-`POST /connections/sigaa` com login e senha (caminho de sempre). Qualquer falha cai no formulário da senha.
+- `GET /connections/sigaa/key` → `{ dk }` (32 bytes, base64url). Para **ativar**: o navegador cifra a DK com a passkey e a
+  grava (`POST /sigaa/passkey`). Exige o SIGAA aberto **nesta** sessão (409 `source_not_connected`); `no-store`; 10 por hora.
+- `POST /connections/sigaa/unlock` `{ dk }` → 204. Para **desbloquear**: o navegador abre a cópia da passkey (ou recebe a
+  DK pelo QR) e manda a DK; o servidor abre o cofre e a sessão fica conectada, **sem a senha passar pelo navegador**. DK que
+  não abre: 422 `invalid_credentials`. Sem cofre: 409. 10 por minuto.
+- `POST /connections/sigaa` com a senha: se esta sessão já tem a DK, recifra só o cofre (as passkeys ficam); se **não**
+  tem (a pessoa digitou em vez de desbloquear), cria DK **nova** e apaga as cópias da DK dos apps e as das passkeys.
+- `sigaa.status`: `connected` (esta sessão abre); `locked` (há cofre válido e passkey: um toque religa, `login` já vem
+  preenchido); `password_required` (há cofre mas nada abre aqui, sem passkey, ou o SIGAA recusou a senha: digitar de novo,
+  e isso **não** exige reativar a passkey se a sessão tiver a DK); `disconnected` (sem cofre).
+
+Desbloquear: `GET /sigaa/passkey` → `get` da passkey com `evalByCredential` → `POST …/slot` → abrir a DK no navegador →
+`POST /connections/sigaa/unlock`. Qualquer falha cai no formulário da senha. Apps que tinham a senha guardada no formato
+antigo pedem reautorização.
 
 ### Liberar o SIGAA por QR (correio entre o computador e o celular)
 
@@ -128,8 +144,8 @@ Todas as rotas exigem sessão e CSRF e respondem `Cache-Control: no-store`.
 - `GET /pairings/{id}` → 200 `{ status: "pending" }` ou `{ status: "delivered", pub, iv, ciphertext }`. O **computador**
   consulta a cada ~1,5 s; quando o pacote chega, a leitura o devolve e **apaga o pedido** (uso único). Depois, ou vencido, 404.
 - Lacre (feito nos navegadores, não aqui): `chave = HKDF-SHA256(ECDH, salt = id, info = "ufba.app/pair/v1" || pubPC || pubCelular)`,
-  AES-256-GCM, AAD = `id`. O conteúdo do pacote é o `{ login, password }` aberto da cópia da passkey; o computador o
-  abre e chama o `POST /connections/sigaa` de sempre (a API valida e cifra com a K da sessão nova).
+  AES-256-GCM, AAD = `id`. O conteúdo do pacote é a **DK** aberta da cópia da passkey; o computador a abre e chama o
+  `POST /connections/sigaa/unlock`.
 - Falha em qualquer ponto (sem celular, navegador sem WebAuthn, pedido vencido): a tela cai em "digite a senha".
 
 ## 3. Segurança das chamadas

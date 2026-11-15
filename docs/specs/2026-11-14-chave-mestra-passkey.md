@@ -1,5 +1,10 @@
 # Chave mestra do SIGAA com passkey (desenho)
 
+> **Atualização de 15/11/2026:** a DK entrou ([`2026-11-15-dk-chave-de-dados.md`](2026-11-15-dk-chave-de-dados.md)). Onde este
+> desenho fala em cópia mestra de `{ login, password }` (§4, §5 e §13), vale a **DK**: a passkey guarda a chave do cofre da
+> senha, o desbloqueio usa `POST /connections/sigaa/unlock` e o pacote do QR leva a DK. A regra "senha recusada apaga as
+> passkeys" (§5.2) **saiu**: só uma DK nova apaga.
+
 Status: **etapa 1 (API) implementada** em `feat/chave-mestra-etapa1`; o spike da etapa 0 deu **SEGUIR COM RESSALVA** (ver §9). Autor: agente da API (Alicerce), 14/11/2026.
 Relacionado: [`2026-11-14-memoria-ufba.md`](2026-11-14-memoria-ufba.md) (outro assunto) e a mudança "sessão do SIGAA por pessoa" (branch `fix/sigaa-expirada-302`, independente deste desenho).
 

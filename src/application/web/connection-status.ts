@@ -22,12 +22,13 @@ export class ConnectionStatus {
   async sigaa(p: WebPrincipal): Promise<Me['connections']['sigaa']> {
     const slots = await this.slots.count(p.userId);
     const passkey = { slots };
-    const rec = await this.cofre.situacao({ userId: p.userId, clientId: WEB_CLIENT_ID });
-    // `locked`: não há senha utilizável nesta sessão, mas existe cópia mestra (um toque na passkey religa).
-    if (!rec) return { status: slots > 0 ? 'locked' : 'disconnected', login: null, passkey };
-    if (rec.status !== 'OK') return { status: 'password_required', login: rec.login, passkey };
-    if (!(await this.sigaaOpens(p))) return { status: slots > 0 ? 'locked' : 'password_required', login: rec.login, passkey };
-    return { status: 'connected', login: rec.login, passkey };
+    const cofre = await this.cofre.cofre(p.userId);
+    if (!cofre) return { status: 'disconnected', login: null, passkey };
+    // O SIGAA recusou a senha do cofre: vale para todos até a pessoa digitar a nova.
+    if (cofre.status !== 'OK') return { status: 'password_required', login: cofre.login, passkey };
+    if (await this.sigaaOpens(p)) return { status: 'connected', login: cofre.login, passkey };
+    // `locked`: esta sessão não abre o cofre, mas há passkey (um toque religa, com a DK que ela guarda).
+    return { status: slots > 0 ? 'locked' : 'password_required', login: cofre.login, passkey };
   }
 
   async sigaaOpens(p: WebPrincipal): Promise<boolean> {
