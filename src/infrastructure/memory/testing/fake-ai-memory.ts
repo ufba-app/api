@@ -209,7 +209,20 @@ export class FakeAiMemory {
           description: `fake ${name}`,
           inputSchema: {
             type: 'object',
-            properties: name === 'memory_status' ? {} : { workspace: { type: 'string' }, project: { type: 'string' }, path: { type: 'string' } },
+            properties:
+              name === 'memory_status'
+                ? {}
+                : {
+                    workspace: { type: 'string' },
+                    project: { type: 'string' },
+                    path: { type: 'string' },
+                    // Como o ai-memory real: propriedades sem  (a loja do Claude recusa), para o proxy normalizar.
+                    signal: { enum: ['abort', 'timeout'], description: 'sem type' },
+                    nature: { enum: ['info', 'question'] },
+                    tags: { type: 'array', items: { enum: ['a', 'b'] } },
+                    extra: { anyOf: [{ enum: ['x'] }, { type: 'number' }] },
+                    filtro: { properties: { de: { description: 'sem type' } } },
+                  },
           },
           annotations: { readOnlyHint: name === 'memory_install_self_routing' },
         })),

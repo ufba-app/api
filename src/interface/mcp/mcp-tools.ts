@@ -24,6 +24,19 @@ const CONTA = z
       'uma conta só nessa fonte; com mais de uma, é obrigatória.',
   );
 
+/**
+ * Instruções do servidor, lidas pelo Claude ao conectar. Servem para ele usar o conector em QUALQUER conversa de contexto
+ * acadêmico, mesmo sem a pessoa dizer "UFBA" (ex.: "amanhã tenho prova, me ajuda a estudar").
+ */
+export const ACADEMIC_INSTRUCTIONS =
+  'Este conector dá acesso à vida acadêmica REAL da pessoa na UFBA (SIGAA, AVA/Moodle e Google Classroom). Quem o ' +
+  'conectou é estudante da UFBA: use-o sempre que a conversa tocar em estudos ou faculdade, MESMO que ela não ' +
+  'mencione a UFBA, o SIGAA ou o Moodle. Exemplos: prova, trabalho, entrega, prazo, aula, matéria, disciplina, ' +
+  'professor, nota, falta, semestre, material, fórum, aviso, "o que tenho para hoje/amanhã/esta semana", pedir ajuda ' +
+  'para estudar ou se organizar. Antes de responder de memória, consulte: comece por `listar_contas` e `prazos`, e ' +
+  'use `listar_cursos` e `ver_curso` para o conteúdo da matéria (tarefas, materiais, avisos). Assim a ajuda parte do ' +
+  'que a pessoa realmente tem, não de suposições. Só lê, nunca altera nada nas fontes.';
+
 const AO_VIVO = 'Consulta a fonte AO VIVO, em UMA conta, com o acesso que a pessoa conectou; não grava nada.';
 
 /** Ferramentas e quantas chamadas cada uma faz à fonte (o teste garante esse teto). */
@@ -59,13 +72,17 @@ export function buildMcpServer(
 ): McpServer {
   const withMemory = memory?.enabled() === true;
   const server = new McpServer(
-    { name: 'platform', version: '0.1.0' },
-    withMemory ? { instructions: memoryInstructionsFor(p.clientName) } : undefined,
+    { name: 'platform', title: 'UFBA: vida acadêmica', version: '0.1.0' },
+    { instructions: withMemory ? `${ACADEMIC_INSTRUCTIONS}
+
+${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
   );
 
   server.registerTool(
     'listar_contas',
     {
+      title: 'Contas conectadas',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       description:
         'Contas conectadas pela pessoa em cada fonte (ex.: Moodle da UFBA; Classroom no gmail pessoal e no @ufba.br). ' +
         'Use para saber o que passar em `conta` nas outras ferramentas; para ler todas, consulte uma conta por vez. ' +
@@ -78,8 +95,10 @@ export function buildMcpServer(
   server.registerTool(
     'listar_cursos',
     {
+      title: 'Listar matérias',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Lista as matérias da pessoa na fonte (padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
+        'Lista as matérias que a pessoa cursa (use sempre que ela falar de aula, prova, trabalho, disciplina ou estudo, mesmo sem citar a UFBA). Padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
         'Use o `id` em `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, todas: z.boolean().optional() },
     },
@@ -89,8 +108,10 @@ export function buildMcpServer(
   server.registerTool(
     'prazos',
     {
+      title: 'Próximos prazos',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Moodle: uma consulta ao ' +
+        'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Use quando a pessoa falar de prova, entrega, trabalho ou "o que tenho para amanhã", mesmo sem citar a UFBA. Moodle: uma consulta ao ' +
         'calendário. Classroom: uma consulta por matéria ativa (com teto). Comece por aqui para perguntas como ' +
         '"o que tenho para hoje/esta semana"; para uma visão completa, consulte cada conta de `listar_contas`. ' +
         AO_VIVO,
@@ -102,8 +123,10 @@ export function buildMcpServer(
   server.registerTool(
     'ver_curso',
     {
+      title: 'Ver matéria',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Conteúdo de UMA matéria: tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
+        'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
         'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`. Classroom: arquivos em `abrirNoNavegador` ' +
         '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
         '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
@@ -115,6 +138,8 @@ export function buildMcpServer(
   server.registerTool(
     'ver_forum',
     {
+      title: 'Ver fórum',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Discussões de UM fórum do Moodle (inclui o fórum de avisos da matéria), com mensagem e anexos. Use o ' +
         '`forumId` vindo de `ver_curso`. (O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
@@ -126,6 +151,8 @@ export function buildMcpServer(
   server.registerTool(
     'ver_aviso',
     {
+      title: 'Ver aviso',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Texto completo de UM aviso/notícia de uma matéria. Hoje só no SIGAA (`fonte: sigaa`). Use o `id` de um ' +
         'item `tipo: aviso` vindo de `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
@@ -137,6 +164,8 @@ export function buildMcpServer(
   server.registerTool(
     'baixar_anexo',
     {
+      title: 'Baixar anexo',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Gera links temporários (uso único) para baixar anexos NA MÁQUINA de quem está usando: rode os comandos ' +
         '`comoBaixar` do resultado. O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +

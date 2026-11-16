@@ -36,6 +36,12 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 **Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.
 
+### Metadados para a loja e uso sem dizer "UFBA"
+
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e `clinica_*` são somente leitura; as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
+- As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
+
 ## Ferramentas das clínicas (SIASB)
 
 As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
