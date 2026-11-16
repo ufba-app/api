@@ -69,6 +69,18 @@ export interface DiscussaoViva {
   anexos: AnexoVivo[];
 }
 
+/** Uma mensagem de um tópico (a inicial ou uma resposta), na ordem em que foi postada. */
+export interface MensagemViva {
+  /** Id da mensagem: passe em `postarForum` (com `postId`) para responder a ela. */
+  postId: string;
+  /** Id da mensagem a que esta responde; ausente na mensagem inicial. */
+  respostaA?: string;
+  autor?: string;
+  publicadaEm?: Date;
+  mensagem?: string;
+  anexos: AnexoVivo[];
+}
+
 /** Publicação em fórum: nova discussão (`forumId`) ou resposta a uma mensagem (`postId`). Exatamente um dos dois. */
 export interface PostagemForum {
   forumId?: string;
@@ -101,6 +113,8 @@ export interface LiveSource {
   turmasComHorario?(ctx: SourceContext): Promise<ClassSchedule[]>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
+  /** Mensagens de UM tópico (inicial e respostas). Hoje só o Moodle: 1 chamada. */
+  verTopico?(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]>;
   /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
   postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
 }

@@ -3,7 +3,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
-import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
+import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -92,6 +92,13 @@ export class ConsultaService {
 
   verForum(quem: Quem, provider: Provider, conta: string | undefined, forumId: string): Promise<DiscussaoViva[]> {
     return this.com(quem, provider, conta, (s, ctx) => s.verForum(ctx, forumId));
+  }
+
+  /** Mensagens de UM tópico, com as respostas. Só fontes com `verTopico` (hoje, o Moodle). */
+  async verTopico(quem: Quem, provider: Provider, conta: string | undefined, discussaoId: string): Promise<MensagemViva[]> {
+    const source = this.sources.get(provider);
+    if (!source?.verTopico) throw new FonteSemLeituraError(`${NOMES[provider]}: ler um tópico ainda não disponível`);
+    return this.com(quem, provider, conta, (s, ctx) => s.verTopico!(ctx, discussaoId));
   }
 
   /** Turmas do semestre com dia e horário (só o SIGAA). 1 requisição ao portal. */

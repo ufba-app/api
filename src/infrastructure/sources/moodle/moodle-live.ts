@@ -5,6 +5,7 @@ import type {
   CursoVivo,
   DiscussaoViva,
   LiveSource,
+  MensagemViva,
   PostagemFeita,
   PostagemForum,
   PrazoVivo,
@@ -62,6 +63,15 @@ interface UpcomingEvent {
   course?: { id: number; fullname?: string };
 }
 type Discussion = MoodleDiscussion & { userfullname?: string };
+/** Mensagem de `mod_forum_get_discussion_posts` (só os campos usados). */
+interface MoodlePost {
+  id: number;
+  parent?: number;
+  userfullname?: string;
+  created?: number;
+  message?: string;
+  attachments?: MoodleFile[];
+}
 
 const TIPO_POR_MODULO: Record<string, TipoAtividade> = {
   assign: 'tarefa',
@@ -289,6 +299,30 @@ export class MoodleLive implements LiveSource {
         autor: d.userfullname,
         publicadaEm: date(d.created),
         anexos: [...(Array.isArray(d.attachments) ? d.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, d.message)],
+      }));
+    });
+  }
+
+  /**
+   * Mensagens de UM tópico, com as respostas (`mod_forum_get_discussion_posts`, 1 chamada). `verForum` só traz a mensagem
+   * inicial de cada tópico; para ler a conversa, pede-se o tópico. Ordem cronológica; `respostaA` liga cada resposta à sua mensagem.
+   */
+  verTopico(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]> {
+    return this.run(ctx, async (m) => {
+      const id = Number(discussaoId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'discussaoId inválido');
+      const res = await this.client.call<{ posts?: MoodlePost[] }>(m, 'mod_forum_get_discussion_posts', {
+        discussionid: id,
+        sortby: 'created',
+        sortdirection: 'ASC',
+      });
+      return (res.posts ?? []).map((p) => ({
+        postId: String(p.id),
+        ...(p.parent ? { respostaA: String(p.parent) } : {}),
+        autor: p.userfullname,
+        publicadaEm: date(p.created),
+        mensagem: htmlToText(p.message),
+        anexos: [...(Array.isArray(p.attachments) ? p.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, p.message)],
       }));
     });
   }
