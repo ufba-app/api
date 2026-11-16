@@ -92,8 +92,10 @@ export interface VerCursoInput extends Alvo {
   cursoId: string;
 }
 
+/** Fórum (lista de tópicos) OU tópico (mensagens com as respostas): exatamente um dos dois. */
 export interface VerForumInput extends Alvo {
-  forumId: string;
+  forumId?: string;
+  discussaoId?: string;
 }
 
 export interface VerAvisoInput extends Alvo {

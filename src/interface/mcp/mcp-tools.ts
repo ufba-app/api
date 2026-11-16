@@ -144,9 +144,11 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       title: 'Ver fórum',
       annotations: { title: 'Ver fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Discussões de UM fórum do Moodle (inclui o fórum de avisos da matéria), com mensagem e anexos. Use o ' +
-        '`forumId` vindo de `ver_curso`. (O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
-      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
+        'Dois modos, use exatamente um. Com `forumId` (de `ver_curso`): a lista de TÓPICOS do fórum, com a mensagem inicial de cada um ' +
+        '(inclui o fórum de avisos da matéria). Com `discussaoId` (o `id` de um tópico de `ver_forum`): as MENSAGENS desse tópico, ' +
+        'inclusive as respostas, em ordem; cada uma traz `postId` e `respostaA`. Para ver o que os colegas postaram, leia o tópico com `discussaoId`. ' +
+        '(O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string().optional(), discussaoId: z.string().optional() },
     },
     (args) => run(() => uc.verForum(p, args)),
   );
