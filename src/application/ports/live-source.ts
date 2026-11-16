@@ -66,6 +66,19 @@ export interface DiscussaoViva {
   anexos: AnexoVivo[];
 }
 
+/** Frequência de UMA turma, em aulas (55 min). A fonte só informa presenças; a falta é `aulasRegistradas − presencas`. */
+export interface FrequenciaViva {
+  cursoId: string;
+  cursoNome: string;
+  presencas: number;
+  /** Aulas com frequência lançada pelo professor até agora. */
+  aulasRegistradas: number;
+  /** Aulas definidas pela carga horária do componente. */
+  aulasCH: number;
+  /** `false` quando a fonte avisa que a frequência ainda não foi lançada por completo. */
+  completa: boolean;
+}
+
 export interface LiveSource {
   readonly provider: Provider;
   /** Matérias atuais da pessoa. `todas` inclui as passadas e futuras. */
@@ -83,6 +96,8 @@ export interface LiveSource {
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
+  /** Frequência de cada turma do semestre. Hoje só o SIGAA. */
+  frequencia?(ctx: SourceContext): Promise<FrequenciaViva[]>;
 }
 
 /** Fontes com leitura ao vivo disponíveis neste servidor. */

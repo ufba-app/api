@@ -7,7 +7,7 @@ import type { SecretCipher } from '../../../application/ports/secret-cipher';
 import { MemorySigaaSessionStore } from './memory-session-store';
 import { SessoesSigaa } from './sessoes-sigaa';
 import { SigaaInvalidCredentialsError, type SigaaSession } from './session';
-import { MAX_TURMAS_PRAZOS, SigaaLive } from './sigaa-live';
+import { MAX_TURMAS_FREQUENCIA, MAX_TURMAS_PRAZOS, SigaaLive } from './sigaa-live';
 
 const fixture = (nome: string) => readFileSync(join(__dirname, 'turma-virtual', '__fixtures__', nome), 'utf-8');
 
@@ -250,5 +250,52 @@ describe('SigaaLive', () => {
     await expect(live.verForum(ctx, 'f')).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
     await expect(live.baixar(ctx, 'r')).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
     expect(reqs).toEqual([]);
+  });
+});
+
+describe('SigaaLive.frequencia', () => {
+  const MENU_ACTION = '/sigaa/ava/index.jsf';
+  const MENU_LINK = 'formMenu:j_id_jsp_1857845999_98';
+
+  /** Entrar na turma devolve o menu; o postback do menu devolve o mapa de frequência. */
+  const servindoFrequencia = (path: string) =>
+    path === PORTAL ? fixture('turma-menu.html') : fixture('frequencia-mapa.html');
+
+  it('1 turma: portal, entrar na turma e postback do item "Frequência" do menu', async () => {
+    const { live, reqs, posts } = montar({ get: { [PORTAL]: portalCom(1) }, postback: servindoFrequencia });
+    const lista = await live.frequencia(ctx);
+    expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `POST ${MENU_ACTION}`]);
+    expect(posts[1].path).toBe(MENU_ACTION);
+    expect(posts[1].fields).toEqual({ formMenu: 'formMenu', [MENU_LINK]: MENU_LINK });
+    expect(lista).toEqual([
+      { cursoId: 'turma-0', cursoNome: 'TURMA 0', presencas: 29, aulasRegistradas: 29, aulasCH: 32, completa: false },
+    ]);
+  });
+
+  it(`no máximo 1 + 2×${MAX_TURMAS_FREQUENCIA} requisições com 12 turmas`, async () => {
+    const { live, reqs } = montar({ get: { [PORTAL]: portalCom(12) }, postback: servindoFrequencia });
+    const lista = await live.frequencia(ctx);
+    expect(MAX_TURMAS_FREQUENCIA).toBe(8);
+    expect(reqs).toHaveLength(1 + 2 * 8);
+    expect(lista).toHaveLength(8);
+  });
+
+  it('portal sem turmas: lista vazia, só o GET do portal', async () => {
+    const { live, reqs } = montar({ get: { [PORTAL]: portalCom(0) }, postback: servindoFrequencia });
+    expect(await live.frequencia(ctx)).toEqual([]);
+    expect(reqs).toEqual([`GET ${PORTAL}`]);
+  });
+
+  it('menu da turma sem o link "Frequência": UNAVAILABLE, sem resultado parcial', async () => {
+    const { live } = montar({ get: { [PORTAL]: portalCom(1) } });
+    await expect(live.frequencia(ctx)).rejects.toMatchObject({ code: 'UNAVAILABLE' });
+  });
+
+  it('página de frequência não reconhecida (bounce para a home): UNAVAILABLE', async () => {
+    const { live } = montar({
+      get: { [PORTAL]: portalCom(1) },
+      postback: (path) => (path === PORTAL ? fixture('turma-menu.html') : '<html>home</html>'),
+    });
+    await expect(live.frequencia(ctx)).rejects.toMatchObject({ code: 'UNAVAILABLE' });
   });
 });

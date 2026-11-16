@@ -5,6 +5,7 @@ import type {
   AtividadeViva,
   CursoVivo,
   DiscussaoViva,
+  FrequenciaViva,
   LiveSource,
   PrazoVivo,
 } from '../../../application/ports/live-source';
@@ -23,6 +24,7 @@ import {
 import { assertPaginaDaTurmaVirtual } from './turma-virtual/ava-page';
 import { parseAvaliacoes, type Avaliacao } from './turma-virtual/avaliacoes';
 import { parsePostbackAcessarTurma } from './turma-virtual/entrar-turma';
+import { parseFrequencia, parsePostbackFrequencia } from './turma-virtual/frequencia';
 import { parseNoticiaDetalhe } from './turma-virtual/noticia-detalhe';
 import { parseNoticias, parsePostbackNoticia } from './turma-virtual/noticias';
 import { parseTopicos } from './turma-virtual/topicos';
@@ -35,6 +37,9 @@ const TIMELINE_PATH = '/sigaa/ava/Relatorios/timeline.jsf';
 
 /** Teto de turmas que `prazos` visita (2 requisições cada, além do portal). */
 export const MAX_TURMAS_PRAZOS = 8;
+
+/** Teto de turmas que `frequencia` visita (2 requisições cada, além do portal). */
+export const MAX_TURMAS_FREQUENCIA = 8;
 
 /** America/Bahia: UTC-3 o ano todo (sem horário de verão). */
 const FUSO = '-03:00';
@@ -279,6 +284,37 @@ export class SigaaLive implements LiveSource {
     });
   }
 
+  /**
+   * Mapa de frequência de cada turma (até `MAX_TURMAS_FREQUENCIA`): portal uma vez, depois, por turma, entrar nela e
+   * clicar em "Frequência" no menu (`mapa.jsf` não abre por GET direto). No máximo 1 + 2×8 requisições.
+   *
+   * RISCO NÃO VALIDADO no SIGAA real, o mesmo de `prazos`: da 2ª turma em diante o postback de entrada usa os campos do
+   * portal lido no início com o ViewState da ÚLTIMA página da sessão. Se o SIGAA recusar, falha alto (`UNAVAILABLE`),
+   * nunca com lista parcial.
+   */
+  frequencia(ctx: SourceContext): Promise<FrequenciaViva[]> {
+    return this.usar(ctx, async (s) => {
+      const portal = await s.get(PORTAL_PATH);
+      const turmas = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_FREQUENCIA);
+      const lista: FrequenciaViva[] = [];
+      for (const t of turmas) {
+        const turmaHtml = await entrarNaTurma(s, portal, t);
+        const clique = parse(() => parsePostbackFrequencia(turmaHtml));
+        const html = await s.postback(clique.action, clique.fields);
+        const f = parse(() => parseFrequencia(html));
+        lista.push({
+          cursoId: idDaTurma(t),
+          cursoNome: t.nome,
+          presencas: f.presentClasses,
+          aulasRegistradas: f.recordedClasses,
+          aulasCH: f.workloadClasses,
+          completa: f.complete,
+        });
+      }
+      return lista;
+    });
+  }
+
   verForum(_ctx: SourceContext, _forumId: string): Promise<DiscussaoViva[]> {
     return Promise.reject(new SourceError('UNSUPPORTED_SCOPE', MSG.forum));
   }
@@ -309,10 +345,11 @@ export class SigaaLive implements LiveSource {
  * Postback do form "acessar turma virtual" lido do portal. O SIGAA pode responder 200 com o portal de volta em vez
  * da turma (gotcha 1 do ufba-app): sem o menu da turma, é erro, não "turma vazia".
  */
-async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken): Promise<void> {
+async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken): Promise<string> {
   const { fields } = parse(() => parsePostbackAcessarTurma(portal, turma.frontEndIdTurma));
   const html = await s.postback(PORTAL_PATH, fields);
   parse(() => assertPaginaDaTurmaVirtual(html, 'a página principal da turma'));
+  return html;
 }
 
 function comPrazo(a: Avaliacao): { prazo?: Date } {
