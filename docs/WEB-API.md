@@ -348,17 +348,18 @@ O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersio
 ```
 { from, to, term: "2026.2" | null,
   days: [{ date, nonTeaching: { name } | null, items: Item[] }],     // só dias com algo, em ordem
-  sources: [{ source: "sigaa"|"moodle"|"classroom"|"siasb", status: "ok"|"failed"|"reconnect_required" }] }
-Item = { id, kind: "class"|"deadline"|"exam"|"session", source, title, courseName|null, courseCode|null,
-         startsAt|null, endsAt|null, place|null }                    // ISO com -03:00
+  sources: [{ source: "sigaa"|"siasb", status: "ok"|"failed"|"reconnect_required" }] }
+Item = { id, kind: "class"|"session", source: "sigaa"|"siasb", title, courseName|null, courseCode|null,
+         startsAt, endsAt, place|null }                              // ISO com -03:00
 ```
 
+**Só três coisas entram** (decisão do André): feriados e dias sem aula, aulas e sessões do SIASB. **Não há entregas nem provas** do Moodle/Classroom (a rota não chama essas fontes).
+
 - **Feriados e dias sem aula:** do calendário acadêmico publicado (`nonTeachingDays`, intervalos expandidos e recortados no intervalo; de todos os calendários publicados, então um mês entre semestres também vem). `term` = o semestre que mais cobre o intervalo (empate: o mais novo); sem calendário: `null` e a rota segue.
-- **Entregas e provas (Moodle e Classroom):** ao vivo, uma consulta por conta, em paralelo, teto de 12 s por conta. A API classifica: módulo `prova`/quiz ou título com prova/exame/teste/avaliação = `exam` (`startsAt` = o horário que a fonte dá, `endsAt` nulo); o resto = `deadline` (`startsAt` nulo, `endsAt` = o PRAZO). O dia de um item é o dia em Salvador. Entregas e provas **continuam aparecendo em feriado**. Limite da fonte: o Moodle só informa os próximos eventos (calendário "upcoming"), então meses distantes saem vazios.
+- **Aulas (`kind: "class"`, `source: "sigaa"`):** a recorrência que o **próprio SIGAA aponta**: as linhas da tabela de turmas do portal do discente (a mesma página que `listar_cursos` lê, **1 requisição**, inclusive turmas sem Turma Virtual) trazem o horário, ex. `35T45 (18/08/2026 - 19/12/2026)`. Código: dígitos dos dias (1 domingo, 2 segunda … 7 sábado) + turno (`M`/`T`/`N`) + módulos; vários blocos separados por espaço (`24M12 6T12`). A API expande por dia dentro do **período da turma** (sem período no portal, vale o semestre do calendário; sem nenhum, nada é inventado) e **exclui os dias com `nonTeaching`**. `title`/`courseName` = nome da turma; `place` = sala; `courseCode` é sempre `null` (o portal não traz o código do componente). Horários dos módulos (`domain/academic/class-schedule.ts`): 55 min contínuos a partir de **07:00 (M1–M6), 13:00 (T1–T6) e 18:30 (N1–N4)**, ex. `35T45` = 15:45 às 17:35. **A confirmar:** a tabela vem de um trecho da página da UFBA (a página não pôde ser lida por inteiro); se houver intervalo entre módulos, ajusta-se num ponto só (`SHIFTS`).
 - **Sessões do SIASB (`kind: "session"`):** só para quem tem o SIASB **conectado** (sem acesso ou sem conexão: nenhum item e o `siasb` nem entra em `sources`). Vêm da cópia sincronizada (nunca fala com o SIASB), só as **marcadas** (não as canceladas nem atendidas), com `title` fixo "Sessão na clínica", disciplina em `courseName` e o local em `place`. **Nenhum dado de paciente** (a leitura nem decifra nome). **Não são excluídas em feriado.** Cópia desatualizada: `siasb: failed` e as sessões guardadas continuam; conexão a refazer: `reconnect_required`.
-- **Falha parcial não derruba a rota:** vira `sources[].status` (token recusado ou conta a reconectar = `reconnect_required`, que ganha de `failed` na mesma fonte). Sem fontes conectadas: 200 só com feriados e `sources: []`.
-- **Aulas (`class`):** o formato já prevê, mas só entram quando as turmas do SIGAA com dia e horário existirem (fatia 1 de `minhas_materias`); nos dias com `nonTeaching` elas não aparecerão. Hoje a rota não devolve `class` nem `sigaa` em `sources`.
-- **Cache** em memória por pessoa e intervalo, 3 min; resultado com falha parcial não é guardado.
+- **`sources`:** `sigaa` aparece quando o SIGAA está conectado (`connected`): `ok`; sessão que precisa de senha/passkey (`locked`, `password_required`) ou conta recusada: `reconnect_required` (sem consultar o portal); erro ao ler o portal (página inesperada, fora do ar, mais de 20 s): `failed`. SIGAA desconectado: nem entra. Falha de uma fonte não derruba a rota. Sem nenhuma fonte: 200 só com feriados e `sources: []`.
+- **Cache** em memória por pessoa, intervalo e estado do SIGAA, 3 min; resultado com falha parcial não é guardado.
 
 ## 5.3 Permissões por app (o que a pessoa libera para UM app fazer)
 

@@ -53,6 +53,8 @@ import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../
 import { WebSessionService } from '../../application/web/web-session.service';
 import { PermissionsService } from '../../application/permissions/permissions.service';
 import { MeCalendar } from '../../application/web/me-calendar.service';
+import { ConnectionStatus } from '../../application/web/connection-status';
+import { quem } from './data.controller';
 import { NotificationSettings } from '../../application/notifications/notification-settings.service';
 import { PushDevices } from '../../application/notifications/push-devices.service';
 import { z } from 'zod';
@@ -438,14 +440,19 @@ export class SiasbController {
 @UseFilters(ApiErrorFilter)
 @UseGuards(SessionGuard)
 export class MeCalendarController {
-  constructor(private readonly calendar: MeCalendar) {}
+  constructor(
+    private readonly calendar: MeCalendar,
+    private readonly status: ConnectionStatus,
+  ) {}
 
   @Get()
   @Header('Cache-Control', 'no-store')
   async get(@Principal() p: WebPrincipal | null, @Query() q: unknown) {
     const who = must(p);
     const { from, to } = parseInput(MeCalendarQuery, q, invalidRequest);
-    return this.calendar.get({ userId: who.userId }, from, to);
+    // O SIGAA só se lê com a senha desta sessão: o estado (conectado, a destravar ou desconectado) decide se há aulas.
+    const sigaa = (await this.status.sigaa(who)).status;
+    return this.calendar.get(quem(who), from, to, sigaa === 'connected' || sigaa === 'locked' || sigaa === 'password_required' ? sigaa : 'disconnected');
   }
 }
 

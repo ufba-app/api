@@ -343,7 +343,7 @@ export function buildLiveSources(
       useFactory: (calendars: PublishedCalendar, consulta: ConsultaService, status: ConnectionStatus, reader: SiasbCopyReader) =>
         new MeCalendar({
           calendars,
-          consulta,
+          sigaa: { turmas: (q) => consulta.turmasComHorario(q) },
           siasb: { status: (userId) => status.siasbOf(userId), agenda: (userId, from, to) => reader.agenda(userId, from, to) },
         }),
       inject: [PublishedCalendar, ConsultaService, ConnectionStatus, SiasbCopyReader],
@@ -444,6 +444,7 @@ export function buildLiveSources(
     ...mcpProviders,
   ],
   exports: [
+    ConnectionStatus,
     IdentityService,
     SourceRegistry,
     SecretCipher,

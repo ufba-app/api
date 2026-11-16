@@ -26,7 +26,9 @@ import { parsePostbackAcessarTurma } from './turma-virtual/entrar-turma';
 import { parseNoticiaDetalhe } from './turma-virtual/noticia-detalhe';
 import { parseNoticias, parsePostbackNoticia } from './turma-virtual/noticias';
 import { parseTopicos } from './turma-virtual/topicos';
+import { parseTurmasHorario } from './turma-virtual/turma-horario';
 import { parseTurmaVirtualTokens, type TurmaVirtualToken } from './turma-virtual/turma-virtual-tokens';
+import type { ClassSchedule } from '../../../domain/academic/class-schedule';
 
 const PORTAL_PATH = '/sigaa/portais/discente/discente.jsf';
 const NOTICIAS_PATH = '/sigaa/ava/NoticiaTurma/listar.jsf';
@@ -170,6 +172,17 @@ export class SigaaLive implements LiveSource {
     return this.usar(ctx, async (s) => {
       const portal = await s.get(PORTAL_PATH);
       return parse(() => parseTurmaVirtualTokens(portal)).map((t) => ({ id: idDaTurma(t), nome: t.nome }));
+    });
+  }
+
+  /**
+   * Turmas do semestre com dia, horário, período e sala, lidas das linhas da tabela do portal: 1 requisição, a mesma
+   * página de `listarCursos` (inclui as turmas sem Turma Virtual, que `listarCursos` omite).
+   */
+  turmasComHorario(ctx: SourceContext): Promise<ClassSchedule[]> {
+    return this.usar(ctx, async (s) => {
+      const portal = await s.get(PORTAL_PATH);
+      return parse(() => parseTurmasHorario(portal));
     });
   }
 

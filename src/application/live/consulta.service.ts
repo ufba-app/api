@@ -1,6 +1,7 @@
 import { Secret } from '../shared/secret';
 import { Injectable, Optional } from '@nestjs/common';
 import { DriveDownloader } from '../ports/drive-downloader';
+import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
 import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
@@ -89,6 +90,13 @@ export class ConsultaService {
 
   verForum(quem: Quem, provider: Provider, conta: string | undefined, forumId: string): Promise<DiscussaoViva[]> {
     return this.com(quem, provider, conta, (s, ctx) => s.verForum(ctx, forumId));
+  }
+
+  /** Turmas do semestre com dia e horário (só o SIGAA). 1 requisição ao portal. */
+  async turmasComHorario(quem: Quem, conta?: string): Promise<ClassSchedule[]> {
+    const source = this.sources.get('SIGAA');
+    if (!source?.turmasComHorario) throw new FonteSemLeituraError('SIGAA: horário das turmas ainda não disponível');
+    return this.com(quem, 'SIGAA', conta, (s, ctx) => s.turmasComHorario!(ctx));
   }
 
   /** Texto completo de um aviso. Só fontes com `verAviso` (hoje, o SIGAA). */

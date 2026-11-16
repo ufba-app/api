@@ -615,7 +615,7 @@ export const ROUTES: Route[] = [
     tag: "calendar",
     auth: "session",
     summary:
-      "Calendário do Painel: feriados e dias sem aula, entregas e provas do Moodle/Classroom e sessões do SIASB (só com acesso), por dia, prontos para desenhar; falha parcial em sources[]",
+      "Calendário do Painel: feriados e dias sem aula, aulas (recorrência das turmas do SIGAA, fora dos feriados) e sessões do SIASB (só com acesso), por dia, prontos para desenhar; falha parcial em sources[]",
     query: C.MeCalendarQuery,
     ok: [200, C.MeCalendarResponse],
   },

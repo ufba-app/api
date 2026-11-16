@@ -448,7 +448,7 @@ export const ClientView = z.object({
 });
 
 /** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
-export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
+export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write", "moodle.forum_write"] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
 /**
@@ -637,7 +637,8 @@ export const CalendarQuery = z.object({ term: z.string().regex(/^\d{4}\.[12]$/).
 // ---- calendário do Painel: tudo pronto para desenhar ----
 
 const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const CalendarSource = z.enum(["sigaa", "moodle", "classroom", "siasb"]);
+/** Só estas fontes entram no calendário: aulas (SIGAA) e sessões da clínica (SIASB). Moodle e Classroom não. */
+const CalendarSource = z.enum(["sigaa", "siasb"]);
 
 /** Intervalo visível, inclusivo, em dias de Salvador (America/Bahia). Inválido ou com mais de 62 dias: 400 `invalid_request`. */
 export const MeCalendarQuery = z.object({ from: IsoDay, to: IsoDay });
@@ -645,18 +646,18 @@ export const MeCalendarQuery = z.object({ from: IsoDay, to: IsoDay });
 export const MeCalendarItem = z.object({
   /** Estável (a tela usa como chave). */
   id: z.string(),
-  /** A API CLASSIFICA: o web não adivinha pelo texto do tipo. `session` = sessão da clínica marcada no SIASB. */
-  kind: z.enum(["class", "deadline", "exam", "session"]),
+  /** `class` = aula (recorrência da turma no SIGAA, fora de feriado e dia sem aula); `session` = sessão da clínica marcada no SIASB. */
+  kind: z.enum(["class", "session"]),
   source: CalendarSource,
-  /** Entrega/prova: o título na fonte. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
+  /** Aula: o nome da turma. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
   title: z.string(),
   courseName: z.string().nullable(),
   courseCode: z.string().nullable(),
-  /** ISO com o fuso de Salvador (-03:00). Aula, prova e sessão têm início; entrega não. */
+  /** ISO com o fuso de Salvador (-03:00). */
   startsAt: z.string().nullable(),
-  /** Fim da aula/sessão, ou o PRAZO da entrega. Prova: nulo quando a fonte só dá o início. */
+  /** Fim da aula ou da sessão. */
   endsAt: z.string().nullable(),
-  /** Sala ou ambiente ("Moodle", "Classroom", local da sessão). */
+  /** Sala da aula ou local da sessão. */
   place: z.string().nullable(),
 });
 
@@ -669,12 +670,12 @@ export const MeCalendarResponse = z.object({
   days: z.array(
     z.object({
       date: IsoDay,
-      /** Feriado ou dia sem aula, já resolvido (intervalos expandidos). Entregas, provas e sessões continuam nesse dia. */
+      /** Feriado ou dia sem aula, já resolvido (intervalos expandidos). Nesse dia não há `class`; sessões do SIASB continuam. */
       nonTeaching: z.object({ name: z.string() }).nullable(),
       items: z.array(MeCalendarItem),
     }),
   ),
-  /** Uma entrada por fonte consultada; falha parcial não derruba a rota. Sem fontes conectadas: []. */
+  /** Uma entrada por fonte consultada (sigaa se conectado; siasb se conectado e com acesso); falha parcial não derruba a rota. */
   sources: z.array(z.object({ source: CalendarSource, status: z.enum(["ok", "failed", "reconnect_required"]) })),
 });
 
