@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SiasbError } from '../../../application/ports/siasb-source';
+import { SiasbError, type SchedulingOption } from '../../../application/ports/siasb-source';
 import { parseSiasbDateTime } from '../../../domain/siasb/time';
 import type {
   ClinicalAttendance,
@@ -123,7 +123,14 @@ export function mapProcedures(raw: unknown): Procedure[] {
   return parse(procedureSchema, raw).map((p) => ({ id: p.id, name: p.name }));
 }
 
-const unassignedSchema = z.array(z.object({ disciplineId: id }));
+const schedulingOptionSchema = z.array(z.object({ id, name: text, preferred: z.boolean().nullish() }));
+
+/** Item de lista de opções do agendamento (professor, local, grupo): só id, nome e preferido. */
+export function mapSchedulingOptions(raw: unknown): SchedulingOption[] {
+  return parse(schedulingOptionSchema, raw).map((o) => ({ id: o.id, name: o.name, preferred: o.preferred === true }));
+}
+
+const unassignedSchema =z.array(z.object({ disciplineId: id }));
 
 /** Só contagem por disciplina. Nome do paciente e prontuário (de terceiros) nem são lidos. */
 export function countUnassigned(raw: unknown): Record<string, number> {

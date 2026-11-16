@@ -131,6 +131,11 @@ describe('API do app web (docs/WEB-API.md)', () => {
     sessions = async () => [];
     procedures = async () => [];
     unassignedCount = async () => ({});
+    schedulingOptions = async () => ({ professors: [], locations: [], groups: [] });
+    scheduleSessions = async () => ({ ok: true as const, createdId: null });
+    unscheduleSession = async () => ({ ok: true as const, createdId: null });
+    addProcedure = async () => ({ ok: true as const, createdId: null });
+    removeProcedure = async () => ({ ok: true as const, createdId: null });
   })();
   // Exclusão de conta: o banco apaga em cascata; aqui, o diretório falso apaga os vínculos e contas da pessoa.
   const users = new (class extends MemoryUserDirectory {

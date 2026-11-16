@@ -7,6 +7,7 @@ import {
   mapAttendances,
   mapDisciplines,
   mapProcedures,
+  mapSchedulingOptions,
   mapSessions,
 } from './siasb-mapper';
 
@@ -186,6 +187,22 @@ describe('mapProcedures', () => {
   });
   it('formato inesperado', () => {
     expect(() => mapProcedures('x')).toThrow(expect.objectContaining(unexpected));
+  });
+});
+
+describe('mapSchedulingOptions', () => {
+  it('mapeia id, nome e preferido; ignora o resto', () => {
+    expect(mapSchedulingOptions(fx('scheduling-options'))).toEqual([
+      { id: '301', name: 'Profa. Exemplar Alfa', preferred: true },
+      { id: '302', name: 'Prof. Exemplar Beta', preferred: false },
+    ]);
+  });
+  it('preferred ausente vira false', () => {
+    expect(mapSchedulingOptions([{ id: 1, name: 'X' }])).toEqual([{ id: '1', name: 'X', preferred: false }]);
+  });
+  it('formato inesperado', () => {
+    expect(() => mapSchedulingOptions({})).toThrow(expect.objectContaining(unexpected));
+    expect(() => mapSchedulingOptions([{ id: 1 }])).toThrow(expect.objectContaining(unexpected));
   });
 });
 
