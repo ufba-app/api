@@ -168,8 +168,8 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       title: 'Baixar anexo',
       annotations: { title: 'Baixar anexo', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Gera links temporários (uso único) para baixar anexos NA MÁQUINA de quem está usando: rode os comandos ' +
-        '`comoBaixar` do resultado. O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
+        'Gera links temporários para baixar anexos NA MÁQUINA de quem está usando (rode os comandos `comoBaixar` do resultado) ' +
+        'ou, em chat web (sem terminal), para a sua ferramenta de leitura de URL abrir (`comoLer`: abra o `link`; vale 10 min e 3 acessos). O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
         'Passe `ref` (e `nome`) de um anexo de `ver_curso`/`ver_forum`, ou `anexos` com vários da mesma conta ' +
         '(até 20). No Classroom, só arquivos anexados nas matérias são entregues. Arquivos do Drive linkados no Moodle ' +
         'também (só os que apareceram no curso): o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +

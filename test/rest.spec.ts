@@ -136,6 +136,42 @@ describe('REST (sem banco, sem rede)', () => {
     expect(baixar).toHaveBeenCalledTimes(1);
   });
 
+  it('link de leitura (chat web): vários usos, nome opcional na URL, inline, e cabeçalhos que impedem cache e indexação', async () => {
+    baixar.mockResolvedValue({ bytes: new TextEncoder().encode('%PDF'), mimeType: 'application/pdf', fileName: 'Lista 1.pdf' });
+    const { id } = links.criar({ userId: 'u1', provider: 'MOODLE', conta: 'ava.ufba.br:aluno', ref: 'https://ava.ufba.br/pluginfile.php/1/a.pdf', usos: 3, inline: true });
+
+    const a = await request(app.getHttpServer()).get(`/download/${id}/Lista%201.pdf`).expect(200);
+    expect(a.headers['content-type']).toContain('application/pdf');
+    expect(a.headers['content-disposition']).toMatch(/^inline;/);
+    expect(a.headers['cache-control']).toBe('no-store');
+    expect(a.headers['x-robots-tag']).toContain('noindex');
+    expect(a.headers['referrer-policy']).toBe('no-referrer');
+    await request(app.getHttpServer()).get(`/download/${id}`).expect(200); // sem o nome também vale
+    await request(app.getHttpServer()).get(`/download/${id}/x.pdf`).expect(200);
+    await request(app.getHttpServer()).get(`/download/${id}/x.pdf`).expect(404); // 3 usos e acabou
+    expect(baixar).toHaveBeenCalledTimes(3);
+  });
+
+  it('HEAD sonda o link sem gastar uso nem tocar a fonte; link inexistente dá 404', async () => {
+    baixar.mockResolvedValue({ bytes: new TextEncoder().encode('%PDF'), mimeType: 'application/pdf' });
+    const { id } = links.criar({ userId: 'u1', provider: 'MOODLE', conta: 'ava.ufba.br:aluno', ref: 'https://ava.ufba.br/x' });
+    await request(app.getHttpServer()).head(`/download/${id}`).expect(200);
+    await request(app.getHttpServer()).head(`/download/${id}/aula.pdf`).expect(200);
+    expect(baixar).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).get(`/download/${id}`).expect(200); // o uso único continua inteiro
+    await request(app.getHttpServer()).head(`/download/${id}`).expect(404);
+    await request(app.getHttpServer()).head('/download/nao-existe').expect(404);
+  });
+
+  it('o link padrão continua attachment e de uso único, com os mesmos cabeçalhos seguros', async () => {
+    baixar.mockResolvedValue({ bytes: new TextEncoder().encode('x'), mimeType: 'text/plain', fileName: 'a.txt' });
+    const { id } = links.criar({ userId: 'u1', provider: 'MOODLE', conta: 'ava.ufba.br:aluno', ref: 'https://ava.ufba.br/x' });
+    const r = await request(app.getHttpServer()).get(`/download/${id}`).expect(200);
+    expect(r.headers['content-disposition']).toMatch(/^attachment;/);
+    expect(r.headers['x-robots-tag']).toContain('noindex');
+    await request(app.getHttpServer()).get(`/download/${id}`).expect(404);
+  });
+
   it('link inexistente dá 404; fonte fora do ar dá 502 sem vazar o token', async () => {
     await request(app.getHttpServer()).get('/download/nao-existe').expect(404);
     baixar.mockRejectedValue(new SourceError('UNAVAILABLE', 'Moodle HTTP 504 ao baixar anexo'));
