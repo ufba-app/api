@@ -5,6 +5,12 @@ import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memo
 import { memoryInstructionsFor } from '../../application/memory/memory-proxy';
 import { isWebChatClient } from '../../application/memory/connect-guide';
 import { registerClinicaTools } from './clinica-tools';
+import {
+  PERMISSAO_AGENDA,
+  PERMISSAO_PROCEDIMENTOS,
+  registerClinicaAgendaWriteTools,
+  registerClinicaProcedimentoWriteTools,
+} from './clinica-write-tools';
 import { McpClinica, McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 import { run } from './tool-result';
 
@@ -214,7 +220,15 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     ),
   );
 
-  if (p.siasb && clinica) registerClinicaTools(server, clinica, p);
+  if (p.siasb && clinica) {
+    registerClinicaTools(server, clinica, p);
+    // Escrita: só com a permissão do app (ligada no painel) e o escritor disponível.
+    const write = clinica.writes?.();
+    if (write) {
+      registerPermissionedTool(p, PERMISSAO_AGENDA, () => registerClinicaAgendaWriteTools(server, write, p));
+      registerPermissionedTool(p, PERMISSAO_PROCEDIMENTOS, () => registerClinicaProcedimentoWriteTools(server, write, p));
+    }
+  }
 
   if (withMemory) {
     addMemoryTools(server, memory, p);

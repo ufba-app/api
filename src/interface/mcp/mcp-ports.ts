@@ -1,6 +1,6 @@
 /**
  * O que as ferramentas MCP precisam dos casos de uso. Tudo é leitura AO VIVO na fonte, com o token guardado da
- * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md). Cada consulta lê UMA conta de UMA fonte. Exceção:
+ * pessoa, na hora da pergunta; nada é gravado (ver docs/MCP.md), salvo as `McpClinicaWrite` do SIASB (só com `confirmado` e a permissão do app). Cada consulta lê UMA conta de UMA fonte. Exceção:
  * `clinica_sessoes` lê por padrão a cópia da última sincronização do SIASB.
  */
 
@@ -12,6 +12,7 @@ import type {
 } from '../../application/siasb/siasb-reader';
 import type { CalendarItem } from '../../application/siasb/siasb-copy-reader';
 import type { Progress } from '../../application/siasb/progress';
+import type { SiasbWriter } from '../../application/siasb/siasb-writer';
 import type { ClinicalSession } from '../../domain/siasb/types';
 
 export const MCP_USE_CASES = Symbol('MCP_USE_CASES');
@@ -43,6 +44,19 @@ export interface McpClinica {
   vacancies(userId: string): Promise<{ disciplineId: string; disciplineName: string; count: number }[]>;
   schedulingContext(userId: string, attendanceId: string, term?: string): Promise<SchedulingContext>;
   progress(userId: string, range?: { from: Date; to: Date }): Promise<Progress>;
+  /** Escrita no SIASB (agenda e procedimentos previstos); `undefined` quando o serviço não tem o escritor. */
+  writes?(): McpClinicaWrite | undefined;
+}
+
+/**
+ * Escrita no SIASB em nome da pessoa, em duas etapas (resumo e depois `confirmed: true`). As mesmas assinaturas do
+ * `SiasbWriter`; as ferramentas só aparecem com a permissão de agenda ou de procedimentos do app.
+ */
+export interface McpClinicaWrite {
+  scheduleSession: SiasbWriter['scheduleSession'];
+  unscheduleSession: SiasbWriter['unscheduleSession'];
+  addProcedure: SiasbWriter['addProcedure'];
+  removeProcedure: SiasbWriter['removeProcedure'];
 }
 
 /** Ferramentas `memory_*` (proxy do ai-memory + `memory_status`). Opcional: sem ele o /mcp só tem as ferramentas da casa. */
