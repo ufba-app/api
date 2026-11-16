@@ -1863,7 +1863,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
         expect(info.permissions[0]).toMatchObject({
           key: 'siasb.schedule_write',
           source: 'siasb',
-          title: 'Agendar e desmarcar sessões pelo Claude',
+          title: 'Agendar e desmarcar sessões pelo app',
           risk: 'low',
           available: true,
           unavailableReason: null,
@@ -1938,7 +1938,14 @@ describe('API do app web (docs/WEB-API.md)', () => {
         const { verifier, challenge } = pkce();
         const q = new URLSearchParams({ response_type: 'code', client_id: a.clientId, redirect_uri: CLAUDE_CB, code_challenge: challenge, code_challenge_method: 'S256', state: 's' });
         const id = new URL((await get(`/authorize?${q}`)).headers.get('location')!).searchParams.get('request')!;
+        // `granted` = já concedida a ESTE app: a tela pré-marca (o app novo da mesma pessoa vem tudo desmarcado).
+        const antes = ((await (await get(`/authorize/requests/${id}`, cookie)).json()) as any).permissions;
+        expect(antes.map((x: any) => [x.key, x.granted])).toEqual([['siasb.schedule_write', true], ['siasb.procedures_write', true]]);
+        const outro = await pedido(cookie);
+        expect((await outro.info()).permissions.map((x: any) => x.granted)).toEqual([false, false]);
         expect((await aprovar(cookie, { clientId: a.clientId, id, verifier }, { permissions: ['siasb.procedures_write'] })).status).toBe(200);
+        const depois = await pedido(cookie);
+        expect((await depois.info()).permissions.every((x: any) => x.granted === false)).toBe(true); // outro cliente, outro conjunto
         expect((await apps(cookie)).find((x) => x.clientId === a.clientId).permissions.map((x: any) => x.key)).toEqual(['siasb.procedures_write']);
       });
 

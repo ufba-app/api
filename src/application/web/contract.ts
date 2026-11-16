@@ -463,6 +463,8 @@ export const OfferedPermission = z.object({
   risk: z.enum(["low", "high"]),
   available: z.boolean(),
   unavailableReason: z.literal("source_not_connected").nullable(),
+  /** Já concedida a ESTE app (o do pedido): a tela pré-marca e envia sempre o conjunto inteiro em `approve`. */
+  granted: z.boolean(),
 });
 
 /** Permissão já concedida a um app (em Apps autorizados). */
@@ -712,7 +714,7 @@ export const CalendarAlertsResponse = z.object({
   expired: z.object({ term: z.string(), termEnd: z.string() }).nullable(),
 });
 
-// ---- permissões por fonte (o que a pessoa libera para o Claude fazer) ----
+// ---- permissões por fonte (o que a pessoa libera para um app fazer) ----
 // As permissões valem POR APP: marcadas na tela de autorizar e revogadas em Apps autorizados. `/me/permissions` é legado.
 
 export const PermissionView = z.object({

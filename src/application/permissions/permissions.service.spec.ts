@@ -38,6 +38,27 @@ describe('PermissionsService (permissões por app)', () => {
       expect(items.every((i) => i.available && i.unavailableReason === null)).toBe(true);
     });
 
+    it('granted = já concedida a ESTE app (por cliente); sem app, tudo false', async () => {
+      const { service } = make();
+      await service.grant(U, 'app-a', ['siasb.procedures_write']);
+      await service.grant(U, 'app-b', ['siasb.schedule_write']);
+      expect((await service.offered(U, 'app-a')).map((i) => [i.key, i.granted])).toEqual([['siasb.schedule_write', false], ['siasb.procedures_write', true]]);
+      expect((await service.offered(U, 'app-b')).map((i) => i.granted)).toEqual([true, false]);
+      expect((await service.offered(U, 'app-novo')).map((i) => i.granted)).toEqual([false, false]);
+      expect((await service.offered(U)).map((i) => i.granted)).toEqual([false, false]);
+    });
+
+    it('o legado /me/permissions não ganha o campo granted', async () => {
+      const { service } = make();
+      await service.grant(U, 'app-a', ['siasb.schedule_write']);
+      expect((await service.list(U)).every((i) => !('granted' in i))).toBe(true);
+    });
+
+    it('textos neutros: dizem "o app", nunca "o Claude" (o app pode ser outro)', () => {
+      for (const k of PERMISSION_KEYS) expect(`${PERMISSION_CATALOG[k].title} ${PERMISSION_CATALOG[k].description}`).not.toMatch(/Claude/);
+      expect(PERMISSION_CATALOG['siasb.schedule_write'].title).toBe('Agendar e desmarcar sessões pelo app');
+    });
+
     it('com acesso mas sem conexão: oferecido, porém indisponível (source_not_connected)', async () => {
       const { service } = make({ connected: false, access: true });
       const items = await service.offered(U);
