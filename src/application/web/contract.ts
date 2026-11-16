@@ -348,6 +348,36 @@ export const CreateSessionBody = z.object({
   redirectUri: z.string().min(1),
 });
 
+// ---- saúde das conexões ----
+
+/** Estado fechado da saúde de uma conexão (docs/specs/2026-11-16-saude-das-conexoes.md). */
+export const HealthState = z.enum(["ok", "degraded", "action_required", "unknown"]);
+/** Motivo em código (nunca texto da fonte); null quando ok. */
+export const HealthReason = z.enum([
+  "password_required",
+  "locked",
+  "token_revoked",
+  "token_expired",
+  "session_expired",
+  "source_unavailable",
+  "stale_copy",
+  "partial_data",
+  "expiring_soon",
+  "missing_scope",
+  "never_read",
+]);
+/** O que a tela oferece: religar a conexão, destravar com a passkey ou tentar de novo; null = nada a fazer. */
+export const HealthAction = z.enum(["reconnect", "unlock", "retry"]);
+export const Health = z.object({
+  state: HealthState,
+  reason: HealthReason.nullable(),
+  /** pt-BR, uma frase, já com a ação. Texto fixo por motivo: nunca ecoa o que a fonte respondeu. */
+  message: z.string(),
+  action: HealthAction.nullable(),
+  /** ISO 8601: último sucesso (ok) ou última falha (degraded); null se não há registro. */
+  since: z.string().datetime().nullable(),
+});
+
 export const Me = z.object({
   id: z.string(),
   email: z.string().nullable(),
@@ -358,15 +388,19 @@ export const Me = z.object({
       login: z.string().nullable(),
       /** Cópias mestras (passkeys) que guardam a senha do SIGAA para religar depois de sair. */
       passkey: z.object({ slots: z.number().int() }),
+      /** Saúde da conexão; null se desconectado. */
+      health: Health.nullable(),
     }),
     moodle: z.object({
       status: z.union([AccountStatus, z.literal("disconnected")]),
       account: z.string().nullable(),
+      /** Saúde da conexão; null se desconectado. */
+      health: Health.nullable(),
     }),
     classroom: z.object({
       available: z.boolean(),
       apps: z.array(GuestApp),
-      accounts: z.array(z.object({ email: z.string(), status: AccountStatus })),
+      accounts: z.array(z.object({ email: z.string(), status: AccountStatus, health: Health })),
     }),
     siasb: z.object({
       /** O SIASB (clínicas) é oferecido a esta pessoa: tem matrícula e o SIASB lista o curso dela. */
@@ -376,6 +410,8 @@ export const Me = z.object({
       expiresAt: z.string().datetime().nullable(),
       /** Último sucesso da sincronização da cópia do SIASB (ISO 8601); null se nunca sincronizou ou desconectado. */
       syncedAt: z.string().datetime().nullable(),
+      /** Saúde da conexão; null se desconectado. */
+      health: Health.nullable(),
     }),
   }),
 });
@@ -945,6 +981,10 @@ export type ApiErrorBody = z.infer<typeof ApiErrorBody>;
 export type SigaaStatus = z.infer<typeof SigaaStatus>;
 export type AccountStatus = z.infer<typeof AccountStatus>;
 export type GuestApp = z.infer<typeof GuestApp>;
+export type Health = z.infer<typeof Health>;
+export type HealthState = z.infer<typeof HealthState>;
+export type HealthReason = z.infer<typeof HealthReason>;
+export type HealthAction = z.infer<typeof HealthAction>;
 export type CreateSessionBody = z.infer<typeof CreateSessionBody>;
 export type Me = z.infer<typeof Me>;
 export type ConnectSigaaBody = z.infer<typeof ConnectSigaaBody>;

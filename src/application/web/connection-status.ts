@@ -2,6 +2,9 @@ import type { ClassroomLinkPort } from '../oauth/oauth-ports';
 import type { SigaaMasterSlotRepository, SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import type { SiasbLink } from '../siasb/siasb-link';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
+import type { SyncResult } from '../ports/siasb-copy';
+import type { SourceHealthRepository, SourceHealthRow } from '../ports/source-health';
+import { accountHealth, findRecord, siasbHealth, sigaaHealth } from './connection-health';
 import { webCopyOf, type AccountStatus, type GuestApp, type Me, type RequestInfo, type WebPrincipal } from './web-api';
 
 export const accountStatus = (a: SourceAccountRecord): AccountStatus =>
@@ -12,6 +15,8 @@ export const fromApp = (a: 'ufba' | 'convidado'): GuestApp => (a === 'convidado'
  * Estado das conexões de quem está logado no web (lido por /me, pela tela de autorização e ao sair). A senha do
  * SIGAA do web só abre com a K da sessão: "conectado" quer dizer "esta sessão consegue usar".
  */
+type Core<K extends keyof Me['connections']> = Omit<Me['connections'][K], 'health'>;
+
 export class ConnectionStatus {
   constructor(
     private readonly cofre: CofreSigaa,
@@ -22,7 +27,17 @@ export class ConnectionStatus {
     private readonly now: () => number = Date.now,
     /** Teto de espera pelo SIASB no /me; estourou, vale `offered: false` (nada é guardado). */
     private readonly offerTimeoutMs: number = 2500,
+    /** Saúde gravada das leituras (`source_health`); sem ele, nenhuma conta tem registro (vira `unknown`). */
+    private readonly healthRepo?: SourceHealthRepository,
   ) {}
+
+  private async healthRows(userId: string): Promise<SourceHealthRow[]> {
+    try {
+      return (await this.healthRepo?.list(userId)) ?? [];
+    } catch {
+      return [];
+    }
+  }
 
   private async offered(userId: string): Promise<boolean> {
     let timer: NodeJS.Timeout | undefined;
@@ -40,32 +55,41 @@ export class ConnectionStatus {
    * SIASB: já conectado, "oferecido" depende só de a matrícula estar importada (sem consultar o SIASB). Sessão com fim estimado já passado vale como
    * reconnect_required. Falha ao consultar nunca derruba o /me.
    */
-  async siasb(p: WebPrincipal): Promise<Me['connections']['siasb']> {
+  async siasb(p: WebPrincipal): Promise<Core<'siasb'>> {
     return this.siasbOf(p.userId);
   }
 
-  async siasbOf(userId: string): Promise<Me['connections']['siasb']> {
+  async siasbOf(userId: string): Promise<Core<'siasb'>> {
+    return (await this.siasbDetail(userId)).view;
+  }
+
+  /** A visão do SIASB mais o que a saúde precisa (resultado da última sincronização). */
+  private async siasbDetail(userId: string): Promise<{ view: Core<'siasb'>; syncResult: SyncResult | null }> {
+    const gone = { view: { offered: false, status: 'disconnected', expiresAt: null, syncedAt: null } as Core<'siasb'>, syncResult: null };
     try {
       const s = await this.siasbLink.status(userId);
       if (s.state === 'disconnected') {
         const offered = await this.offered(userId);
-        return { offered, status: 'disconnected', expiresAt: null, syncedAt: null };
+        return { view: { offered, status: 'disconnected', expiresAt: null, syncedAt: null }, syncResult: null };
       }
       const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
       // Já conectado: só o banco decide a oferta (matrícula importada); matrícula apagada não vira erro nem consulta o SIASB.
       const offered = await this.siasbLink.hasRegistration(userId).catch(() => false);
       return {
-        offered,
-        status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
-        expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
-        syncedAt: s.syncedAt ? s.syncedAt.toISOString() : null,
+        view: {
+          offered,
+          status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
+          expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
+          syncedAt: s.syncedAt ? s.syncedAt.toISOString() : null,
+        },
+        syncResult: s.syncResult,
       };
     } catch {
-      return { offered: false, status: 'disconnected', expiresAt: null, syncedAt: null };
+      return gone;
     }
   }
 
-  async sigaa(p: WebPrincipal): Promise<Me['connections']['sigaa']> {
+  async sigaa(p: WebPrincipal): Promise<Core<'sigaa'>> {
     const slots = await this.slots.count(p.userId);
     const passkey = { slots };
     const cofre = await this.cofre.cofre(p.userId);
@@ -113,21 +137,41 @@ export class ConnectionStatus {
   }
 
   async connections(p: WebPrincipal): Promise<Me['connections']> {
-    const [sigaa, moodle, classroom, siasb] = await Promise.all([
+    const [sigaa, moodle, classroom, siasb, rows] = await Promise.all([
       this.sigaa(p),
       this.accountsOf(p.userId, 'MOODLE'),
       this.accountsOf(p.userId, 'CLASSROOM'),
-      this.siasb(p),
+      this.siasbDetail(p.userId),
+      this.healthRows(p.userId),
     ]);
     const m = moodle[0];
     return {
-      sigaa,
-      siasb,
-      moodle: m ? { status: accountStatus(m), account: m.accountKey } : { status: 'disconnected', account: null },
+      sigaa: { ...sigaa, health: sigaaHealth(sigaa.status, sigaa.login ? findRecord(rows, 'SIGAA', `sigaa:${sigaa.login}`) : undefined) },
+      siasb: {
+        ...siasb.view,
+        health: siasbHealth({
+          status: siasb.view.status,
+          expiresAt: siasb.view.expiresAt ? new Date(siasb.view.expiresAt) : null,
+          syncedAt: siasb.view.syncedAt ? new Date(siasb.view.syncedAt) : null,
+          syncResult: siasb.syncResult,
+          now: this.now(),
+        }),
+      },
+      moodle: m
+        ? {
+            status: accountStatus(m),
+            account: m.accountKey,
+            health: accountHealth('AVA', accountStatus(m), findRecord(rows, 'MOODLE', m.accountKey)),
+          }
+        : { status: 'disconnected', account: null, health: null },
       classroom: {
         available: this.classroom.enabled(),
         apps: this.classroom.apps().map(fromApp),
-        accounts: classroom.map((a) => ({ email: a.accountKey, status: accountStatus(a) })),
+        accounts: classroom.map((a) => ({
+          email: a.accountKey,
+          status: accountStatus(a),
+          health: accountHealth('Classroom', accountStatus(a), findRecord(rows, 'CLASSROOM', a.accountKey)),
+        })),
       },
     };
   }

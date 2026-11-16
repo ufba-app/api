@@ -237,6 +237,7 @@ describe('SiasbLink: matrícula ausente, apagada ou fora do padrão', () => {
       state: 'connected',
       expiresAt: new Date('2026-12-01T00:00:00Z'),
       syncedAt: null,
+      syncResult: null,
     });
     expect(await link.offer('u1')).toEqual({ offered: false, courses: [] });
     const err = await link.connect('u1', pwd()).catch((e) => e);
@@ -380,7 +381,7 @@ describe('SiasbLink.connect', () => {
 describe('SiasbLink.status e disconnect', () => {
   it('sem conta: disconnected', async () => {
     const { link } = setup();
-    expect(await link.status('u1')).toEqual({ state: 'disconnected', expiresAt: null, syncedAt: null });
+    expect(await link.status('u1')).toEqual({ state: 'disconnected', expiresAt: null, syncedAt: null, syncResult: null });
   });
 
   it('syncedAt vem do último sucesso da cópia', async () => {
@@ -401,6 +402,7 @@ describe('SiasbLink.status e disconnect', () => {
       state: 'connected',
       expiresAt: new Date('2026-12-01T00:00:00Z'),
       syncedAt: null,
+      syncResult: null,
     });
     accounts.rows[0].status = 'REAUTH_NEEDED';
     expect((await link.status('u1')).state).toBe('reconnect_required');

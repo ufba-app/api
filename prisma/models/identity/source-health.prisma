@@ -1,0 +1,22 @@
+// Saúde de leitura por conta numa fonte (só metadados): gravada pelas consultas ao vivo para a tela Conexões distinguir
+// "fora do ar" de "tudo certo". NUNCA guarda mensagem da fonte, token, cookie nem conteúdo: só o estado, um motivo de
+// código fixo e os instantes. Regravada no máximo a cada 10 min por conta e estado (throttle em `SourceHealthRecorder`).
+// `accountKey` é o mesmo de `source_accounts` (SIGAA: `sigaa:<login>`). Apagada com a pessoa (cascade).
+model SourceHealth {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider   SourceProvider
+  accountKey String         @map("account_key")
+
+  // ok | failing
+  state         String
+  // código fixo (HealthReason): source_unavailable | ...; nulo quando ok
+  reason        String?
+  lastSuccessAt DateTime?  @map("last_success_at")
+  lastFailureAt DateTime?  @map("last_failure_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@id([userId, provider, accountKey])
+  @@map("source_health")
+}

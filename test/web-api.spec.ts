@@ -394,9 +394,9 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const cookie = await signIn();
     const me = await (await get('/me', cookie)).json() as any;
     expect(me.email).toBe('fulano@ufba.br');
-    expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+    expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 }, health: null });
     expect(me.connections.moodle.status).toBe('disconnected');
-    expect(me.connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null });
+    expect(me.connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null, health: null });
   });
 
   it('cookie marcador: sai com a sessão, sem segredo, e some ao sair, ao excluir a conta e no 401', async () => {
@@ -522,7 +522,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
     const ok = await send('POST', '/connections/sigaa', { cookie, body: { login: ' aluno ', password: SENHA } });
     expect(ok.status).toBe(204);
     const me = await (await get('/me', cookie)).json() as any;
-    expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'aluno', passkey: { slots: 0 } });
+    expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'aluno', passkey: { slots: 0 }, health: { state: 'unknown', reason: 'never_read', message: 'Ainda não lemos esta conexão.', action: null, since: null } });
 
     // Outra sessão da mesma pessoa não abre a senha (K diferente): pede de novo.
     const other = await signIn('sigaa1');
@@ -698,7 +698,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(lista.passkeys[0]).toMatchObject({ credentialId: slot(1).credentialId, prfSalt: SAL, label: 'iPhone 1', lastUnlockedAt: null });
       expect(lista.passkeys[0].ciphertext).toBeUndefined();
       const me = (await (await get('/me', cookie)).json()) as any;
-      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra1', passkey: { slots: 1 } });
+      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra1', passkey: { slots: 1 }, health: { state: 'unknown', reason: 'never_read', message: 'Ainda não lemos esta conexão.', action: null, since: null } });
 
       // Ao ativar, o navegador pediu a DK (e a cifrou com a passkey; aqui só guardamos para devolver no desbloqueio).
       const chave = await send('GET', '/connections/sigaa/key', { cookie });
@@ -712,7 +712,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect((await send('DELETE', '/session', { cookie })).status).toBe(204);
       const nova = await signIn('mestra1');
       const me2 = (await (await get('/me', nova)).json()) as any;
-      expect(me2.connections.sigaa).toEqual({ status: 'locked', login: 'mestra1', passkey: { slots: 1 } });
+      expect(me2.connections.sigaa).toEqual({ status: 'locked', login: 'mestra1', passkey: { slots: 1 }, health: { state: 'action_required', reason: 'locked', message: 'Toque na passkey para liberar o SIGAA nesta sessão.', action: 'unlock', since: null } });
 
       // O navegador pede a cópia (id no corpo), abre com a passkey e desbloqueia com a DK: sem digitar a senha.
       const s = await send('POST', '/sigaa/passkey/slot', { cookie: nova, body: { credentialId: slot(1).credentialId } });
@@ -771,7 +771,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       await send('POST', '/sigaa/passkey', { cookie, body: slot(1) });
       expect((await send('DELETE', '/connections/sigaa', { cookie })).status).toBe(204);
       const me = (await (await get('/me', cookie)).json()) as any;
-      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 } });
+      expect(me.connections.sigaa).toEqual({ status: 'disconnected', login: null, passkey: { slots: 0 }, health: null });
     });
 
     it('senha errada digitada NÃO apaga as passkeys (elas guardam a DK, não a senha)', async () => {
@@ -784,7 +784,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const recusada = await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra8', password: `${SENHA}-velha` } });
       expect(recusada.status).toBe(422);
       const me = (await (await get('/me', nova)).json()) as any;
-      expect(me.connections.sigaa).toEqual({ status: 'locked', login: 'mestra8', passkey: { slots: 1 } });
+      expect(me.connections.sigaa).toEqual({ status: 'locked', login: 'mestra8', passkey: { slots: 1 }, health: expect.objectContaining({ state: 'action_required', reason: 'locked', action: 'unlock' }) });
     });
 
     it('trocar a senha COM a DK da sessão mantém as passkeys; digitá-la sem a DK cria DK nova e as apaga', async () => {
@@ -799,7 +799,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       const nova = await signIn('mestra11');
       expect((await send('POST', '/connections/sigaa', { cookie: nova, body: { login: 'mestra11', password: SENHA } })).status).toBe(204);
       const me = (await (await get('/me', nova)).json()) as any;
-      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra11', passkey: { slots: 0 } });
+      expect(me.connections.sigaa).toEqual({ status: 'connected', login: 'mestra11', passkey: { slots: 0 }, health: { state: 'unknown', reason: 'never_read', message: 'Ainda não lemos esta conexão.', action: null, since: null } });
     });
 
     it('a chave do cofre só sai com o SIGAA aberto nesta sessão; desbloquear com DK errada ou sem cofre falha', async () => {
@@ -1591,7 +1591,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       moodleAccount = { ...moodleAccount, auth: 'shibboleth' };
       expect((await post()).status).toBe(204);
       const me = (await (await get('/me', cookie)).json()) as any;
-      expect(me.connections.moodle).toEqual({ status: 'connected', account: 'ava.ufba.br:aluna' });
+      expect(me.connections.moodle).toEqual({ status: 'connected', account: 'ava.ufba.br:aluna', health: { state: 'unknown', reason: 'never_read', message: 'Ainda não lemos esta conexão.', action: null, since: null } });
 
       // Mesmo usuário com outro id no AVA (conta recriada): esta conta do ufba.app já está ligada ao id anterior.
       moodleAccount = { ...moodleAccount, moodleUserId: 51 };
@@ -1643,7 +1643,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('sem matrícula: offered false; conectar dá 400 invalid_request', async () => {
       const cookie = await signIn('siasb-sem-matricula');
-      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null });
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: false, status: 'disconnected', expiresAt: null, syncedAt: null, health: null });
       const r = await post(cookie);
       expect(r.status).toBe(400);
       expect(((await r.json()) as any).error).toBe('invalid_request');
@@ -1693,7 +1693,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('oferecido, conecta (connected + expiresAt), desconecta (disconnected)', async () => {
       const cookie = await aluno('siasb-fluxo');
-      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null, syncedAt: null });
+      expect((await meOf(cookie)).connections.siasb).toEqual({ offered: true, status: 'disconnected', expiresAt: null, syncedAt: null, health: null });
       expect((await post(cookie)).status).toBe(204);
       const chamadas = siasbState.courseCalls;
       expect((await meOf(cookie)).connections.siasb).toEqual({
@@ -1701,6 +1701,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
         status: 'connected',
         expiresAt: '2099-01-01T00:00:00.000Z',
         syncedAt: null,
+        health: { state: 'unknown', reason: 'never_read', message: 'Ainda não lemos esta conexão.', action: null, since: null },
       });
       // Conectado: /me não consulta o SIASB.
       expect(siasbState.courseCalls).toBe(chamadas);

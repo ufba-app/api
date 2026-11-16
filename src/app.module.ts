@@ -79,6 +79,8 @@ import { AcademicImports } from './application/academic/academic-imports';
 import { AcademicRepository, TranscriptSource } from './application/ports/academic';
 import { PdfTextExtractor, TRANSCRIPT_READER, TranscriptReader } from './application/ports/transcript';
 import { ConnectionStatus } from './application/web/connection-status';
+import { SourceHealthRecorder } from './application/live/source-health-recorder';
+import { SourceHealthRepository } from './application/ports/source-health';
 import { MeCalendar } from './application/web/me-calendar.service';
 import { AnthropicTranscriptReader } from './infrastructure/sources/sigaa/history/anthropic-transcript-reader';
 import { SessionTranscriptSource } from './infrastructure/sources/sigaa/history/session-transcript-source';
@@ -146,6 +148,7 @@ export function buildLiveSources(
     IdentityService,
     BearerGuard,
     ConsultaService,
+    { provide: SourceHealthRecorder, useFactory: (repo: SourceHealthRepository) => new SourceHealthRecorder(repo), inject: [SourceHealthRepository] },
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
     {
       // Arquivos do Drive linkados no Moodle: token da pessoa (Classroom) e, sem acesso, link público; só hosts do Google.

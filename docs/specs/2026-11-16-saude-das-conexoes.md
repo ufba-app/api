@@ -24,7 +24,7 @@ Cada conexão da página Conexões mostra se funciona agora; se não, por quê e
 Custo de tudo abaixo: leituras de banco no `GET /me` (que já lê quase todas). Nenhuma chamada a fonte externa na v1.
 
 - **SIGAA**
-  - `password_required` (cofre REAUTH ou sem passkey) → `action_required`/`password_rejected`.
+  - `password_required` (cofre REAUTH ou sem passkey) → `action_required`/`password_required`.
   - `locked` (passkey existe, sessão não abre) → `action_required`/`locked`, ação "Toque na passkey".
   - Conectado, mas última leitura com `UNAVAILABLE` e sem sucesso depois → `degraded`/`source_unavailable` ("O SIGAA está fora do ar").
   - Conectado e sem leitura registrada (v1, antes de `source_health`) → `ok`; depois da fase 2, sem nenhuma leitura → `unknown`/`never_read`.
@@ -60,7 +60,7 @@ Tabela `source_health` (userId, source, accountKey, `lastOkAt`, `lastErrorAt`, `
 
 ```ts
 HealthState  = "ok" | "degraded" | "action_required" | "unknown"
-HealthReason = "password_rejected" | "locked" | "token_revoked" | "token_expired" | "session_expired"
+HealthReason = "password_required" | "locked" | "token_revoked" | "token_expired" | "session_expired"
              | "source_unavailable" | "stale_copy" | "partial_data" | "expiring_soon" | "missing_scope" | "never_read"
 HealthAction = "reconnect" | "unlock" | "retry" | null
 
@@ -102,3 +102,11 @@ Regras:
 1. `source_health` (só metadados): sim.
 2. Push: v2.
 3. Rota "testar agora": não; a saúde é passiva.
+
+## Implementação (fases 1 e 2)
+
+- `health` é `null` quando a conexão não existe; `reason` `password_required` cobre senha recusada e sessão que não abre o cofre sem passkey.
+- `since` = último sucesso (ok) ou última falha (degraded).
+- `source_health` é gravada por `ConsultaService` (sucesso, `UNAVAILABLE` e `BLOCKED` viram `source_unavailable`); `REAUTH_NEEDED` continua em `source_accounts`/cofre. Throttle de 10 min em memória por processo.
+- Sem registro de leitura, a conexão aparece `unknown`/`never_read` até a primeira leitura.
+- Fora desta entrega: `partial_data` (504 de notas), `expiring_soon` e `token_expired` do Classroom de convidados, `missing_scope`.

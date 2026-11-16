@@ -116,7 +116,7 @@ const SENHA = 'senha-falsa-de-teste';
 const K = Buffer.alloc(32, 7);
 
 async function buildSigaa(
-  opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError; sessaoViva?: boolean } = {},
+  opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError; sessaoViva?: boolean; saude?: import('./source-health-recorder').SourceHealthRecorder } = {},
 ) {
   const chamadas: SourceContext[] = [];
   const aberturas: string[] = [];
@@ -150,11 +150,41 @@ async function buildSigaa(
   }
   const accounts = { findByUserAndProvider: async () => [], listByUser: async () => [], setStatus: jest.fn() } as never;
   const cipher = { decrypt: () => 'nunca' } as never;
-  return { svc: new ConsultaService(live, accounts, cipher, cofre), chamadas, aberturas, setStatus };
+  return { svc: new ConsultaService(live, accounts, cipher, cofre, undefined, opts.saude), chamadas, aberturas, setStatus };
 }
 
 const COM_CHAVE: Quem = { userId: 'u1', cliente: { clientId: 'c1', chave: K } };
 const NAO_CONECTADO = 'SIGAA não conectado neste aplicativo: conecte na tela de autorização do serviço';
+
+describe('ConsultaService: SIGAA registra a saúde por conta (sigaa:<login>)', () => {
+  const gravador = () => {
+    const gravado: unknown[][] = [];
+    const repo = {
+      list: async () => [],
+      recordSuccess: async (...a: unknown[]) => void gravado.push(['ok', ...a]),
+      recordFailure: async (...a: unknown[]) => void gravado.push(['fail', ...a]),
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SourceHealthRecorder } = require('./source-health-recorder');
+    return { gravado, saude: new SourceHealthRecorder(repo) };
+  };
+
+  it('leitura ok grava ok; SIGAA fora do ar grava source_unavailable; senha recusada não grava', async () => {
+    const a = gravador();
+    await (await buildSigaa({ saude: a.saude })).svc.listarCursos(COM_CHAVE, 'SIGAA');
+    expect(a.gravado).toEqual([['ok', 'u1', 'SIGAA', 'sigaa:aluno', expect.any(Date)]]);
+
+    const b = gravador();
+    const fora = await buildSigaa({ saude: b.saude, falha: new SourceError('UNAVAILABLE', 'fora') });
+    await fora.svc.listarCursos(COM_CHAVE, 'SIGAA').catch(() => undefined);
+    expect(b.gravado).toEqual([['fail', 'u1', 'SIGAA', 'sigaa:aluno', 'source_unavailable', expect.any(Date)]]);
+
+    const c = gravador();
+    const recusada = await buildSigaa({ saude: c.saude, falha: new SourceError('REAUTH_NEEDED', 'recusou') });
+    await recusada.svc.listarCursos(COM_CHAVE, 'SIGAA').catch(() => undefined);
+    expect(c.gravado).toEqual([]);
+  });
+});
 
 describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   it('SIGAA sem chave no token: erro de não conectado e zero chamadas à fonte', async () => {
