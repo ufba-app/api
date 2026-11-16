@@ -92,10 +92,13 @@ export interface VerCursoInput extends Alvo {
   cursoId: string;
 }
 
-/** Fórum (lista de tópicos) OU tópico (mensagens com as respostas): exatamente um dos dois. */
 export interface VerForumInput extends Alvo {
-  forumId?: string;
-  discussaoId?: string;
+  forumId: string;
+}
+
+/** Um tópico de fórum: todas as mensagens, com as respostas. */
+export interface VerTopicoInput extends Alvo {
+  discussaoId: string;
 }
 
 export interface VerAvisoInput extends Alvo {
@@ -126,6 +129,8 @@ export interface McpUseCases {
   prazos(p: McpPrincipal, input: PrazosInput): Promise<unknown>;
   verCurso(p: McpPrincipal, input: VerCursoInput): Promise<unknown>;
   verForum(p: McpPrincipal, input: VerForumInput): Promise<unknown>;
+  /** Todas as mensagens de um tópico, com as respostas (`respostaA` liga cada uma à sua origem). */
+  verTopico(p: McpPrincipal, input: VerTopicoInput): Promise<unknown>;
   /** Texto completo de um aviso (hoje só SIGAA). */
   verAviso(p: McpPrincipal, input: VerAvisoInput): Promise<unknown>;
   /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */
