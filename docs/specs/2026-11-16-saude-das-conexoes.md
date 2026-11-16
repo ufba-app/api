@@ -1,6 +1,6 @@
 # Saúde das conexões
 
-Status: proposta (fase 1), para o André aprovar antes de implementar. Brief: `dev/ufba/handoffs/saude-das-conexoes.md`.
+Status: aprovada pelo André em 16/11 (1 sim, 2 depois, 3 não): `source_health` entra; push fica para a v2; sem rota "testar agora". Brief: `dev/ufba/handoffs/saude-das-conexoes.md`.
 
 ## Objetivo
 
@@ -97,8 +97,8 @@ Regras:
 3. `expiresAt` de 7 dias nas contas de convidado; escopo do Classroom, se confirmado.
 4. Push (e memória, se fizer sentido).
 
-## Perguntas para o André
+## Decisões do André (16/11)
 
-1. Aceita a única escrita nova (`source_health`, só metadados) em troca de distinguir "fora do ar" de "tudo certo"?
-2. Push entra na v1 ou fica para a v2? (Recomendo v2.)
-3. A rota opcional de "testar agora" vale a pena, ou a saúde passiva basta?
+1. `source_health` (só metadados): sim.
+2. Push: v2.
+3. Rota "testar agora": não; a saúde é passiva.
