@@ -190,3 +190,37 @@ describe('exigências da loja do Claude: todas as ferramentas do /mcp', () => {
     expect(p.uniao.anyOf[0].type).toBe('string');
   });
 });
+
+describe('exigências da loja: as quatro ferramentas de escrita do SIASB (principal com as duas chaves)', () => {
+  const noop = async () => {
+    throw new Error('não chamado');
+  };
+  const clinica = { writes: () => ({ scheduleSession: noop, unscheduleSession: noop, addProcedure: noop, removeProcedure: noop }) } as unknown as McpClinica;
+  let tools: Tool[];
+
+  beforeAll(async () => {
+    const p = { userId: UID, siasb: true, permissions: new Set(['siasb.schedule_write', 'siasb.procedures_write']) };
+    const server = buildMcpServer({} as McpUseCases, p, undefined, clinica);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'teste', version: '0' });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    tools = (await client.listTools()).tools as Tool[];
+  });
+
+  it('as quatro entram, com type em toda propriedade, title e annotations coerentes', () => {
+    const w = tools.filter((t) => /^clinica_(agendar|desmarcar|incluir|excluir)_/.test(t.name));
+    expect(w.map((t) => t.name).sort()).toEqual([
+      'clinica_agendar_sessao',
+      'clinica_desmarcar_sessao',
+      'clinica_excluir_procedimento',
+      'clinica_incluir_procedimento',
+    ]);
+    expect(tools.flatMap((t) => untyped(t.inputSchema, t.name))).toEqual([]);
+    for (const t of w) {
+      expect(t.title!.length).toBeGreaterThan(2);
+      expect((t.annotations as { title?: string }).title).toBe(t.title);
+      expect(t.annotations!.readOnlyHint).toBe(false);
+      expect(typeof t.annotations!.destructiveHint).toBe('boolean');
+    }
+  });
+});

@@ -328,6 +328,11 @@ describe('canário: a senha do SIASB nunca aparece em log, erro nem resposta', (
       sessions = async () => [];
       procedures = async () => [];
       unassignedCount = async () => ({});
+      schedulingOptions = async () => ({ professors: [], locations: [], groups: [] });
+      scheduleSessions = async () => ({ ok: true as const, createdId: null });
+      unscheduleSession = async () => ({ ok: true as const, createdId: null });
+      addProcedure = async () => ({ ok: true as const, createdId: null });
+      removeProcedure = async () => ({ ok: true as const, createdId: null });
     })();
     const accounts = {
       upsert: async (i: UpsertSourceAccountInput) => void rows.push(i),

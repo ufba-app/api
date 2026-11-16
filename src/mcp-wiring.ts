@@ -69,6 +69,7 @@ import { McpClinicaImpl } from './interface/mcp/mcp-clinica';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
 import { SiasbReader } from './application/siasb/siasb-reader';
 import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbWriter } from './application/siasb/siasb-writer';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
@@ -282,9 +283,9 @@ export const mcpProviders: Provider[] = [
   // Ferramentas clinica_*: só aparecem para quem tem conexão SIASB (decidido por requisição no controller).
   {
     provide: MCP_CLINICA,
-    useFactory: (reader: SiasbReader, link: SiasbLink, copyReader: SiasbCopyReader) =>
-      new McpClinicaImpl(reader, link, copyReader),
-    inject: [SiasbReader, SiasbLink, SiasbCopyReader],
+    useFactory: (reader: SiasbReader, link: SiasbLink, copyReader: SiasbCopyReader, writer: SiasbWriter) =>
+      new McpClinicaImpl(reader, link, copyReader, undefined, writer),
+    inject: [SiasbReader, SiasbLink, SiasbCopyReader, SiasbWriter],
   },
   {
     provide: MCP_AUTH,

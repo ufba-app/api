@@ -3,7 +3,10 @@ import {
   SiasbSession,
   SiasbSource,
   type SiasbCourse,
+  type ScheduleSessionsInput,
+  type SchedulingOptions,
   type SiasbErrorCode,
+  type WriteResult,
 } from '../../../application/ports/siasb-source';
 import type { Secret } from '../../../application/shared/secret';
 import type {
@@ -17,6 +20,7 @@ import {
   mapAttendances,
   mapDisciplines,
   mapProcedures,
+  mapSchedulingOptions,
   mapSessions,
 } from './siasb-mapper';
 
@@ -45,8 +49,29 @@ const ALLOWED: readonly RegExp[] = [
 ];
 const COUNT_ONLY: readonly RegExp[] = [/^\/student\/unassigned-attendances$/];
 
+/**
+ * Escritas permitidas, casadas por MÉTODO + caminho inteiro (ids só dígitos). Quatro operações e nada mais:
+ * `realize`, falta e qualquer outra mudança clínica ficam de fora de propósito.
+ */
+const WRITE_ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
+  { method: 'POST', path: /^\/student\/schedule\/sessions$/ },
+  { method: 'POST', path: /^\/student\/schedule\/sessions\/\d{1,12}\/disposition$/ },
+  { method: 'POST', path: /^\/student\/attendances\/\d{1,12}\/procedures$/ },
+  { method: 'DELETE', path: /^\/student\/attendances\/\d{1,12}\/procedures\/\d{1,12}$/ },
+];
+const UNKNOWN_WRITE = 'O SIASB não confirmou a operação.';
+/** Únicas mensagens do SIASB que passam para a pessoa (só se o corpo for exatamente isto). */
+const KNOWN_REJECTIONS: ReadonlySet<string> = new Set([
+  'Você não possui aula desta disciplina neste dia e horário.',
+  'O horário final ultrapassa o horário de aula da disciplina.',
+]);
+
 function isAllowed(path: string, table: readonly RegExp[]): boolean {
   return table.some((re) => re.test(path));
+}
+
+function isWriteAllowed(method: string, path: string): boolean {
+  return WRITE_ALLOWED.some((r) => r.method === method && r.path.test(path));
 }
 
 interface ParsedCookie {
@@ -129,6 +154,11 @@ function discard(res: Response): void {
 /** Data e hora no formato do SIASB (`YYYY-MM-DDTHH:mm`), no horário da Bahia (UTC-3). */
 function siasbDateTime(d: Date): string {
   return new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 16);
+}
+
+/** Como `siasbDateTime`, com segundos (`YYYY-MM-DDTHH:mm:ss`), para o corpo das escritas. */
+function siasbDateTimeSeconds(d: Date): string {
+  return new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 19);
 }
 
 function fail(code: SiasbErrorCode, message: string): never {
@@ -274,6 +304,139 @@ export class SiasbClient extends SiasbSource {
     if (!isAllowed(path, COUNT_ONLY)) fail('FORBIDDEN_ROUTE', 'Rota não permitida.');
     const res = await this.getWithRetry(path, session);
     return countUnassigned(await this.readJson(res));
+  }
+
+  /** Professores, locais e grupos permitidos para agendar neste atendimento (três leituras, só GET). */
+  async schedulingOptions(session: SiasbSession, attendanceId: string): Promise<SchedulingOptions> {
+    const of = (kind: string) => `/student/options?kind=${kind}&attendanceId=${attendanceId}`;
+    this.requireDigits(attendanceId);
+    const professors = mapSchedulingOptions(await this.get(session, of('professors')));
+    const locations = mapSchedulingOptions(await this.get(session, of('ambulatoryLocations')));
+    const groups = mapSchedulingOptions(await this.get(session, of('patientGroups')));
+    return { professors, locations, groups };
+  }
+
+  async scheduleSessions(session: SiasbSession, input: ScheduleSessionsInput): Promise<WriteResult> {
+    this.requireDigits(input.attendanceId, input.professorId, input.locationId, input.groupId);
+    return this.write(session, 'POST', '/student/schedule/sessions', {
+      sessionId: null,
+      attendanceId: Number(input.attendanceId),
+      professorId: Number(input.professorId),
+      ambulatoryLocationId: Number(input.locationId),
+      patientGroupId: Number(input.groupId),
+      startAt: siasbDateTimeSeconds(input.startAt),
+      endAt: siasbDateTimeSeconds(input.endAt),
+      sessionCount: input.count,
+      description: input.description,
+      reason: '',
+      requestsRescheduling: false,
+    });
+  }
+
+  async unscheduleSession(session: SiasbSession, sessionId: string, reason: string): Promise<WriteResult> {
+    // `absence` é sempre false: marcar falta nunca sai daqui.
+    return this.write(session, 'POST', `/student/schedule/sessions/${sessionId}/disposition`, {
+      reason,
+      absence: false,
+    });
+  }
+
+  async addProcedure(
+    session: SiasbSession,
+    attendanceId: string,
+    i: { serviceId: number; teeth: string; faces: string; observation: string },
+  ): Promise<WriteResult> {
+    return this.write(session, 'POST', `/student/attendances/${attendanceId}/procedures`, {
+      serviceId: i.serviceId,
+      teeth: i.teeth,
+      faces: i.faces,
+      observation: i.observation,
+    });
+  }
+
+  async removeProcedure(session: SiasbSession, attendanceId: string, procedureId: string): Promise<WriteResult> {
+    return this.write(session, 'DELETE', `/student/attendances/${attendanceId}/procedures/${procedureId}`);
+  }
+
+  private requireDigits(...values: string[]): void {
+    for (const v of values) if (!/^\d{1,12}$/.test(v)) fail('FORBIDDEN_ROUTE', 'Rota não permitida.');
+  }
+
+  /**
+   * Única porta de escrita. Sem retry (repetir pode duplicar a operação). Mensagens fixas: o corpo da resposta
+   * (pode ter dado de paciente) nunca vira texto de erro, salvo as duas mensagens conhecidas da grade, se exatas.
+   */
+  private async write(session: SiasbSession, method: string, path: string, body?: unknown): Promise<WriteResult> {
+    if (!isWriteAllowed(method, path)) fail('FORBIDDEN_ROUTE', 'Rota não permitida.');
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Cookie: cookieHeader(session),
+    };
+    let res: Response;
+    try {
+      res = await this.send(path, {
+        method,
+        headers,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    } catch {
+      fail('WRITE_UNKNOWN', UNKNOWN_WRITE);
+    }
+    if (res.status === 401 || res.status === 403) {
+      discard(res);
+      fail('REAUTH_NEEDED', 'A sessão do SIASB expirou. Conecte de novo.');
+    }
+    if (mergeCookies(session, readSetCookies(res))) session.dirty = true;
+    if (res.status >= 500 || (res.status >= 300 && res.status < 400)) {
+      discard(res);
+      fail('WRITE_UNKNOWN', UNKNOWN_WRITE);
+    }
+    if (res.status >= 400) {
+      const parsed = await this.tryText(res);
+      fail('WRITE_REJECTED', KNOWN_REJECTIONS.has(parsed) ? parsed : 'O SIASB recusou a operação.');
+    }
+    return { ok: true, createdId: await this.createdId(res) };
+  }
+
+  /** Texto da mensagem de recusa (corpo puro, string JSON ou `message`), ou '' se não der. */
+  private async tryText(res: Response): Promise<string> {
+    let raw: string;
+    try {
+      raw = (await res.text()).trim();
+    } catch {
+      return '';
+    }
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+    if (typeof parsed === 'string') return parsed;
+    const m = (parsed as { message?: unknown } | null)?.message;
+    return typeof m === 'string' ? m : '';
+  }
+
+  /** `id` só se for inteiro ou texto de dígitos; qualquer outra coisa é null. */
+  private async createdId(res: Response): Promise<string | null> {
+    let body: unknown;
+    try {
+      body = (await res.json()) as unknown;
+    } catch {
+      return null;
+    }
+    const asId = (v: unknown): string | null => {
+      if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) return String(v);
+      if (typeof v === 'string' && /^\d{1,18}$/.test(v)) return v;
+      return null;
+    };
+    if (body !== null && typeof body === 'object') {
+      const o = body as { id?: unknown; procedureId?: unknown; data?: unknown };
+      const data = o.data !== null && typeof o.data === 'object' ? (o.data as { id?: unknown }) : null;
+      return asId(o.id) ?? asId(o.procedureId) ?? asId(data?.id) ?? null;
+    }
+    return asId(body);
   }
 
   private async getWithRetry(path: string, session: SiasbSession | undefined): Promise<Response> {

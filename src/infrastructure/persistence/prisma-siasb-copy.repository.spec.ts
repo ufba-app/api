@@ -236,6 +236,14 @@ describe('PrismaSiasbCopyRepository', () => {
     });
   });
 
+  it('markDue: updateMany só de nextRunAt (sem upsert, sem result, sem lastSuccessAt, sem trava)', async () => {
+    const { repo, prisma } = setup();
+    await repo.markDue(U);
+    expect(prisma.siasbSyncState.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.siasbSyncState.updateMany.mock.calls[0][0]).toEqual({ where: { userId: U }, data: { nextRunAt: null } });
+    expect(prisma.siasbSyncState.createMany).not.toHaveBeenCalled();
+  });
+
   it('claim: INSERT só com conta SIASB (EXISTS) e depois UPDATE condicional da trava', async () => {
     const { repo, prisma } = setup();
     const now = new Date('2026-11-15T12:00:00Z');

@@ -127,6 +127,11 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     s.lastAttemptAt = null;
   }
 
+  async markDue(userId: string): Promise<void> {
+    const s = this.states.get(userId);
+    if (s) s.nextRunAt = null;
+  }
+
   async connectedUsers(): Promise<string[]> {
     return [...this.accounts.keys()];
   }

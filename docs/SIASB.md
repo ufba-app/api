@@ -1,6 +1,6 @@
 # SIASB (clínicas)
 
-O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. É **só leitura**. As ferramentas `clinica_*` vão ao SIASB na hora, com a conexão que a pessoa fez; a exceção é a cópia de sessões e atendimentos feita por cron (seção 10).
+O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. A leitura é o uso principal e **não grava nada**; a escrita (agendar, desmarcar, incluir e excluir procedimento previsto) é opt-in, atrás de permissão por app e de confirmação, e está na seção 14. As ferramentas `clinica_*` de leitura vão ao SIASB na hora, com a conexão que a pessoa fez; a exceção é a cópia de sessões e atendimentos feita por cron (seção 10).
 
 Desenho completo: `docs/superpowers/specs/2026-11-15-siasb-design.md`. Ferramentas MCP: tabela abaixo e `docs/MCP.md`. Rotas do web: `docs/WEB-API.md`, seção 5.
 
@@ -36,7 +36,7 @@ Casos de uso em `src/application/siasb/siasb-link.ts` (`SiasbLink`):
 
 ## 4. Rotas do SIASB
 
-Base `https://api.siasb.ufba.br/api/v1`. **Só GET**, fora o login. A lista fica num lugar só (`ALLOWED` em `siasb-client.ts`); cada item casa o caminho inteiro, com a query. O que não casa vira `FORBIDDEN_ROUTE` **antes de qualquer rede**.
+Base `https://api.siasb.ufba.br/api/v1`. **Leitura só GET**; as únicas escritas são as 4 rotas da seção 14. A lista fica num lugar só (`ALLOWED` em `siasb-client.ts`); cada item casa o caminho inteiro, com a query. O que não casa vira `FORBIDDEN_ROUTE` **antes de qualquer rede**.
 
 Permitidas:
 
@@ -56,8 +56,8 @@ Proibidas (nunca chamadas):
 
 - `student/attendances?status=4` (pacientes de outros alunos) e qualquer outro `status`;
 - qualquer rota de dado clínico (prontuário, anamnese, exames, documentos);
-- qualquer método que não seja GET (exceto o login);
-- rotas administrativas e de escrita (agendar, desmarcar): ficam para a fase 4 e pedem OK específico;
+- qualquer método que não seja GET, exceto o login e as 4 rotas de escrita da seção 14 (tabela `WRITE_ALLOWED`, separada da `ALLOWED`);
+- rotas administrativas e qualquer outra escrita;
 - caminho com `..`, barra dupla, fragmento ou parâmetro fora do formato acima.
 
 GET repete até 2 vezes, só em 5xx ou falha de rede. 429 e redirecionamento viram `UNAVAILABLE`; timeout de 15 s por chamada.
@@ -238,7 +238,7 @@ Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O *
 
 ## 12. O que NÃO está nesta fase
 
-- **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 3 e 4 do spec (seções 5.6 e 5.7). Nada aqui grava no SIASB. Os avisos por push estão na seção 11.
+- **Google Agenda**: fica para a fase 3 do spec (seção 5.6). A escrita (fase 4) está na seção 14; as ferramentas de leitura e a sincronização da cópia continuam sem gravar nada no SIASB. Os avisos por push estão na seção 11.
 
 ## 13. Pendências (spec, seção 6)
 
@@ -249,3 +249,61 @@ Nenhuma delas exige requisição ao SIASB sem OK do André.
 - **DevTools:** conferir horas úteis, horário de funcionamento e datas bloqueadas do prazo real.
 - **Cookie a partir do Railway:** confirmar que o cookie funciona do IP de produção.
 - Ainda abertas: se `schedule/sessions` aceita intervalo maior que ~59 dias (afeta `clinica_progresso`), grade de aula da turma, formato de `requests` e `dashboard`.
+
+## 14. Escrita (fase 4)
+
+Quatro ferramentas MCP gravam no SIASB, em nome da pessoa, com a conexão dela. Estão **desligadas por padrão**: só aparecem no `/mcp` do app (cliente OAuth) que a pessoa autorizou, no painel, com a permissão certa. As ferramentas de leitura continuam sem gravar nada.
+
+| Permissão (por app) | Ferramentas |
+|---|---|
+| `siasb.schedule_write` ("Agendar e desmarcar sessões pelo app") | `clinica_agendar_sessao`, `clinica_desmarcar_sessao` |
+| `siasb.procedures_write` | `clinica_incluir_procedimento`, `clinica_excluir_procedimento` |
+
+Parâmetros e respostas: `docs/MCP.md`. Código: `SiasbWriter` (`src/application/siasb/siasb-writer.ts`), ferramentas em `src/interface/mcp/clinica-write-tools.ts`, executor de sessão compartilhado com a leitura em `siasb-session-runner.ts`.
+
+### Rotas de escrita permitidas
+
+Lista própria no cliente (`WRITE_ALLOWED`, método + caminho; o que não casa vira `FORBIDDEN_ROUTE` antes de qualquer rede; ids de 1 a 12 dígitos):
+
+| Rota | Para quê |
+|---|---|
+| `POST /student/schedule/sessions` | Agendar (1 a 20 sessões semanais) |
+| `POST /student/schedule/sessions/<id>/disposition` | Desmarcar (sempre com `absence: false`) |
+| `POST /student/attendances/<id>/procedures` | Incluir procedimento (fica PREVISTO) |
+| `DELETE /student/attendances/<id>/procedures/<id>` | Excluir procedimento |
+
+### Confirmação em duas etapas
+
+Cada ferramenta tem `confirmado` (booleano, padrão `false`); só `=== true` grava. Sem ele, a ferramenta valida e devolve o resumo exato do que fará (`status: resumo`), sem escrever. O Claude mostra o resumo, a pessoa dá o OK e a chamada se repete com `confirmado: true`. Não há estado entre as duas chamadas. Quando faltam professor, local ou grupo ao agendar, a resposta é `status: escolher` (com `faltando`, `opcoes` e `instrucao`: chamar de novo **sem** `confirmado` para receber o resumo, e só então pedir o OK), com ou sem `confirmado`. Horários em `detalhes` vêm na hora da Bahia com `-03:00`; o início recebido é arredondado para o minuto inteiro antes de enviar e de conferir. Gravado: `status: feito`.
+
+### Regras e validações (antes de tocar o SIASB; mensagens fixas em pt-BR, sem eco do valor)
+
+- O atendimento precisa estar **ativo** (lista ativa lida ao vivo).
+- Ids (atendimento, sessão, procedimento, professor, local, grupo) só dígitos, 1 a 12; professor, local e grupo precisam estar entre as opções do SIASB (`schedulingOptions`) para o atendimento; o procedimento a incluir precisa estar no catálogo do atendimento.
+- Agendar: `quantidade` inteira de 1 a 20; `duracaoMin` inteira de 15 a 240; início no futuro e no máximo 365 dias à frente; o início da **última** sessão da série também no máximo 365 dias. A série é semanal, no mesmo horário, tudo ou nada.
+- Desmarcar: só sessão **FUTURA** (início e eventual reagendamento depois de agora), marcada e de atendimento ativo, achada entre as sessões de 14 dias atrás a 45 dias à frente. Motivo padrão "Desmarcado pelo aluno". **Falta nunca é registrada** (`absence` fixo em `false`).
+- **Realizar** (dar baixa) procedimento não existe: o incluído fica PREVISTO e a baixa é no site.
+- Excluir: só um procedimento **incluído por `clinica_incluir_procedimento`**: precisa haver na auditoria `procedure_add` com resultado `ok` da mesma pessoa, no mesmo atendimento, com esse `target_id` (`SiasbWriteAuditRepository.hasProcedureAdd`). Senão: "Só é possível excluir por aqui um procedimento incluído por esta ferramenta; para os demais use o site do SIASB.", sem tocar o SIASB. Falha ao consultar a auditoria também recusa.
+- Textos livres (`observacao`, `motivo`) até 300 caracteres; dente e face até 50, sem caracteres de controle.
+
+### Sem retry; resultado desconhecido
+
+Cada operação faz **uma** chamada de escrita, sem repetir (repetir pode duplicar). 4xx vira `siasb_write_rejected` ("O SIASB recusou a operação."; só duas mensagens exatas da grade passam: aula inexistente no horário e horário final além da aula). 5xx, redirecionamento, falha de rede ou timeout viram `siasb_write_unknown`: "O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo." O corpo da resposta nunca vira texto de erro. 401/403 viram reconexão, como na leitura. A ferramenta só repassa erros conhecidos; qualquer outro vira a mensagem de "não confirmou".
+
+### Conferência depois de gravar
+
+- **Agendar:** lê a agenda da janela da série antes e depois. Só conta sessão com **id novo**, do mesmo atendimento, no início esperado e marcada. `verificado: true` quando todas as datas estão lá (`datasConfirmadas`). Se a leitura falhar, a escrita continua válida e `verificado: false`.
+- **Desmarcar:** relê e confere que a sessão não está mais marcada (`verificado`).
+- **Procedimentos:** só há o 2xx do SIASB; não há leitura dos procedimentos lançados.
+- **Ressincronização:** após resultado `ok` ou `unknown`, o `SiasbSyncer` roda na hora; se não terminar com `OK` ou lançar, a pessoa é marcada como devida (`markDue`, `nextRunAt = null`) para o cron. **Limitação:** se uma sincronização do cron já estiver em curso (`BUSY`), ao terminar ela regrava `nextRunAt` e apaga a marcação; a cópia só reflete a escrita na rodada seguinte do cron, e a sincronização em curso pode ter lido o estado anterior. Para o estado exato, `clinica_sessoes` com `aoVivo: true`.
+
+### Auditoria
+
+Tabela `siasb_write_audit` (migração `20261116220000_siasb_write_audit`): `user_id`, `kind` (`schedule`, `unschedule`, `procedure_add`, `procedure_remove`), `attendance_id`, `target_id` (id da sessão ou do procedimento), `result` (`ok`, `rejected`, `unknown`, `error`), `at`. **Sem texto livre**: nem nome, nem observação, nem mensagem do SIASB. Só se grava quando a chamada de escrita foi tentada (entrada inválida não gera linha); gravar é melhor esforço e nunca muda o resultado. Apagada com a pessoa (cascade). **Ainda não há expurgo de 90 dias** (spec 5.4): a tabela cresce até existir a retenção. O escritor não registra nada em log.
+
+### Lacunas conhecidas
+
+- **Formatos de resposta de escrita nunca confirmados ao vivo.** O corpo enviado e o que o SIASB devolve foram deduzidos, sem teste real. A primeira escrita real pode mostrar formatos diferentes; o roteiro está em `handoffs/siasb-escrita-teste-real.md` (fora do repositório).
+- **`procedimentoId` pode vir `null`** ao incluir (só se aceita `id`, `procedureId` ou `data.id` numéricos de 1 a 12 dígitos). Sem o id, **excluir** pela ferramenta não é possível: exclui-se pelo site.
+- **Excluir depende do id deduzido ao incluir.** A trava (só ids incluídos por esta ferramenta) evita excluir procedimento lançado por outro caminho, mas o id gravado na auditoria é o que o cliente deduziu da resposta de incluir (formato nunca confirmado ao vivo). Se o SIASB devolver ali outro número (não o do procedimento lançado), a exclusão pode mirar o id errado. Não há leitura dos lançados para conferir que é PREVISTO.
+- **Retenção da auditoria:** quando o expurgo de 90 dias existir, procedimentos incluídos há mais tempo deixam de poder ser excluídos por aqui (só pelo site).
