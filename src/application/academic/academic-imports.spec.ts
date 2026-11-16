@@ -1,3 +1,4 @@
+import { programLabelFor } from './program-label';
 import { FakeCatalogSource, InMemoryCatalog } from '../../../test/support/catalog-fake';
 import {
   FakeExtractor,
@@ -104,6 +105,11 @@ describe('AcademicImports: importar e confirmar', () => {
     expect(s).toMatchObject({ available: true, consent: true, status: 'NEEDS_CONFIRMATION', failure: null, verified: true, reader: 'ai', summary: null });
     expect(s.draft?.components).toHaveLength(49);
     expect(s.draft?.verification.verified).toBe(true);
+    // O rascunho traz o curso separado (o mesmo objeto do resumo) ao lado do nome cru, que continua.
+    expect(s.draft?.program.programLabel).toEqual(programLabelFor(s.draft!.program.name));
+    expect(s.draft?.program.programLabel.raw).toBe(s.draft?.program.name);
+    // O gravado não ganha o campo: só a resposta.
+    expect((await m.repo.getImport(P.userId))?.draft?.program).not.toHaveProperty('programLabel');
     expect(m.source.calls).toBe(1);
     expect(m.reader.calls).toBe(1);
     // Nada de histórico gravado antes da confirmação.
