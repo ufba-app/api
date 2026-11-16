@@ -6,7 +6,7 @@ import { SigaaRateLimitedError } from './http-client';
 import type { SecretCipher } from '../../../application/ports/secret-cipher';
 import { MemorySigaaSessionStore } from './memory-session-store';
 import { SessoesSigaa } from './sessoes-sigaa';
-import { SigaaInvalidCredentialsError, type SigaaSession } from './session';
+import { SigaaInvalidCredentialsError, SigaaLoginUnavailableError, type SigaaSession } from './session';
 import { MAX_TURMAS_PRAZOS, SigaaLive } from './sigaa-live';
 
 const fixture = (nome: string) => readFileSync(join(__dirname, 'turma-virtual', '__fixtures__', nome), 'utf-8');
@@ -90,6 +90,74 @@ describe('SigaaLive', () => {
       { id: 'sistemas-operacionais', nome: 'SISTEMAS OPERACIONAIS' },
       { id: 'visao-computacional', nome: 'VISÃO COMPUTACIONAL' },
     ]);
+  });
+
+  describe('agendaSigaa (calendário do Painel): turmas + prazos com UMA leitura do portal', () => {
+    it('1 GET do portal + 2 por turma com Turma Virtual (a sem Turma Virtual entra só nas aulas)', async () => {
+      const { live, reqs, posts } = montar();
+      const r = await live.agendaSigaa(ctx);
+      // Fixture: 3 turmas no portal, 2 com Turma Virtual. O portal é lido UMA vez (serve às aulas e aos prazos).
+      expect(reqs.filter((x) => x === `GET ${PORTAL}`)).toHaveLength(1);
+      expect(reqs).toHaveLength(1 + 2 * 2);
+      expect(posts).toHaveLength(2);
+      expect(r.turmas.map((t) => t.name)).toEqual(['SISTEMAS OPERACIONAIS', 'VISÃO COMPUTACIONAL', 'LABORATÓRIO INTEGRADO III-A']);
+      expect(r.prazosCompletos).toBe(true);
+      expect(r.prazos.length).toBeGreaterThan(0);
+      expect(r.prazos.every((p) => p.tipo === 'prova' && p.quando.getTime() > 0)).toBe(true);
+    });
+
+    it(`no máximo 1 + 2×${MAX_TURMAS_PRAZOS} requisições, mesmo com 12 turmas`, async () => {
+      const { live, reqs } = montar({ get: { [PORTAL]: portalCom(12) } });
+      const r = await live.agendaSigaa(ctx);
+      expect(reqs).toHaveLength(1 + 2 * MAX_TURMAS_PRAZOS);
+      expect(r.prazosCompletos).toBe(true);
+    });
+
+    it('falha ao ler os prazos NÃO derruba as aulas: para na primeira falha (sem gastar requisições) e marca incompleto', async () => {
+      let n = 0;
+      const { live, reqs } = montar({
+        get: { [PORTAL]: portalCom(6) },
+        postback: () => {
+          if (++n === 2) throw new Error('SIGAA recusou o ViewState');
+          return PAGINA_DA_TURMA;
+        },
+      });
+      const r = await live.agendaSigaa(ctx);
+      expect(r.prazosCompletos).toBe(false);
+      expect(r.prazos.length).toBeGreaterThan(0); // o que já veio da 1ª turma fica
+      // Portal + (postback + avaliações da 1ª) + o postback que falhou na 2ª: nada mais.
+      expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `GET ${AVALIACOES}`, `POST ${PORTAL}`]);
+    });
+
+    it('o prazos() da ferramenta continua falhando alto (sem resultado parcial)', async () => {
+      const { live } = montar({
+        get: { [PORTAL]: portalCom(3) },
+        postback: () => {
+          throw new Error('x');
+        },
+      });
+      await expect(live.prazos(ctx)).rejects.toBeInstanceOf(SourceError);
+    });
+
+    it('acabou o orçamento de tempo: não entra em outra turma; as aulas ficam e a leitura vem incompleta', async () => {
+      const { live, reqs } = montar({ get: { [PORTAL]: portalCom(4) } });
+      const r = await live.agendaSigaa(ctx, { orcamentoMs: 0 });
+      expect(reqs).toEqual([`GET ${PORTAL}`]); // só o portal
+      expect(r.prazosCompletos).toBe(false);
+      expect(r.prazos).toEqual([]);
+    });
+
+    it('falha ao ler o portal em si continua sendo erro (sem portal não há nada)', async () => {
+      const { live } = montar({ login: async () => { throw new SigaaLoginUnavailableError('fora do ar'); } });
+      await expect(live.agendaSigaa(ctx)).rejects.toBeInstanceOf(SourceError);
+    });
+
+    it('nunca devolve o HTML, o token da Turma Virtual nem a senha', async () => {
+      const { live } = montar();
+      const out = JSON.stringify(await live.agendaSigaa(ctx));
+      expect(out).not.toMatch(/frontEndIdTurma|AAAA1111|jsfcljs|ViewState/);
+      expect(out).not.toContain(SENHA);
+    });
   });
 
   it('turmasComHorario: 1 requisição (a mesma página do portal) e inclui a turma sem Turma Virtual', async () => {

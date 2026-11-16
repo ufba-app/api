@@ -2,7 +2,8 @@ import type { PublishedCalendarView } from '../calendar/published-calendar';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import { parseSchedule } from '../../domain/academic/class-schedule';
 import { FonteNaoConectadaError } from '../live/consulta.service';
-import { MeCalendar, bahiaIso, type MeCalendarDeps, type SigaaState } from './me-calendar.service';
+import type { PrazoVivo } from '../ports/live-source';
+import { MeCalendar, bahiaIso, classifySigaaDeadline, type MeCalendarDeps, type SigaaState } from './me-calendar.service';
 
 const Q = { userId: 'u1' };
 const NOW = new Date('2026-11-16T12:00:00Z');
@@ -22,6 +23,9 @@ function turma(name: string, code: string, place: string | null = 'Sala 12', cou
 interface Opts {
   calendars?: PublishedCalendarView[];
   turmas?: ClassSchedule[] | Error;
+  prazos?: PrazoVivo[];
+  prazosCompletos?: boolean;
+  agendaDelay?: () => Promise<void>;
   siasb?: { offered: boolean; status: 'connected' | 'reconnect_required' | 'disconnected' };
   sessions?: Array<{ id: string; disciplineName: string; locationName: string; startAt: Date; endAt: Date; statusLabel: string }>;
   stale?: boolean;
@@ -32,10 +36,11 @@ function build(o: Opts = {}) {
   const deps: MeCalendarDeps = {
     calendars: { all: async () => o.calendars ?? [] },
     sigaa: {
-      turmas: async () => {
-        calls.turmas++;
+      agenda: async () => {
+        calls.turmas++; // conta as leituras do SIGAA
+        await o.agendaDelay?.();
         if (o.turmas instanceof Error) throw o.turmas;
-        return o.turmas ?? [];
+        return { turmas: o.turmas ?? [], prazos: o.prazos ?? [], prazosCompletos: o.prazosCompletos ?? true };
       },
     },
     siasb: {
@@ -195,10 +200,10 @@ describe('MeCalendar: aulas (recorrência do SIGAA)', () => {
     expect(b.sources).toEqual([{ source: 'sigaa', status: 'reconnect_required' }]);
   });
 
-  it('não há entregas nem provas: nenhum item kind deadline/exam e nenhuma fonte moodle/classroom', async () => {
-    const r = await get(build({ turmas: [SO] }).svc, '2026-11-16', '2026-11-22');
-    expect(r.days.flatMap((d) => d.items).every((i) => i.kind === 'class' || i.kind === 'session')).toBe(true);
+  it('nada de Moodle/Classroom: as fontes são só sigaa e siasb, e deadline/exam só com source sigaa', async () => {
+    const r = await get(build({ turmas: [SO], prazos: [{ id: 'a:avaliacao:0', titulo: 'Prova', quando: new Date('2026-11-18T12:00:00Z'), cursoId: 'a', cursoNome: 'A', tipo: 'prova' }] }).svc, '2026-11-16', '2026-11-22');
     expect(r.sources.every((s) => s.source === 'sigaa' || s.source === 'siasb')).toBe(true);
+    for (const i of r.days.flatMap((d) => d.items)) if (i.kind === 'deadline' || i.kind === 'exam') expect(i.source).toBe('sigaa');
   });
 });
 
@@ -256,7 +261,8 @@ describe('MeCalendar: cache', () => {
     expect(calls.turmas).toBe(1);
     await svc.get({ userId: 'u2' }, '2026-11-01', '2026-11-30', 'connected');
     await get(svc, '2026-11-01', '2026-11-29');
-    expect(calls.turmas).toBe(3);
+    // Outra pessoa lê o SIGAA de novo; outro intervalo da MESMA pessoa reaproveita a leitura do SIGAA (12 min por pessoa).
+    expect(calls.turmas).toBe(2);
 
     const f = build({ turmas: new Error('x') });
     await get(f.svc, '2026-11-01', '2026-11-30');
@@ -267,4 +273,121 @@ describe('MeCalendar: cache', () => {
 
 describe('helpers', () => {
   it('bahiaIso usa -03:00', () => expect(bahiaIso(new Date('2026-11-18T12:00:00Z'))).toBe('2026-11-18T09:00:00-03:00'));
+});
+
+const prazo = (id: string, titulo: string, quando: string, cursoNome = 'ANATOMIA'): PrazoVivo => ({ id, titulo, quando: new Date(quando), cursoId: 'anatomia', cursoNome, tipo: 'prova' });
+
+describe('MeCalendar: prazos do SIGAA (avaliações com data)', () => {
+  const SO = turma('SISTEMAS OPERACIONAIS', '35T45 (18/08/2026 - 19/12/2026)');
+
+  it('prova = exam (começa na hora); trabalho/entrega = deadline (termina no prazo); só source sigaa', async () => {
+    const { svc } = build({
+      turmas: [SO],
+      prazos: [prazo('anatomia:avaliacao:0', 'Prova 2', '2026-11-18T12:00:00Z'), prazo('anatomia:avaliacao:1', 'Entrega do relatório final', '2026-11-20T02:00:00Z')],
+    });
+    const r = await get(svc, '2026-11-16', '2026-11-22');
+    const itens = r.days.flatMap((d) => d.items.map((i) => ({ date: d.date, ...i })));
+    expect(itens.find((i) => i.title === 'Prova 2')).toEqual({ date: '2026-11-18', id: 'sigaa:anatomia:avaliacao:0', kind: 'exam', source: 'sigaa', title: 'Prova 2', courseName: 'ANATOMIA', courseCode: null, startsAt: '2026-11-18T09:00:00-03:00', endsAt: null, place: 'SIGAA' });
+    // 02:00Z de 20/11 é 23:00 de 19/11 em Salvador: o DIA do item é o de Salvador.
+    expect(itens.find((i) => i.title === 'Entrega do relatório final')).toMatchObject({ date: '2026-11-19', kind: 'deadline', startsAt: null, endsAt: '2026-11-19T23:00:00-03:00' });
+    expect(itens.every((i) => i.source === 'sigaa' || i.source === 'siasb')).toBe(true);
+    expect(r.sources).toEqual([{ source: 'sigaa', status: 'ok' }]);
+  });
+
+  it('só os do intervalo; e o prazo CONTINUA no feriado (a aula não)', async () => {
+    const { svc } = build({
+      calendars: [cal('2026.2', '2026-08-17', '2026-12-19', [on('Feriado', '2026-11-19')])],
+      turmas: [SO],
+      prazos: [prazo('a:avaliacao:0', 'Prova no feriado', '2026-11-19T15:00:00Z'), prazo('a:avaliacao:1', 'Prova fora', '2026-12-10T15:00:00Z')],
+    });
+    const r = await get(svc, '2026-11-16', '2026-11-22');
+    const dia = r.days.find((d) => d.date === '2026-11-19')!;
+    expect(dia.nonTeaching).toEqual({ name: 'Feriado' });
+    expect(dia.items.map((i) => [i.kind, i.title])).toEqual([['exam', 'Prova no feriado']]); // sem class nesse dia
+    expect(r.days.flatMap((d) => d.items).some((i) => i.title === 'Prova fora')).toBe(false);
+  });
+
+  it('prova sem hora no SIGAA vem à meia-noite (T00:00): limitação documentada', async () => {
+    const { svc } = build({ turmas: [], prazos: [prazo('a:avaliacao:0', 'Prova', '2026-11-18T03:00:00Z')] }); // 00:00 em Salvador
+    expect((await get(svc, '2026-11-18', '2026-11-18')).days[0].items[0].startsAt).toBe('2026-11-18T00:00:00-03:00');
+  });
+
+  it('prazos incompletos (parou no meio): as aulas ficam, os prazos lidos também, e sigaa vira failed', async () => {
+    const { svc } = build({ turmas: [SO], prazos: [prazo('a:avaliacao:0', 'Prova 1', '2026-11-18T12:00:00Z')], prazosCompletos: false });
+    const r = await get(svc, '2026-11-16', '2026-11-22');
+    expect(r.sources).toEqual([{ source: 'sigaa', status: 'failed' }]);
+    expect(r.days.flatMap((d) => d.items).map((i) => i.kind).sort()).toEqual(['class', 'class', 'exam']);
+  });
+
+  it('leitura incompleta não vai para o cache (a próxima tenta de novo); a completa vale 12 min por pessoa, em qualquer intervalo', async () => {
+    const inc = build({ turmas: [SO], prazosCompletos: false });
+    await get(inc.svc, '2026-11-16', '2026-11-22');
+    await get(inc.svc, '2026-11-23', '2026-11-29');
+    expect(inc.calls.turmas).toBe(2);
+    const ok = build({ turmas: [SO] });
+    await get(ok.svc, '2026-11-16', '2026-11-22');
+    await get(ok.svc, '2026-11-23', '2026-11-29');
+    await get(ok.svc, '2026-12-01', '2026-12-31');
+    expect(ok.calls.turmas).toBe(1);
+  });
+
+  it('o cache do SIGAA expira em 12 min', async () => {
+    let agora = NOW.getTime();
+    const calls = { n: 0 };
+    const svc = new MeCalendar({
+      calendars: { all: async () => [] },
+      sigaa: { agenda: async () => ((calls.n += 1), { turmas: [], prazos: [], prazosCompletos: true }) },
+      siasb: { status: async () => ({ offered: false, status: 'disconnected' }), agenda: async () => ({ stale: false, items: [] }) },
+      now: () => new Date(agora),
+    });
+    await svc.get(Q, '2026-11-16', '2026-11-22', 'connected');
+    agora += 11 * 60_000;
+    await svc.get(Q, '2026-11-23', '2026-11-29', 'connected');
+    expect(calls.n).toBe(1);
+    agora += 2 * 60_000;
+    await svc.get(Q, '2026-11-30', '2026-12-06', 'connected');
+    expect(calls.n).toBe(2);
+  });
+
+  it('chamadas simultâneas da mesma pessoa viram UMA leitura do SIGAA (JSF é sequencial por sessão)', async () => {
+    let liberar!: () => void;
+    const { svc, calls } = build({ turmas: [SO], agendaDelay: () => new Promise<void>((r) => (liberar = r)) });
+    const a = get(svc, '2026-11-16', '2026-11-22');
+    const b = get(svc, '2026-11-23', '2026-11-29');
+    const c = get(svc, '2026-12-01', '2026-12-31');
+    await new Promise((r) => setTimeout(r, 10));
+    liberar();
+    await Promise.all([a, b, c]);
+    expect(calls.turmas).toBe(1);
+  });
+
+  it('falha ao ler o SIGAA derruba só o sigaa (as sessões do SIASB e os feriados seguem)', async () => {
+    const { svc } = build({
+      calendars: [cal('2026.2', '2026-08-17', '2026-12-19', [on('Feriado', '2026-11-20')])],
+      turmas: new Error('página inesperada'),
+      siasb: { offered: true, status: 'connected' },
+      sessions: [{ id: 's', disciplineName: 'Clínica', locationName: 'Sala 3', startAt: new Date('2026-11-18T12:00:00Z'), endAt: new Date('2026-11-18T13:00:00Z'), statusLabel: 'Confirmado' }],
+    });
+    const r = await get(svc, '2026-11-16', '2026-11-22');
+    expect(r.sources).toEqual([{ source: 'sigaa', status: 'failed' }, { source: 'siasb', status: 'ok' }]);
+    expect(r.days.flatMap((d) => d.items).map((i) => i.kind)).toEqual(['session']);
+    expect(r.days.find((d) => d.date === '2026-11-20')!.nonTeaching).toEqual({ name: 'Feriado' });
+  });
+});
+
+describe('classifySigaaDeadline', () => {
+  it.each([
+    ['Prova 2', 'exam'],
+    ['1ª Unidade', 'exam'],
+    ['Seminário', 'exam'],
+    ['P1', 'exam'],
+    ['Exame final', 'exam'],
+    ['Avaliação parcial', 'exam'],
+    ['Entrega do trabalho final', 'deadline'],
+    ['Relatório da prática 3', 'deadline'],
+    ['Lista de exercícios 4', 'deadline'],
+    ['Projeto integrador', 'deadline'],
+    ['Prova de projeto', 'exam'], // "prova" vence
+    ['Teste do relatório', 'exam'],
+  ])('%s → %s', (titulo, kind) => expect(classifySigaaDeadline(titulo)).toBe(kind));
 });

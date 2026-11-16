@@ -325,6 +325,21 @@ describe('ConsultaService.turmasComHorario', () => {
   });
 });
 
+describe('ConsultaService.agendaSigaa', () => {
+  it('fonte SIGAA sem a capacidade: FonteSemLeituraError', async () => {
+    const { svc } = build([conta('a@x')]);
+    await expect(svc.agendaSigaa(U1)).rejects.toBeInstanceOf(FonteSemLeituraError);
+  });
+
+  it('sem K no token (chave de API): SIGAA não conectado neste aplicativo, sem tocar a fonte', async () => {
+    const { svc } = build([conta('a@x')]);
+    const agendaSigaa = jest.fn();
+    (svc as unknown as { sources: LiveSources }).sources.register({ provider: 'SIGAA', agendaSigaa } as never);
+    await expect(svc.agendaSigaa(U1)).rejects.toBeInstanceOf(FonteNaoConectadaError);
+    expect(agendaSigaa).not.toHaveBeenCalled();
+  });
+});
+
 describe('ConsultaService: pastas do Drive e conferência antes do link', () => {
   const pastaRef = 'gdrive1.folder.PASTA.sig';
   const mkDrive = (over: Record<string, unknown> = {}) => {

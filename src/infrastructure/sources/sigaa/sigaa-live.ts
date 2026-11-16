@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import type { AttachmentContent } from '../../../application/ports/attachment-reader';
 import type {
+  AgendaSigaa,
   AtividadeViva,
   CursoVivo,
   DiscussaoViva,
@@ -37,6 +38,8 @@ const TIMELINE_PATH = '/sigaa/ava/Relatorios/timeline.jsf';
 
 /** Teto de turmas que `prazos` visita (2 requisições cada, além do portal). */
 export const MAX_TURMAS_PRAZOS = 8;
+/** Orçamento de tempo da leitura dos prazos no calendário: depois dele não se entra em outra turma. */
+export const ORCAMENTO_PRAZOS_MS = 30_000;
 
 /** America/Bahia: UTC-3 o ano todo (sem horário de verão). */
 const FUSO = '-03:00';
@@ -267,11 +270,49 @@ export class SigaaLive implements LiveSource {
     return this.usar(ctx, async (s) => {
       const portal = await s.get(PORTAL_PATH);
       const turmas = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_PRAZOS);
-      const desde = inicioDeHojeNaBahia(this.now());
-      const prazos: PrazoVivo[] = [];
-      for (const t of turmas) {
-        // Da 2ª turma em diante, reaproveita o ViewState da última página (não validado no SIGAA real; ver JSDoc).
-        // Falha aqui derruba `prazos` inteiro: nada de resultado parcial.
+      // Falha aqui derruba `prazos` inteiro: nada de resultado parcial.
+      return (await this.lerPrazos(s, portal, turmas)).prazos;
+    });
+  }
+
+  /**
+   * Calendário do Painel: as turmas com horário E os prazos numa passada, com UMA leitura do portal (a de `listarCursos`), no
+   * máximo 1 + 2×`MAX_TURMAS_PRAZOS` requisições sequenciais (JSF não admite paralelo na sessão). Diferente de `prazos`, aqui a
+   * falha na leitura dos prazos NÃO derruba as aulas: a leitura para na primeira falha (não gasta requisições à toa), as turmas
+   * seguem valendo e `prazosCompletos` fica `false`. Também para quando acaba o orçamento de tempo (`ORCAMENTO_PRAZOS_MS`).
+   * Falha ao ler o portal em si (login, sessão, página inesperada) continua sendo erro: sem portal não há nada.
+   */
+  agendaSigaa(ctx: SourceContext, opts: { orcamentoMs?: number } = {}): Promise<AgendaSigaa> {
+    return this.usar(ctx, async (s) => {
+      const portal = await s.get(PORTAL_PATH);
+      const turmas = parse(() => parseTurmasHorario(portal));
+      const tokens = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_PRAZOS);
+      const limite = this.now() + (opts.orcamentoMs ?? ORCAMENTO_PRAZOS_MS);
+      const { prazos, completos } = await this.lerPrazos(s, portal, tokens, limite);
+      return { turmas, prazos, prazosCompletos: completos };
+    });
+  }
+
+  /**
+   * Entra em cada turma e lê as avaliações (2 requisições por turma). Sem `limite`, qualquer falha propaga; com `limite` (ms desde a
+   * época), a falha e o estouro do tempo encerram a leitura e devolvem o que já veio, com `completos: false`.
+   */
+  private async lerPrazos(
+    s: SigaaSession,
+    portal: string,
+    turmas: TurmaVirtualToken[],
+    limite?: number,
+  ): Promise<{ prazos: PrazoVivo[]; completos: boolean }> {
+    const desde = inicioDeHojeNaBahia(this.now());
+    const prazos: PrazoVivo[] = [];
+    let completos = true;
+    for (const t of turmas) {
+      if (limite !== undefined && this.now() >= limite) {
+        completos = false;
+        break;
+      }
+      try {
+        // Da 2ª turma em diante, reaproveita o ViewState da última página (não validado no SIGAA real; ver JSDoc de `prazos`).
         await entrarNaTurma(s, portal, t);
         const html = await s.get(AVALIACOES_PATH);
         const cursoId = idDaTurma(t);
@@ -287,9 +328,13 @@ export class SigaaLive implements LiveSource {
             tipo: 'prova',
           });
         });
+      } catch (e) {
+        if (limite === undefined) throw e;
+        completos = false;
+        break;
       }
-      return prazos.sort((a, b) => a.quando.getTime() - b.quando.getTime());
-    });
+    }
+    return { prazos: prazos.sort((a, b) => a.quando.getTime() - b.quando.getTime()), completos };
   }
 
   verForum(_ctx: SourceContext, _forumId: string): Promise<DiscussaoViva[]> {
