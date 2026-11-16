@@ -13,8 +13,10 @@ function cal(term: string, termStart: string, termEnd: string, nonTeachingDays: 
 const on = (name: string, date: string) => ({ name, when: { type: 'on' as const, date }, weekday: null, dateChanged: false });
 const between = (name: string, start: string, end: string) => ({ name, when: { type: 'between' as const, start, end }, weekday: null, dateChanged: false });
 
-function turma(name: string, code: string, room: string | null = 'Sala 12'): ClassSchedule {
-  return { name, room, code, ...parseSchedule(code)! };
+function turma(name: string, code: string, place: string | null = 'Sala 12', courseCode: string | null = null): ClassSchedule {
+  const parsed = parseSchedule(code)!;
+  const placeByWeekday = Object.fromEntries(parsed.blocks.flatMap((b) => b.weekdays).map((d) => [d, place]));
+  return { name, courseCode, semester: '2026.2', placeByWeekday, code, ...parsed };
 }
 
 interface Opts {

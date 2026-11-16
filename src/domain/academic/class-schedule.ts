@@ -4,10 +4,10 @@
  * módulos do turno (manhã e tarde têm 6; noite tem 4). Cada módulo dura 55 minutos e os módulos de um turno seguem sem
  * intervalo, a partir de 07:00 (M), 13:00 (T) e 18:30 (N).
  *
- * A TABELA DE HORAS vem de um trecho da página da UFBA (ufbasim.ufba.br, "Códigos na tabela de horários do SIGAA": primeiro
- * horário da manhã 7:00, da tarde 13:00, da noite 18:30, "a cada módulo acresce os 55 minutos"; exemplo "24N12" = 18:30 às
- * 20:20). A página não pôde ser lida por inteiro, então os intervalos entre módulos (se houver) são A CONFIRMAR: o ponto único
- * de ajuste é `SHIFTS` abaixo.
+ * A TABELA DE HORAS é a do app antigo (`sigaa-engine/schedule-code.ts`, `SLOT_MINUTES`), idêntica módulo a módulo (um teste
+ * compara com a tabela dele), e bate com a página da UFBA ("primeiro horário da manhã 7:00, da tarde 13:00, da noite 18:30, a cada
+ * módulo acresce os 55 minutos") e com o que o próprio portal real imprime na coluna Local ("Terça Horários 18:30 às 19:25",
+ * "Segunda Horários 16:40 às 17:35"). Ponto único de ajuste: `SHIFTS` abaixo.
  */
 
 export type Shift = 'M' | 'T' | 'N';
@@ -23,8 +23,10 @@ export interface ScheduleBlock {
   /** 1 domingo ... 7 sábado. */
   weekdays: number[];
   shift: Shift;
-  /** Módulos do turno, em ordem. */
+  /** Módulos do turno que existem, em ordem. */
   modules: number[];
+  /** Módulos que o turno não tem (ex.: "2N45": o 5 não existe): ignorados um a um, sem derrubar o bloco; guardados para diagnóstico. */
+  invalidModules: number[];
 }
 
 export interface SchedulePeriod {
@@ -42,14 +44,21 @@ export interface ParsedSchedule {
 /** Uma turma do portal com dia e horário. */
 export interface ClassSchedule extends ParsedSchedule {
   name: string;
-  room: string | null;
-  /** O código como está no portal (para diagnóstico). */
+  /** Código do componente ("ENGG54") quando o portal o traz no nome ("ENGG54 - Nome"); o portal da UFBA costuma trazer só o nome. */
+  courseCode: string | null;
+  /** Semestre do cabeçalho da tabela ("2026.2"), quando há. */
+  semester: string | null;
+  /** Local por dia da semana (2 segunda ... 7 sábado), já em texto curto ("PAF 1 · 208"); dia sem local = ausente. */
+  placeByWeekday: Record<number, string | null>;
+  /** O código de horário como está no portal (para diagnóstico). */
   code: string;
 }
 
 export interface ClassOccurrence {
   /** AAAA-MM-DD */
   date: string;
+  /** 1 domingo ... 7 sábado (para achar o local do dia). */
+  weekday: number;
   /** HH:mm (hora de Salvador) */
   start: string;
   end: string;
@@ -64,17 +73,21 @@ const isoDate = (d: string, m: string, y: string): string | null => {
 };
 
 /**
- * "35T45 (18/08/2026 - 19/12/2026)" → blocos + período. Vários blocos separados por espaço ("24M12 6T12") valem. Bloco com
- * dia fora de 1-7 ou módulo que o turno não tem é descartado; sem nenhum bloco válido, `null` (o chamador não inventa horário).
+ * "35T45 (18/08/2026 - 19/12/2026)" → blocos + período. Vários códigos na mesma célula ("2N12 4N34") valem e dividem o período
+ * único do fim. Como no app antigo (`schedule-code.ts`), módulo que o turno não tem é IGNORADO sozinho e guardado em
+ * `invalidModules` (o bloco segue com os válidos); o mesmo vale para dígito de dia fora de 1-7. Bloco sem nenhum dia ou módulo
+ * válido é descartado; sem nenhum bloco, `null` (o chamador não inventa horário).
  */
 export function parseSchedule(text: string): ParsedSchedule | null {
   const blocks: ScheduleBlock[] = [];
   for (const m of text.matchAll(BLOCK)) {
-    const weekdays = [...new Set([...m[1]].map(Number))];
-    const modules = [...new Set([...m[3]].map(Number))].sort((a, b) => a - b);
     const shift = m[2] as Shift;
-    if (weekdays.some((d) => d < 1 || d > 7) || modules.some((x) => x < 1 || x > SHIFTS[shift].modules)) continue;
-    blocks.push({ weekdays: weekdays.sort((a, b) => a - b), shift, modules });
+    const weekdays = [...new Set([...m[1]].map(Number))].filter((d) => d >= 1 && d <= 7).sort((a, b) => a - b);
+    const all = [...new Set([...m[3]].map(Number))].sort((a, b) => a - b);
+    const modules = all.filter((x) => x >= 1 && x <= SHIFTS[shift].modules);
+    const invalidModules = all.filter((x) => !modules.includes(x));
+    if (weekdays.length === 0 || modules.length === 0) continue;
+    blocks.push({ weekdays, shift, modules, invalidModules });
   }
   if (blocks.length === 0) return null;
   const p = PERIOD.exec(text);
@@ -122,7 +135,7 @@ export function expandClass(
     const weekday = new Date(t).getUTCDay() + 1; // 1 domingo ... 7 sábado
     for (const b of s.blocks) {
       if (!b.weekdays.includes(weekday)) continue;
-      for (const r of blockTimes(b)) out.push({ date, ...r });
+      for (const r of blockTimes(b)) out.push({ date, weekday, ...r });
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));

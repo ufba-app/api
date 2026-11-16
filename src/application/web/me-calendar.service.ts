@@ -199,10 +199,10 @@ export class MeCalendar {
         source: 'sigaa',
         title: t.name,
         courseName: t.name,
-        courseCode: null, // o portal não traz o código do componente
+        courseCode: t.courseCode, // o portal da UFBA costuma trazer só o nome: então é null
         startsAt: `${o.date}T${o.start}:00-03:00`,
         endsAt: `${o.date}T${o.end}:00-03:00`,
-        place: t.room,
+        place: t.placeByWeekday[o.weekday] ?? null,
       })),
     );
     return { items, sources: [{ source: 'sigaa' as const, status: 'ok' as const }] };

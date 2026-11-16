@@ -96,7 +96,7 @@ describe('SigaaLive', () => {
     const { live, reqs } = montar();
     const turmas = await live.turmasComHorario(ctx);
     expect(reqs).toEqual([`GET ${PORTAL}`]);
-    expect(turmas.map((t) => [t.name, t.room, t.blocks[0].shift])).toEqual([
+    expect(turmas.map((t) => [t.name, Object.values(t.placeByWeekday)[0], t.blocks[0].shift])).toEqual([
       ['SISTEMAS OPERACIONAIS', 'Sala 12', 'T'],
       ['VISÃO COMPUTACIONAL', 'Sala 8', 'M'],
       ['LABORATÓRIO INTEGRADO III-A', 'Sala 3', 'N'],
