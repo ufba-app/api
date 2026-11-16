@@ -172,7 +172,7 @@ describe('SiasbCopyReader.situation', () => {
 
   async function build(
     data: { disciplines?: { id: string; name: string }[]; attendances?: SyncedAttendance[]; sessions?: SyncedSession[] },
-    calendar = new FakeCalendar(),
+    calendar: AcademicCalendar = new FakeCalendar(),
     withState = true,
   ) {
     const copy = new InMemorySiasbCopy();
@@ -266,7 +266,9 @@ describe('SiasbCopyReader.situation', () => {
     const a = await build({ disciplines: [DISCS[0]] }, known);
     const [item] = (await a.reader.situation('u1')).items;
     expect(item.holidaysConsidered).toBe(true);
-    expect(known.calls).toEqual([{ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) }]);
+    expect(known.calls[0]).toEqual({ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) });
+    expect(known.calls[1]).toEqual({ from: new Date(NOW.getTime() - 14 * DAY), to: new Date(NOW.getTime() + 45 * DAY) });
+    expect(known.calls).toHaveLength(2);
     const b = await build({ disciplines: [DISCS[0]] });
     expect((await b.reader.situation('u1')).items[0].holidaysConsidered).toBe(false);
   });
@@ -292,10 +294,38 @@ describe('SiasbCopyReader.situation', () => {
     expect(r.previous.d1!.deadline.getTime()).toBeLessThanOrEqual(NOW.getTime());
     expect(r.previous.d2).toBeNull();
     // a falta do paciente no dia do horário conta como marcada
-    const b = await build({ disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: [...weekly, sess('w3', 'a1', 'd1', iso(0, 14), 'Falta paciente')] });
+    const b = await build({ disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: [...weekly, sess('w3', 'a1', 'd1', iso(-1, 14), 'Falta paciente')] });
     expect((await b.reader.situation('u1')).previous.d1!.covered).toBe(true);
     // e os itens continuam os mesmos
     expect((await b.reader.situation('u1')).items[0].disciplineId).toBe('d1');
+  });
+
+  it('previous usa o PRÓPRIO calendário (agora − 14 d, agora + 45 d): feriado entre o prazo e agora mantém o prazo avisado', async () => {
+    class Seq extends AcademicCalendar {
+      calls: { from: Date; to: Date }[] = [];
+      constructor(private readonly results: ({ known: boolean; dates: string[] } | Error)[]) {
+        super();
+      }
+      async holidays(from: Date, to: Date) {
+        this.calls.push({ from, to });
+        const r = this.results[this.calls.length - 1];
+        if (r instanceof Error) throw r;
+        return r;
+      }
+    }
+    const weekly = [sess('w1', 'a1', 'd1', iso(-14), 'Atendido'), sess('w2', 'a1', 'd1', iso(-7), 'Atendido')];
+    const data = { disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: weekly };
+    // quinta 12/11 é feriado (só a segunda chamada devolve): o prazo do horário de hoje cai na terça, não na quarta
+    const cal = new Seq([{ known: false, dates: [] }, { known: false, dates: ['2026-11-12'] }]);
+    const a = await build(data, cal);
+    const r = await a.reader.situation('u1');
+    expect(r.previous.d1!.deadline).toEqual(new Date(iso(-5)));
+    expect(cal.calls[0]).toEqual({ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) });
+    expect(cal.calls[1]).toEqual({ from: new Date(NOW.getTime() - 14 * DAY), to: new Date(NOW.getTime() + 45 * DAY) });
+    expect(r.items[0].holidaysConsidered).toBe(false);
+    // o calendário falha na segunda chamada: não falha a leitura, usa nenhum feriado
+    const b = await build(data, new Seq([{ known: false, dates: [] }, new Error('falhou')]));
+    expect((await b.reader.situation('u1')).previous.d1!.deadline).toEqual(new Date(iso(-4)));
   });
 
   it('só enxerga a cópia da própria pessoa', async () => {

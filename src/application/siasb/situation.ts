@@ -1,4 +1,3 @@
-import { bahiaDateKey } from '../../domain/siasb/alert-format';
 import { computeStates, isMarked, type ClinicalState } from '../../domain/siasb/clinical-state';
 import { deduceSlots, nextSlotStart } from '../../domain/siasb/clinic-slots';
 import { estimateBookingDeadline } from '../../domain/siasb/deadline';
@@ -94,7 +93,8 @@ export function computeSituation(i: {
 /**
  * Pura: o horário da clínica MAIS RECENTE da disciplina cujo prazo estimado já passou (`deadline <= now`), caminhando
  * a partir de `now − 14 d` com a mesma dedução de horários de `computeSituation`; `null` se nenhum. `covered` = há
- * sessão da disciplina, não cancelada, no mesmo dia (Bahia) do horário (falta do paciente ainda conta como marcada).
+ * sessão da disciplina, não cancelada nem "não agendada", cujo início (ou remarcação) cai em [prazo, agora]: reposição em outro
+ * dia também cobre; a falta do paciente ainda conta como marcada.
  * Serve ao aviso "Prazo perdido": o prazo perdido vem daqui, não de um palpite de "uma semana antes".
  */
 export function computePreviousSlot(i: {
@@ -116,7 +116,15 @@ export function computePreviousSlot(i: {
     cursor = slot;
   }
   if (!best) return null;
-  const day = bahiaDateKey(best.slot);
-  const covered = sessions.some((s) => s.disciplineId === disciplineId && !isCancelled(s) && !normalize(s.statusLabel).startsWith('nao agend') && bahiaDateKey(s.startAt) === day);
+  const from = best.deadline.getTime();
+  const to = now.getTime();
+  const within = (d: Date | null) => d !== null && d.getTime() >= from && d.getTime() <= to;
+  const covered = sessions.some(
+    (s) =>
+      s.disciplineId === disciplineId &&
+      !isCancelled(s) &&
+      !normalize(s.statusLabel).startsWith('nao agend') &&
+      (within(s.startAt) || within(s.rescheduledStartAt)),
+  );
   return { ...best, covered };
 }

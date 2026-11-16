@@ -384,6 +384,90 @@ describe('SiasbAlerts: prazo perdido (a partir do horário anterior da leitura)'
   });
 });
 
+describe('SiasbAlerts: prazo perdido de ponta a ponta (leitor real da cópia)', () => {
+  const HOURMS = 3_600_000;
+  /** Sextas 14h da Bahia (30/10, 06/11, 13/11 atendidas); o horário de 20/11 tem prazo na terça 17/11 14h. */
+  async function real(extra: { id: string; start: string; label: string; resched?: string }[]) {
+    const t = await setup();
+    const cipher = new AadCipher();
+    class Cal extends AcademicCalendar {
+      async holidays() {
+        return { known: false, dates: [] as string[] };
+      }
+    }
+    const att: SyncedAttendance = {
+      id: 'a1',
+      disciplineId: 'd1',
+      disciplineName: 'Clínica Integrada I',
+      treatmentType: 'PLANNING',
+      concluded: false,
+      active: true,
+      firstName: cipher.encrypt('Zeferina', `siasb-attendance:${U}:a1`),
+    };
+    const ses = (id: string, start: string, label: string, resched?: string): SyncedSession => ({
+      id,
+      attendanceId: 'a1',
+      disciplineId: 'd1',
+      disciplineName: 'Clínica Integrada I',
+      professorName: 'Profa. Teste',
+      locationName: 'Sala 1',
+      startAt: at(start),
+      endAt: new Date(at(start).getTime() + HOURMS),
+      rescheduledStartAt: resched ? at(resched) : null,
+      statusLabel: label,
+    });
+    const weekly = [ses('s1', '2026-10-30T14:00:00-03:00', 'Atendido'), ses('s2', '2026-11-06T14:00:00-03:00', 'Atendido'), ses('s3', '2026-11-13T14:00:00-03:00', 'Atendido')];
+    const load = (more: typeof extra) =>
+      t.copy.replaceWindow(
+        U,
+        { from: at('2026-09-01T00:00:00Z'), to: at('2026-12-31T00:00:00Z') },
+        { disciplines: [{ id: 'd1', name: 'Clínica Integrada I' }], attendances: [att], sessions: [...weekly, ...more.map((m) => ses(m.id, m.start, m.label, m.resched))] },
+      );
+    await load([]);
+    const alerts = new SiasbAlerts(new SiasbCopyReader(t.copy, cipher, new Cal(), () => t.clock.now), t.copy, t.notifier, t.accounts);
+    const run = async (when: string) => {
+      t.clock.now = at(when);
+      await t.copy.recordAttempt(U, { result: 'OK', at: new Date(t.clock.now.getTime() - 60_000), nextRunAt: null });
+      return alerts.evaluateUser(U, t.clock.now);
+    };
+    const warned = await run('2026-11-17T12:00:00-03:00'); // avisa do prazo de terça 14h
+    expect(warned.sent).toBe(1);
+    await load(extra);
+    return { t, run };
+  }
+  const perdido = (t: { bodies: () => string[] }) => t.bodies().filter((b) => b.startsWith('Prazo perdido'));
+
+  it('avisou e não marcou nada: "Prazo perdido" (uma vez) com a próxima chance', async () => {
+    const { t, run } = await real([]);
+    await run('2026-11-19T20:00:00-03:00');
+    expect(perdido(t)).toHaveLength(1);
+    expect(perdido(t)[0]).toMatch(/^Prazo perdido em Clínica Integrada I\. Próxima chance: terça, 24\/11, às 14h\.$/);
+    await run('2026-11-19T20:15:00-03:00');
+    expect(perdido(t)).toHaveLength(1);
+  });
+
+  it('reposição na quinta 19/11 (outro dia que o horário de sexta), já atendida: NÃO é perdido', async () => {
+    const { t, run } = await real([{ id: 'm1', start: '2026-11-19T14:00:00-03:00', label: 'Atendido' }]);
+    await run('2026-11-19T20:00:00-03:00');
+    expect(perdido(t)).toEqual([]);
+  });
+
+  it('sessão do horário (sexta) e sessão remarcada para dentro do intervalo: NÃO é perdido', async () => {
+    const a = await real([{ id: 'm1', start: '2026-11-20T14:00:00-03:00', label: 'Falta paciente' }]);
+    await a.run('2026-11-20T20:00:00-03:00');
+    expect(perdido(a.t)).toEqual([]);
+    const b = await real([{ id: 'm2', start: '2026-11-10T14:00:00-03:00', label: 'Atendido', resched: '2026-11-19T10:00:00-03:00' }]);
+    await b.run('2026-11-19T20:00:00-03:00');
+    expect(perdido(b.t)).toEqual([]);
+  });
+
+  it('sessão cancelada no intervalo não cobre: é perdido', async () => {
+    const { t, run } = await real([{ id: 'm1', start: '2026-11-19T14:00:00-03:00', label: 'Cancelada' }]);
+    await run('2026-11-19T20:00:00-03:00');
+    expect(perdido(t)).toHaveLength(1);
+  });
+});
+
 describe('SiasbAlerts: sem horário conhecido', () => {
   const none = () => [item({ state: 'NO_PATIENT', nextSlot: null, deadline: null })];
 

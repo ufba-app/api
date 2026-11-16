@@ -4,7 +4,7 @@ import type { SecretCipher } from '../ports/secret-cipher';
 import type { SiasbCopyRepository, SyncState } from '../ports/siasb-copy';
 
 import { DAY_MS, MAX_AHEAD_DAYS } from './session-period';
-import { computePreviousSlot, computeSituation, historyWindow, type DisciplineSituation } from './situation';
+import { computePreviousSlot, computeSituation, historyWindow, type DisciplineSituation, type Holidays } from './situation';
 
 export type PreviousSlot = { slot: Date; deadline: Date; covered: boolean };
 
@@ -117,9 +117,19 @@ export class SiasbCopyReader {
       now,
       holidays,
     });
+    // Calendário próprio para o horário anterior: um feriado entre o prazo avisado e agora não pode mudar o prazo.
+    let previousHolidays: Holidays = { known: false, dates: [] };
+    try {
+      previousHolidays = await this.academicCalendar.holidays(
+        new Date(now.getTime() - 14 * DAY_MS),
+        new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS),
+      );
+    } catch {
+      /* sem calendário: segue sem feriados, nunca falha a avaliação */
+    }
     const previous: Record<string, PreviousSlot | null> = {};
     for (const d of disciplines) {
-      previous[d.id] = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays });
+      previous[d.id] = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays: previousHolidays });
     }
     return { ...this.freshness(state), items, previous };
   }

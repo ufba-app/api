@@ -131,18 +131,44 @@ describe('computePreviousSlot', () => {
     expect(computePreviousSlot({ disciplineId: '1', sessions: [], now: d('2026-11-17T18:00:00Z'), holidays: NO_HOLIDAYS })).toBeNull();
   });
 
-  it('covered: sessão não cancelada no dia (atendida, falta do paciente) sim; cancelada ou não agendada não', () => {
+  // Intervalo do "covered": [prazo, agora]. Horário de 20/11 (sexta 14h): prazo = terça 17/11 14h (17:00Z).
+  const DEADLINE = '2026-11-17T17:00:00Z';
+  const NOW20 = '2026-11-20T20:00:00Z';
+  const covered = (extra: ClinicalSession[], now = NOW20) => prev(now, extra)!.covered;
+
+  it('covered: sessão não cancelada entre o prazo e agora (atendida, falta do paciente, marcada) sim; cancelada ou não agendada não', () => {
     const day = '2026-11-20T18:00:00Z';
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Atendido')])!.covered).toBe(true);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Falta paciente')])!.covered).toBe(true);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Confirmado')])!.covered).toBe(true);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Cancelada')])!.covered).toBe(false);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', day, 'Não agendado')])!.covered).toBe(false);
+    expect(prev(NOW20)!.slot).toEqual(d('2026-11-20T17:00:00Z'));
+    expect(covered([sess('x', '1', 'a1', day, 'Atendido')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', day, 'Falta paciente')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', day, 'Confirmado')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', day, 'Cancelada')])).toBe(false);
+    expect(covered([sess('x', '1', 'a1', day, 'Não agendado')])).toBe(false);
+    expect(covered([])).toBe(false);
   });
 
-  it('covered usa o dia da Bahia: 23:30 do dia 20 conta, 00:30 do dia 21 não; outra disciplina não cobre', () => {
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', '2026-11-21T02:30:00Z', 'Atendido')])!.covered).toBe(true);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '1', 'a1', '2026-11-21T03:30:00Z', 'Atendido')])!.covered).toBe(false);
-    expect(prev('2026-11-17T18:00:00Z', [sess('x', '2', 'a9', '2026-11-20T18:00:00Z', 'Atendido')])!.covered).toBe(false);
+  it('reposição em outro dia conta: no dia ANTES do horário (depois do prazo) e no dia DEPOIS (até agora)', () => {
+    expect(covered([sess('x', '1', 'a1', '2026-11-19T17:00:00Z', 'Atendido')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', '2026-11-21T17:00:00Z', 'Atendido')], '2026-11-21T20:00:00Z')).toBe(true);
+  });
+
+  it('sessão remarcada por rescheduledStartAt para dentro do intervalo cobre (startAt antes do prazo)', () => {
+    const moved = { ...sess('x', '1', 'a1', '2026-11-10T17:00:00Z', 'Atendido'), rescheduledStartAt: d('2026-11-19T17:00:00Z') };
+    expect(covered([moved])).toBe(true);
+  });
+
+  it('sessão que começou ANTES do prazo (a regular da semana anterior, 7 dias antes) não cobre', () => {
+    expect(covered([sess('x', '1', 'a1', '2026-11-13T17:00:00Z', 'Atendido')])).toBe(false);
+    expect(covered([sess('x', '1', 'a1', '2026-11-17T16:59:59.999Z', 'Atendido')])).toBe(false);
+  });
+
+  it('fronteiras: exatamente no prazo e exatamente em agora cobrem; um instante depois de agora não', () => {
+    expect(covered([sess('x', '1', 'a1', DEADLINE, 'Atendido')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', NOW20, 'Atendido')])).toBe(true);
+    expect(covered([sess('x', '1', 'a1', '2026-11-20T20:00:00.001Z', 'Atendido')])).toBe(false);
+  });
+
+  it('sessão de outra disciplina não cobre', () => {
+    expect(covered([sess('x', '2', 'a9', '2026-11-19T17:00:00Z', 'Atendido')])).toBe(false);
   });
 });
