@@ -172,12 +172,69 @@ Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railw
 
 **Teste de integração:** o repositório da cópia tem um spec contra Postgres de verdade (`prisma-siasb-copy.repository.int.spec.ts`) que só roda no CI com `RUN_DB_TESTS=1`, no Postgres efêmero do workflow. Nunca o rode contra um banco compartilhado.
 
-## 11. O que NÃO está nesta fase
+## 11. Avisos por push (fase 2B)
 
-- **Alertas por push**, **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 2, 3 e 4 do spec (seções 5.4, 5.6 e 5.7). Nada aqui grava no SIASB.
-- Avisos por push em segundo plano (o job de sincronização já existe; ver seção 10).
+Os avisos usam o canal genérico (`docs/NOTIFICACOES.md`) e leem **só a cópia do banco** (nenhuma requisição ao SIASB). O código está em `src/application/siasb/siasb-alerts.ts` (decisão e textos), `src/domain/siasb/alert-schedule.ts` (instantes) e `src/domain/siasb/alert-format.ts` (datas em pt-BR).
 
-## 12. Pendências (spec, seção 6)
+### O que avisa e quando
+
+Avisa por disciplina, só nos estados **① sem paciente** e **② sem sessão marcada** (`NO_PATIENT` e `NO_SESSION`), quando há **prazo estimado conhecido** (um próximo horário da clínica deduzido do histórico, seção 6). O estado **③ com sessão marcada nunca avisa**. O prazo é sempre uma estimativa.
+
+**Cadeia de avisos de um prazo.** Os instantes dependem só do prazo, nunca de quando o estado foi visto:
+
+- o **último aviso** é 6 horas **acordado** antes do prazo (o silêncio das 22h às 7h da Bahia não conta nessas 6 horas);
+- os anteriores ficam de **36 em 36 horas**, contados para trás a partir do último; o que cairia no silêncio recua para as 21h; o penúltimo some se ficar a menos de 12 h do último; a cadeia não passa de 60 dias antes do prazo;
+- o **primeiro aviso** sai quando o estado é visto pela primeira vez (nenhum aviso anterior para aquele prazo: `lastSentAt` nulo), no instante da cadeia mais recente até agora;
+- **só o mais recente devido**: depois de uma queda ou do silêncio, se vários instantes ficaram para trás, sai um aviso só (o mais recente). Os mais antigos são gravados como suprimidos (`suppressed`) **somente depois** de um envio de verdade (ou duplicata), para um envio que falhou não apagar o histórico.
+
+**① sem horário conhecido da clínica** (sem paciente e sem prazo): um aviso a cada 36 h desde o último enviado, sem citar prazo. O primeiro sai na hora; o que cair no silêncio vale as 7h seguintes.
+
+**"Prazo perdido"** (aviso final). Sai quando **todas** as condições valem:
+
+- a disciplina ainda está em ① ou ②;
+- o horário anterior da clínica teve o prazo estimado vencido há no máximo 72 h (depois disso nunca sai um aviso velho);
+- a pessoa **não marcou nenhuma sessão válida** entre aquele prazo e agora (início ou remarcação dentro de [prazo, agora]; vale qualquer sessão da disciplina que não esteja cancelada nem "não agendada"; **"Falta paciente" conta como marcada**);
+- a pessoa **foi avisada naquele episódio** (há um aviso enviado para aquele prazo).
+
+**Reconexão** (por pessoa, não por disciplina). Avisa que o acesso ao SIASB vence **7, 3 e 1 dia antes**, no **instante do vencimento** e depois **a cada 36 h** desde ele. Também vale depois de vencido (por isso o provedor lê contas SIASB em qualquer estado). Só o mais recente devido sai; os anteriores viram suprimidos depois de um envio, e só se já houve um aviso de reconexão antes.
+
+### Silêncio, confiança na cópia e quem roda
+
+- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É decidido pelo serviço de avisos do SIASB (`SiasbAlerts.evaluateUser`), não pelo `Notifier`: dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio.
+- **A cópia só é confiável** se `syncedAt` não é nulo, a última tentativa **não** é `RECONNECT_REQUIRED` e o último sucesso tem **no máximo 24 h**. Fora disso, os avisos de prazo esperam (o de reconexão não depende da cópia). A migração que acrescentou `siasb_attendances.active` zera `last_success_at` e `next_run_at`: depois dela os avisos de prazo esperam a próxima sincronização (até cerca de 30 minutos).
+- **Quem roda.** O `notify-cron` (a cada 15 minutos) percorre a lista `ALERT_PROVIDERS` (`src/mcp-wiring.ts`); o `SiasbAlertProvider` (`key` `siasb`) lista as pessoas com conta SIASB em qualquer estado e chama `SiasbAlerts.evaluateUser`. Sem aparelho cadastrado a pessoa é pulada. Nunca lança: erro vira falha contada, sem registrar mensagem.
+- **Controle:** o interruptor genérico `siasb.alerts` ("Avisos do SIASB", **ligado** por padrão; `GET`/`PUT /me/notification-settings`).
+
+### Textos (título sempre `SIASB`; `url` `/`)
+
+Datas na Bahia, `sexta, 20/11, às 10h` (ou `às 10h30`); o dia da semana do "clínica de ..." vem do próximo horário (`segunda`, `terça`, `quarta`, `quinta`, `sexta`...).
+
+| Aviso | Texto |
+|---|---|
+| ② sem sessão | `Você tem paciente em <disciplina>, mas a clínica de <dia> ainda está sem sessão. Prazo estimado: <dia, dd/mm, às Hh>.` |
+| ① com prazo | `Você ainda não tem paciente em <disciplina>, e a clínica de <dia> está sem sessão. Cadastre ou pegue um paciente e marque até <dia, dd/mm, às Hh> (prazo estimado).` |
+| ① sem horário | `Você ainda não tem paciente nem sessão marcada em <disciplina>. Confira os horários no SIASB.` |
+| prazo perdido | `Prazo perdido em <disciplina>.` e, se houver prazo seguinte, ` Próxima chance: <dia, dd/mm, às Hh>.` |
+| reconexão (antes) | `Seu acesso ao SIASB vence em <n> dia(s). Reconecte no painel.` |
+| reconexão (vencido) | `Seu acesso ao SIASB venceu. Reconecte no painel.` |
+
+### Privacidade
+
+Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O **único dado do SIASB** nos textos é o **nome da disciplina** e os **horários estimados**. Os `subject` (parte da chave anti-duplicata) são `disc:<disciplineId>:<AAAA-MM-DD>` (dia do prazo na Bahia; separa um episódio do seguinte), `disc:<disciplineId>:unscheduled` e `connection`. A `tag` é `siasb-<subject>`.
+
+### Limites conhecidos
+
+- O prazo é **estimado** (horas úteis, feriados quando há calendário; sem calendário entra 1 dia útil de margem). Pode errar para mais ou para menos; os textos dizem "estimado".
+- Uma sessão de **outro horário semanal da mesma disciplina** depois do prazo perdido conta como marcada e **suprime** o "prazo perdido": o erro cai para o lado de avisar menos.
+- Se o prazo estimado muda **de dia**, começa um **novo episódio** (outro `subject`) e pode sair um novo primeiro aviso.
+- Os avisos só chegam a quem tem **aparelho registrado** pelo canal genérico (`/me/push-devices`); sem aparelho, nada é enviado.
+- Não existe ainda rota que mostre ao painel a situação e o prazo por disciplina (`SiasbCopyReader.situation` é interno); a faixa fixa de "prazo aberto" depende dessa rota (ver `handoffs/siasb-avisos-telas.md`, fora do repositório).
+
+## 12. O que NÃO está nesta fase
+
+- **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 3 e 4 do spec (seções 5.6 e 5.7). Nada aqui grava no SIASB. Os avisos por push estão na seção 11.
+
+## 13. Pendências (spec, seção 6)
 
 Nenhuma delas exige requisição ao SIASB sem OK do André.
 
