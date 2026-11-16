@@ -44,6 +44,21 @@ describe('MoodleLive.verTopico', () => {
     expect(m[0].respostaA).toBeUndefined();
   });
 
+  it('formato real do Moodle: parentid e author.fullname ligam a resposta e trazem o autor', async () => {
+    const { live } = moodle({
+      mod_forum_get_discussion_posts: {
+        posts: [
+          { id: 1555942, parentid: 0, author: { id: 5, fullname: 'Prof. X' }, created: 1700000000, message: '<p>Apresentações</p>', attachments: [] },
+          { id: 1556743, parentid: 1555942, author: { id: 6, fullname: 'Adalberto' }, created: 1700000100, message: '<p>Eu e Maria</p>', attachments: [] },
+        ],
+      },
+    });
+    const m = await live.verTopico!(ctx, '612607');
+    expect(m[0]).toMatchObject({ postId: '1555942', autor: 'Prof. X' });
+    expect(m[0].respostaA).toBeUndefined();
+    expect(m[1]).toMatchObject({ postId: '1556743', respostaA: '1555942', autor: 'Adalberto', mensagem: 'Eu e Maria' });
+  });
+
   it('o token não vaza e um id que não é inteiro não chega ao Moodle', async () => {
     const { live, calls } = moodle({});
     await expect(live.verTopico!(ctx, '1;2')).rejects.toBeInstanceOf(SourceError);
