@@ -12,7 +12,7 @@ Decisões do André (não reabertas aqui):
 1. Um MCP só para memória: o da ufba.app (`https://api.ufba.app/mcp`, OAuth com Google @ufba.br). Ele repassa as ferramentas do ai-memory com a credencial da pessoa e pode bloquear as destrutivas. Ninguém registra o MCP do ai-memory. Workspace e projeto vão explícitos em cada chamada.
 2. Cada pessoa = um usuário no ai-memory, criado pela API na primeira vez, pela API administrativa do ai-memory (token root só no servidor, como `Secret`). Permissões por projeto, convites e papéis do time ficam na ufba.app, que chama grant/revoke. Projetos nascem restritos (`AI_MEMORY_AUTH__NEW_PROJECTS_RESTRICTED=true`, já ligado).
 3. Captura por hooks continua sendo do ai-memory oficial na máquina (fila offline, limpeza local, `[capture]` do `.ai-memory.toml`). Sem tradutor de hooks na API.
-4. Um comando genérico de instalação (`irm https://ufba.app/install.ps1 | iex` e `curl -fsSL https://ufba.app/install.sh | sh`), com login de dispositivo (RFC 8628), uma chave por computador gravada direto na config do ai-memory, detecção de agentes, hooks e registro do MCP. Idempotente. Scripts abertos em `ufba-app/memory`, servidos pela ufba.app.
+4. Um comando genérico de instalação (`irm https://memory.ufba.app/install.ps1 | iex` e `curl -fsSL https://memory.ufba.app/install.sh | sh`), com login de dispositivo (RFC 8628), uma chave por computador gravada direto na config do ai-memory, detecção de agentes, hooks e registro do MCP. Idempotente. Scripts abertos em `ufba-app/memory`, servidos pela ufba.app.
 5. Painel: "Memória > Computadores conectados" e a página `/device` (Mosaico).
 6. O MCP ensina o agente: `instructions`, `memory_connect_computer`, `memory_status` e um prompt `conectar computador`.
 
@@ -399,7 +399,7 @@ Riscos reais: (a) comprometer `ufba.app` ou o repositório troca o script de tod
 
 Mitigações propostas:
 
-1. **Bootstrap pequeno** (≤ 80 linhas) servido por `ufba.app/install.ps1|sh`, que só faz: baixar o instalador **versionado e imutável** de uma URL de release do `ufba-app/memory` (GitHub Releases, outro origin), **verificar o SHA-256 embutido no bootstrap** (o bootstrap é gerado por CI a cada release com o hash dentro) e executá-lo. Comprometer só o GitHub ou só a ufba.app não basta; comprometer os dois ou o CI basta (risco residual aceito, como em qualquer projeto aberto).
+1. **Bootstrap pequeno** (≤ 80 linhas) servido por `memory.ufba.app/install.ps1|sh`, que só faz: baixar o instalador **versionado e imutável** de uma URL de release do `ufba-app/memory` (GitHub Releases, outro origin), **verificar o SHA-256 embutido no bootstrap** (o bootstrap é gerado por CI a cada release com o hash dentro) e executá-lo. Comprometer só o GitHub ou só a ufba.app não basta; comprometer os dois ou o CI basta (risco residual aceito, como em qualquer projeto aberto).
 2. Todo o corpo dentro de uma função chamada na última linha (um download truncado não executa nada), como o `install.ps1` oficial faz; HTTPS obrigatório; TLS 1.2+ no PowerShell 5.1.
 3. **Binário do ai-memory:** versão **fixa** (3.4.6) e **SHA-256 do zip/tar fixado no manifesto** da ufba.app (não o `.sha256` do mesmo origin do binário, que o doc oficial admite não provar nada contra quem controla o origin).
 4. `--dry-run` / `-WhatIf` (mapeia para `ai-memory setup --plan`/plano nosso): mostra o que mudaria sem tocar em nada. Instalador **só escreve** em: pasta do ai-memory, config dos agentes (com backup do próprio ai-memory), `~/.ufba/computer.json` (sem segredo). Lista no README.
