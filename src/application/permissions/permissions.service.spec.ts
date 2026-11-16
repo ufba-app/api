@@ -34,7 +34,7 @@ describe('PermissionsService (permissões por app)', () => {
     it('com a fonte conectada: tudo oferecido e disponível', async () => {
       const { service } = make();
       const items = await service.offered(U);
-      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write']);
+      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write', 'moodle.forum_write']);
       expect(items.every((i) => i.available && i.unavailableReason === null)).toBe(true);
     });
 
@@ -42,10 +42,11 @@ describe('PermissionsService (permissões por app)', () => {
       const { service } = make();
       await service.grant(U, 'app-a', ['siasb.procedures_write']);
       await service.grant(U, 'app-b', ['siasb.schedule_write']);
-      expect((await service.offered(U, 'app-a')).map((i) => [i.key, i.granted])).toEqual([['siasb.schedule_write', false], ['siasb.procedures_write', true]]);
-      expect((await service.offered(U, 'app-b')).map((i) => i.granted)).toEqual([true, false]);
-      expect((await service.offered(U, 'app-novo')).map((i) => i.granted)).toEqual([false, false]);
-      expect((await service.offered(U)).map((i) => i.granted)).toEqual([false, false]);
+      const siasb = <T extends { key: string }>(xs: T[]) => xs.filter((i) => i.key.startsWith('siasb.'));
+      expect(siasb(await service.offered(U, 'app-a')).map((i) => [i.key, i.granted])).toEqual([['siasb.schedule_write', false], ['siasb.procedures_write', true]]);
+      expect(siasb(await service.offered(U, 'app-b')).map((i) => i.granted)).toEqual([true, false]);
+      expect(siasb(await service.offered(U, 'app-novo')).map((i) => i.granted)).toEqual([false, false]);
+      expect(siasb(await service.offered(U)).map((i) => i.granted)).toEqual([false, false]);
     });
 
     it('o legado /me/permissions não ganha o campo granted', async () => {
@@ -62,7 +63,7 @@ describe('PermissionsService (permissões por app)', () => {
     it('com acesso mas sem conexão: oferecido, porém indisponível (source_not_connected)', async () => {
       const { service } = make({ connected: false, access: true });
       const items = await service.offered(U);
-      expect(items).toHaveLength(2);
+      expect(items).toHaveLength(3);
       expect(items.every((i) => !i.available && i.unavailableReason === 'source_not_connected')).toBe(true);
     });
 
@@ -157,7 +158,7 @@ describe('PermissionsService (permissões por app)', () => {
     it('enabled = concedida a algum app', async () => {
       const { service } = make();
       await service.grant(U, APP_A, ['siasb.schedule_write']);
-      expect((await service.list(U)).map((i) => [i.key, i.enabled])).toEqual([
+      expect((await service.list(U)).filter((i) => i.key.startsWith('siasb.')).map((i) => [i.key, i.enabled])).toEqual([
         ['siasb.schedule_write', true],
         ['siasb.procedures_write', false],
       ]);

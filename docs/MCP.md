@@ -38,9 +38,20 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 **Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.
 
+### Escrita: `postar_forum` (fórum do Moodle)
+
+A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome da pessoa, em **nova discussão** (`forumId`, o de `ver_curso`) ou em **resposta** (`postId`, o de `ver_forum`), com `titulo` e `mensagem` (texto puro, escapado e enviado como um parágrafo por linha). Chama `mod_forum_add_discussion` ou `mod_forum_add_discussion_post`: 1 chamada ao Moodle, nada é gravado no serviço.
+
+- **Só existe com a permissão `moodle.forum_write`** (ligada ao app na tela de autorizar, em Apps autorizados). Sem ela a ferramenta nem aparece em `tools/list`. Risco alto: o web pede confirmação antes de ligar.
+- A permissão aparece na tela de autorizar mesmo sem o Moodle conectado, marcada como indisponível (`source_not_connected`), como já acontece com o SIASB.
+- Validação antes de tocar o AVA: exatamente um destino (`forumId` ou `postId`), título de 1 a 255 caracteres, mensagem de 1 a 10000.
+- Anotações: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: true`. A publicação não tem como ser desfeita pelo app e fica visível para a turma e o professor; a descrição da ferramenta manda o agente mostrar o texto e só publicar depois que a pessoa confirmar.
+- Só o Moodle. Classroom não tem fórum; SIGAA não tem escrita.
+- Ainda não testada contra o AVA real (depende do serviço de Web Service do AVA liberar essas duas funções para o token do app).
+
 ### Metadados para a loja e uso sem dizer "UFBA"
 
-- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e `clinica_*` são somente leitura; as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e `clinica_*` são somente leitura, exceto `postar_forum` (escrita atrás de permissão, ver acima); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
 - O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
 - As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
 

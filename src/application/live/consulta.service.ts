@@ -3,7 +3,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
-import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PrazoVivo } from '../ports/live-source';
+import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -27,6 +27,8 @@ export class FonteSemLeituraError extends Error {}
 export class FonteNaoConectadaError extends Error {}
 /** Mais de uma conta conectada na fonte e nenhuma escolhida. */
 export class ContaAmbiguaError extends Error {}
+/** Publicação com destino, título ou mensagem fora da regra. Nada chega à fonte. */
+export class PostagemInvalidaError extends Error {}
 
 /**
  * Quem consulta. `cliente` só existe em tokens OAuth: o SIGAA é lido com a senha guardada PARA AQUELE cliente,
@@ -97,6 +99,22 @@ export class ConsultaService {
     const source = this.sources.get('SIGAA');
     if (!source?.turmasComHorario) throw new FonteSemLeituraError('SIGAA: horário das turmas ainda não disponível');
     return this.com(quem, 'SIGAA', conta, (s, ctx) => s.turmasComHorario!(ctx));
+  }
+
+  /**
+   * Publica no fórum (escrita; a permissão `moodle.forum_write` é checada antes, na camada MCP). Só o Moodle.
+   * Valida a forma aqui: exatamente um destino (`forumId` ou `postId`), título e mensagem não vazios e dentro do limite.
+   */
+  async postarForum(quem: Quem, conta: string | undefined, post: PostagemForum): Promise<PostagemFeita> {
+    const destinos = [post.forumId, post.postId].filter((v) => v !== undefined).length;
+    if (destinos !== 1) throw new PostagemInvalidaError('Informe `forumId` (nova discussão) ou `postId` (resposta), não os dois.');
+    const titulo = post.titulo.trim();
+    const mensagem = post.mensagem.trim();
+    if (titulo === '' || titulo.length > 255) throw new PostagemInvalidaError('O título precisa ter de 1 a 255 caracteres.');
+    if (mensagem === '' || mensagem.length > 10000) throw new PostagemInvalidaError('A mensagem precisa ter de 1 a 10000 caracteres.');
+    const source = this.sources.get('MOODLE');
+    if (!source?.postarForum) throw new FonteSemLeituraError('Moodle: postar no fórum ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.postarForum!(ctx, { ...post, titulo, mensagem }));
   }
 
   /** Texto completo de um aviso. Só fontes com `verAviso` (hoje, o SIGAA). */
