@@ -241,6 +241,10 @@ const ComponentProgressView = z.object({
   /** Unidade responsável (departamento), quando o SIGAA a imprime. */
   responsibleUnit: z.string().nullable(),
   late: z.boolean(),
+  /** Última tentativa no histórico (a última aprovada, se houve); nulo se a pessoa nunca cursou o código. `term` é nulo nas linhas sem semestre. */
+  lastAttempt: z.object({ term: z.string().nullable(), grade: z.number().nullable(), status: z.string() }).nullable(),
+  /** A última tentativa foi reprovação ou trancamento e o componente não está cumprido nem em curso (a tela mostra "a refazer"). */
+  toRedo: z.boolean(),
 });
 
 const NatureHoursView = z.object({
@@ -256,6 +260,12 @@ export const AcademicProgress = z.object({
   /** O aluno está no mesmo currículo do Ativo; nulo se o histórico não diz. */
   sameCurriculum: z.boolean().nullable(),
   estimate: z.literal(true),
+  /**
+   * Ligações de pré-requisito entre componentes do currículo (`from` é pré-requisito de `to`). `REQUIRED`: exigida em toda forma de
+   * cumprir a expressão; `ALTERNATIVE`: faz parte de um OU. Vazia quando o SIGAA não trouxe pré-requisitos que deem para ler.
+   * O caminho completo (antes e depois) a tela calcula daqui.
+   */
+  prerequisiteEdges: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["REQUIRED", "ALTERNATIVE"]) })),
   required: z.array(ComponentProgressView),
   electives: z.array(ComponentProgressView),
   complementary: z.array(ComponentProgressView),

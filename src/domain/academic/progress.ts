@@ -11,6 +11,9 @@ import { checkExpression, citedCodes } from './prerequisite';
 /** Situações que contam como cumpridas (legenda do histórico da UFBA). */
 export const COMPLETED_STATUSES: readonly string[] = ['APR', 'DISP', 'CUMP', 'INCORP', 'TRANS'];
 const ENROLLED_STATUS = 'MATR';
+/** Situações de uma tentativa que não deu certo: o componente volta a ser "a refazer" (cancelamento não conta como tentativa). */
+const FAILED_STATUSES: readonly string[] = ['REP', 'REPF', 'REPMF', 'TRANC'];
+const TERM_PATTERN = /^\d{4}\.\d$/;
 /** O ENADE aparece entre os pendentes obrigatórios do histórico, mas não é componente curricular. */
 export const ENADE_CODE = 'ENADE';
 
@@ -97,6 +100,14 @@ export type ComponentState =
   | 'AVAILABLE'
   | 'BLOCKED';
 
+/** A tentativa que vale no histórico: a última aprovada, se houve; senão a última. */
+export interface LastAttempt {
+  /** "2025.2"; nulo nas linhas sem semestre (aproveitamento de estudos, dispensa). */
+  term: string | null;
+  grade: number | null;
+  status: string;
+}
+
 export interface ComponentProgress {
   code: string;
   name: string;
@@ -117,6 +128,10 @@ export interface ComponentProgress {
   responsibleUnit: string | null;
   /** Obrigatório de semestre anterior ao atual que ainda falta. */
   late: boolean;
+  /** Última tentativa no histórico (semestre, nota, situação); nulo se a pessoa nunca cursou este código. */
+  lastAttempt: LastAttempt | null;
+  /** A última tentativa foi reprovação ou trancamento e o componente ainda não foi cumprido nem está em curso. */
+  toRedo: boolean;
 }
 
 export interface NatureHours {
@@ -194,6 +209,18 @@ export function buildProgress(transcript: TranscriptInput, curriculum: Curriculu
     }
   }
 
+  const attemptsByCode = new Map<string, TranscriptEntryInput[]>();
+  for (const e of transcript.entries) attemptsByCode.set(e.code, [...(attemptsByCode.get(e.code) ?? []), e]);
+  const termKey = (t: string) => (TERM_PATTERN.test(t) ? t : '');
+  const lastAttemptOf = (code: string): LastAttempt | null => {
+    const all = attemptsByCode.get(code);
+    if (!all) return null;
+    const completed = all.filter((e) => isCompleted(e.status));
+    const pool = completed.length > 0 ? completed : all;
+    const last = pool.reduce((a, b) => (termKey(b.term) >= termKey(a.term) ? b : a));
+    return { term: TERM_PATTERN.test(last.term) ? last.term : null, grade: last.grade, status: last.status };
+  };
+
   const enrolledCodes = new Set<string>([
     ...transcript.entries.filter((e) => e.status === ENROLLED_STATUS).map((e) => e.code),
     ...transcript.pending.filter((p) => p.enrolled).map((p) => p.code),
@@ -211,6 +238,8 @@ export function buildProgress(transcript: TranscriptInput, curriculum: Curriculu
       equivalenceExpr: c.equivalenceExpr,
       responsibleUnit: c.responsibleUnit ?? null,
     };
+    const lastAttempt = lastAttemptOf(c.code);
+    const failedBefore = lastAttempt !== null && FAILED_STATUSES.includes(lastAttempt.status);
     const make = (state: ComponentState, extra: Partial<ComponentProgress> = {}): ComponentProgress => ({
       ...base,
       state,
@@ -218,6 +247,8 @@ export function buildProgress(transcript: TranscriptInput, curriculum: Curriculu
       missingPrerequisites: [],
       prerequisiteUnverifiable: false,
       late: false,
+      lastAttempt,
+      toRedo: false,
       ...extra,
     });
 
@@ -230,9 +261,10 @@ export function buildProgress(transcript: TranscriptInput, curriculum: Curriculu
       return make('ENROLLED');
     }
     const check = checkExpression(c.prerequisiteExpr, done);
-    if (check === 'MET') return make('AVAILABLE', { late });
+    if (check === 'MET') return make('AVAILABLE', { late, toRedo: failedBefore });
     return make('BLOCKED', {
       late,
+      toRedo: failedBefore,
       prerequisiteUnverifiable: check === 'UNKNOWN',
       missingPrerequisites: check === 'NOT_MET' ? citedCodes(c.prerequisiteExpr).filter((x) => !done.has(x)) : [],
     });

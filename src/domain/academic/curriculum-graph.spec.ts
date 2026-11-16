@@ -92,3 +92,21 @@ describe('buildCurriculumGraph', () => {
     expect(g.edges.map((e) => [e.from, e.to])).toEqual([['AAA1', 'BBB2']]);
   });
 });
+
+describe('CurriculumGraph.prerequisiteEdges', () => {
+  it('só pré-requisito entre componentes do currículo, com o tipo da ligação', () => {
+    const g = buildCurriculumGraph([
+      comp('AAA1'),
+      comp('BBB2', { prerequisiteExpr: '( AAA1 )', corequisiteExpr: '( AAA1 )' }),
+      comp('CCC3', { prerequisiteExpr: '( AAA1 ) OU ( OLD99 )', equivalenceExpr: '( OLD55 )' }),
+    ]);
+    expect(g.prerequisiteEdges()).toEqual([
+      { from: 'AAA1', to: 'BBB2', kind: 'REQUIRED' },
+      { from: 'AAA1', to: 'CCC3', kind: 'ALTERNATIVE' },
+    ]);
+  });
+
+  it('currículo sem pré-requisitos legíveis: lista vazia', () => {
+    expect(buildCurriculumGraph([comp('AAA1', { prerequisiteExpr: 'CH mínima 1500h' })]).prerequisiteEdges()).toEqual([]);
+  });
+});
