@@ -60,26 +60,11 @@ export interface PrazoVivo {
 
 export interface DiscussaoViva {
   id: string;
-  /** Id da mensagem inicial da discussão: é o que se passa para responder (`postarForum` com `postId`). */
-  postId?: string;
   titulo: string;
   mensagem?: string;
   autor?: string;
   publicadaEm?: Date;
   anexos: AnexoVivo[];
-}
-
-/** Publicação em fórum: nova discussão (`forumId`) ou resposta a uma mensagem (`postId`). Exatamente um dos dois. */
-export interface PostagemForum {
-  forumId?: string;
-  postId?: string;
-  titulo: string;
-  mensagem: string;
-}
-
-export interface PostagemFeita {
-  discussaoId?: string;
-  postId?: string;
 }
 
 export interface LiveSource {
@@ -101,8 +86,6 @@ export interface LiveSource {
   turmasComHorario?(ctx: SourceContext): Promise<ClassSchedule[]>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
-  /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
-  postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
 }
 
 /** Fontes com leitura ao vivo disponíveis neste servidor. */

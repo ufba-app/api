@@ -448,7 +448,7 @@ export const ClientView = z.object({
 });
 
 /** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
-export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write", "moodle.forum_write"] as const;
+export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
 /**

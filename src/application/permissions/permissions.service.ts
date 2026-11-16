@@ -48,13 +48,6 @@ export const PERMISSION_CATALOG: Record<PermissionKey, PermissionDef> = {
       'Permite que o app inclua e exclua procedimentos previstos nos seus atendimentos do SIASB, que ficam no prontuário. Cada ação pede a sua confirmação. Procedimentos realizados continuam sendo feitos por você no site.',
     risk: 'high',
   },
-  'moodle.forum_write': {
-    source: 'moodle',
-    title: 'Postar em fóruns do AVA pelo app',
-    description:
-      'Permite que o app publique mensagens em fóruns do AVA em seu nome: abrir uma discussão nova ou responder a uma existente. Quem vê são os colegas e os professores, e a publicação não pode ser desfeita pelo app. Cada publicação pede a sua confirmação antes de ser enviada.',
-    risk: 'high',
-  },
 };
 
 /** O que a pessoa tem em cada fonte: conexão (em qualquer estado, inclusive reconectar) e acesso (a fonte é oferecida a ela). */
