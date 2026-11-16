@@ -6,6 +6,7 @@ import type {
   DiscussaoViva,
   LiveSource,
   MensagemViva,
+  ParticipanteVivo,
   PostagemFeita,
   PostagemForum,
   PrazoVivo,
@@ -63,6 +64,12 @@ interface UpcomingEvent {
   course?: { id: number; fullname?: string };
 }
 type Discussion = MoodleDiscussion & { userfullname?: string };
+/** Participante de `core_enrol_get_enrolled_users` (só os campos usados). */
+interface MoodleEnrolledUser {
+  id: number;
+  fullname: string;
+  roles?: Array<{ shortname?: string }>;
+}
 /** Mensagem de `mod_forum_get_discussion_posts` (só os campos usados). */
 interface MoodlePost {
   id: number;
@@ -332,6 +339,22 @@ export class MoodleLive implements LiveSource {
         publicadaEm: date(p.created),
         mensagem: htmlToText(p.message),
         anexos: [...(Array.isArray(p.attachments) ? p.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, p.message)],
+      }));
+    });
+  }
+
+  /**
+   * Participantes da matéria (`core_enrol_get_enrolled_users`, 1 chamada). Devolve só nome e papéis: o resto da resposta
+   * (e-mail, id, imagem) não sai daqui.
+   */
+  listarParticipantes(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]> {
+    return this.run(ctx, async (m) => {
+      const id = Number(cursoId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'cursoId inválido');
+      const res = await this.client.call<MoodleEnrolledUser[]>(m, 'core_enrol_get_enrolled_users', { courseid: id });
+      return (Array.isArray(res) ? res : []).map((u) => ({
+        nome: u.fullname,
+        papeis: (u.roles ?? []).map((r) => r.shortname).filter((s): s is string => typeof s === 'string'),
       }));
     });
   }

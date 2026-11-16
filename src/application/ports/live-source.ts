@@ -69,6 +69,12 @@ export interface DiscussaoViva {
   anexos: AnexoVivo[];
 }
 
+/** Um participante da matéria: só o nome e os papéis (ex.: `student`, `editingteacher`). Nada de e-mail ou id. */
+export interface ParticipanteVivo {
+  nome: string;
+  papeis: string[];
+}
+
 /** Uma mensagem de um tópico (a inicial ou uma resposta), na ordem em que foi postada. */
 export interface MensagemViva {
   /** Id da mensagem: passe em `postarForum` (com `postId`) para responder a ela. */
@@ -128,6 +134,8 @@ export interface LiveSource {
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
   /** Mensagens de UM tópico (inicial e respostas). Hoje só o Moodle: 1 chamada. */
   verTopico?(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]>;
+  /** Participantes de UMA matéria, só nome e papéis (sem contato nem id). Hoje só o Moodle: 1 chamada. */
+  listarParticipantes?(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]>;
   /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
   postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
 }

@@ -29,4 +29,7 @@ export class StubMcpUseCases implements McpUseCases {
   async verTopico() {
     return { mensagens: [] };
   }
+  async listarAlunos() {
+    return { alunos: [] };
+  }
 }
