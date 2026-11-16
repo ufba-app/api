@@ -204,7 +204,7 @@ Na rodada em que o "perdido" sai, o primeiro aviso do horário seguinte **só é
 
 ### Silêncio, confiança na cópia e quem roda
 
-- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É decidido **primeiro** pelo serviço de avisos do SIASB (`SiasbAlerts.evaluateUser`): dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio. O `Notifier` genérico ainda tem a sua própria barreira (`quiet`), com a mesma função e as mesmas fronteiras; a do SIASB roda antes, então a do `Notifier` não chega a ser exercida por esses avisos.
+- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É regra **só do SIASB**: o `Notifier` genérico é neutro quanto a horário (api#52) e envia a qualquer hora. `SiasbAlerts.evaluateUser` consulta `inQuietHours(now)` (`src/domain/notifications/quiet-hours.ts`) antes de qualquer `Notifier.send` ou `Notifier.record`: dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio.
 - **A cópia só é confiável** se `syncedAt` não é nulo, a última tentativa **não** é `RECONNECT_REQUIRED` e o último sucesso tem **no máximo 24 h**. Fora disso, os avisos de prazo esperam (o de reconexão não depende da cópia). A migração que acrescentou `siasb_attendances.active` zera `last_success_at` e `next_run_at`: depois dela os avisos de prazo esperam a próxima sincronização (até cerca de 30 minutos).
 - **Quem roda.** O `notify-cron` (a cada 15 minutos) percorre a lista `ALERT_PROVIDERS` (`src/mcp-wiring.ts`); o `SiasbAlertProvider` (`key` `siasb`) lista as pessoas com conta SIASB em qualquer estado e chama `SiasbAlerts.evaluateUser`. Sem aparelho cadastrado a pessoa é pulada. Nunca lança: erro vira falha contada, sem registrar mensagem.
 - **Controle:** o interruptor genérico `siasb.alerts` ("Avisos do SIASB", **ligado** por padrão; `GET`/`PUT /me/notification-settings`).
@@ -232,7 +232,7 @@ Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O *
 - Uma sessão de **outro horário semanal da mesma disciplina** depois do prazo perdido conta como marcada e **suprime** o "prazo perdido": o erro cai para o lado de avisar menos.
 - Se o prazo estimado desloca (por exemplo, `known` do calendário muda), o episódio continua o mesmo (o `subject` é o horário da clínica), mas os instantes da cadeia deslocam e pode sair **um aviso a mais**.
 - Uma **sessão cancelada pela clínica** dentro de [prazo, agora] **não conta** como marcada: a pessoa pode receber "prazo perdido" mesmo tendo marcado a tempo.
-- O silêncio é decidido por **duas** camadas: o serviço de avisos do SIASB (primeiro) e o `Notifier` genérico (que ainda tem a sua barreira `quiet`); usam a mesma função e as mesmas fronteiras.
+- O silêncio é decidido **só** pelo serviço de avisos do SIASB, antes de chamar o `Notifier`. Se outra fonte quiser o mesmo silêncio, ela mesma precisa checar `inQuietHours`; o canal genérico não o faz.
 - Os avisos só chegam a quem tem **aparelho registrado** pelo canal genérico (`/me/push-devices`); sem aparelho, nada é enviado.
 - Não existe ainda rota que mostre ao painel a situação e o prazo por disciplina (`SiasbCopyReader.situation` é interno); a faixa fixa de "prazo aberto" depende dessa rota (ver `handoffs/siasb-avisos-telas.md`, fora do repositório).
 
