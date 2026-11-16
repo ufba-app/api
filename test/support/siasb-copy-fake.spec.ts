@@ -218,6 +218,19 @@ describe('InMemorySiasbCopy', () => {
     expect(await repo.state('ghost')).toBeNull();
   });
 
+  it('markDue: anula só nextRunAt (result, lastSuccessAt e trava intactos); sem linha não cria', async () => {
+    const t1 = d('2026-11-15T10:00:00Z');
+    const t2 = d('2026-11-15T11:00:00Z');
+    repo.accounts.set(U, 'OK');
+    await repo.claim(U, t1, 600_000);
+    await repo.recordAttempt(U, { result: 'OK', at: t1, nextRunAt: t2 });
+    await repo.markDue(U);
+    expect(await repo.state(U)).toEqual({ lastAttemptAt: t1, lastSuccessAt: t1, result: 'OK', nextRunAt: null });
+    expect(await repo.claim(U, new Date(t1.getTime() + 60_000), 600_000)).toBe('busy');
+    await repo.markDue('ghost');
+    expect(await repo.state('ghost')).toBeNull();
+  });
+
   it('recordAttempt: OK grava lastSuccessAt; falha não o apaga', async () => {
     const t1 = d('2026-11-15T10:00:00Z');
     const t2 = d('2026-11-15T11:00:00Z');

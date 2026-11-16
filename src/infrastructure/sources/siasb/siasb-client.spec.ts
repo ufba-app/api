@@ -375,6 +375,236 @@ describe('SiasbClient.courseOptions', () => {
   });
 });
 
+describe('SiasbClient, escrita', () => {
+  const API = 'https://api.siasb.ufba.br/api/v1';
+  const REJECT_MSG = 'O SIASB recusou a operação.';
+  const UNKNOWN_MSG = 'O SIASB não confirmou a operação.';
+  const call = (f: jest.Mock, i = 0) => {
+    const [url, init] = f.mock.calls[i] as unknown as [string, RequestInit];
+    return { url, init, body: init.body === undefined ? undefined : (JSON.parse(init.body as string) as unknown) };
+  };
+  const sched = {
+    attendanceId: '12',
+    professorId: '301',
+    locationId: '7',
+    groupId: '4',
+    startAt: new Date('2026-11-27T11:00:00Z'),
+    endAt: new Date('2026-11-27T13:30:00Z'),
+    count: 3,
+    description: 'Retorno sintético',
+  };
+
+  it('scheduleSessions: POST no caminho certo com o corpo exato (horário da Bahia, ids numéricos)', async () => {
+    const f = fake(res(200, { id: 7 }));
+    const out = await client(f).scheduleSessions(session(), sched);
+    expect(out).toEqual({ ok: true, createdId: '7' });
+    const { url, init, body } = call(f);
+    expect(url).toBe(`${API}/student/schedule/sessions`);
+    expect(init.method).toBe('POST');
+    expect(body).toEqual({
+      sessionId: null,
+      attendanceId: 12,
+      professorId: 301,
+      ambulatoryLocationId: 7,
+      patientGroupId: 4,
+      startAt: '2026-11-27T08:00:00',
+      endAt: '2026-11-27T10:30:00',
+      sessionCount: 3,
+      description: 'Retorno sintético',
+      reason: '',
+      requestsRescheduling: false,
+    });
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers.Cookie).toContain(`OWEnsino.Modern.Auth=${COOKIE_VALUE}`);
+    expect(init.redirect).toBe('error');
+  });
+
+  it('unscheduleSession: disposition sempre com absence false', async () => {
+    const f = fake(res(204));
+    const out = await client(f).unscheduleSession(session(), '55', 'Paciente desistiu');
+    expect(out).toEqual({ ok: true, createdId: null });
+    const { url, init, body } = call(f);
+    expect(url).toBe(`${API}/student/schedule/sessions/55/disposition`);
+    expect(init.method).toBe('POST');
+    expect(body).toEqual({ reason: 'Paciente desistiu', absence: false });
+  });
+
+  it('addProcedure: POST com o corpo exato', async () => {
+    const f = fake(res(201, { procedureId: 90 }));
+    const out = await client(f).addProcedure(session(), '12', {
+      serviceId: 2,
+      teeth: '11,12',
+      faces: 'V',
+      observation: 'obs sintética',
+    });
+    expect(out).toEqual({ ok: true, createdId: '90' });
+    const { url, init, body } = call(f);
+    expect(url).toBe(`${API}/student/attendances/12/procedures`);
+    expect(init.method).toBe('POST');
+    expect(body).toEqual({ serviceId: 2, teeth: '11,12', faces: 'V', observation: 'obs sintética' });
+  });
+
+  it('removeProcedure: DELETE sem corpo', async () => {
+    const f = fake(res(200));
+    const out = await client(f).removeProcedure(session(), '12', '90');
+    expect(out).toEqual({ ok: true, createdId: null });
+    const { url, init } = call(f);
+    expect(url).toBe(`${API}/student/attendances/12/procedures/90`);
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+  });
+
+  it.each([
+    ['POST', '/student/attendances/12/procedures/12/realize'],
+    ['POST', '/student/attendances/12/procedures/12'],
+    ['DELETE', '/student/schedule/sessions/1'],
+    ['DELETE', '/student/attendances/12/procedures'],
+    ['DELETE', '/student/attendances/12/procedures/12/realize'],
+    ['POST', '/student/attendances/1a/procedures'],
+    ['POST', '/student/attendances//procedures'],
+    ['POST', '/student/attendances/../procedures'],
+    ['DELETE', '/student/attendances/12/procedures/1a'],
+    ['DELETE', '/student/attendances/12/procedures/..'],
+    ['POST', '/student/schedule/sessions//disposition'],
+    ['POST', '/student/schedule/sessions/1/disposition/'],
+    ['POST', '/student/schedule/sessions?x=1'],
+    ['PUT', '/student/schedule/sessions'],
+    ['GET', '/student/schedule/sessions'],
+    ['POST', '/auth/logout'],
+    ['POST', '//evil.example/student/schedule/sessions'],
+  ])('escrita proibida sem chamar o fetch: %s %s', async (method, path) => {
+    const f = fake(res(200, {}));
+    const c = client(f) as unknown as { write: (s: SiasbSession, m: string, p: string, b?: unknown) => Promise<unknown> };
+    await expect(c.write(session(), method, path, {})).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('ids malformados nos métodos públicos são FORBIDDEN_ROUTE sem rede', async () => {
+    const f = fake(res(200, {}));
+    const c = client(f);
+    const proc = { serviceId: 1, teeth: '', faces: '', observation: '' };
+    await expect(c.addProcedure(session(), '12/procedures/1/realize', proc)).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    await expect(c.removeProcedure(session(), '12', '1/realize')).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    await expect(c.removeProcedure(session(), '1a', '1')).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    await expect(c.unscheduleSession(session(), '1/../2', 'x')).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    await expect(c.unscheduleSession(session(), '', 'x')).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    await expect(c.scheduleSessions(session(), { ...sched, attendanceId: '12a' })).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('timeout, queda de rede e 500 viram WRITE_UNKNOWN com UMA chamada (sem retry)', async () => {
+    const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    for (const next of [timeout, new Error('ECONNRESET'), res(500, { message: 'Fulano Sintetico' }), res(503), res(307)]) {
+      const f = fake(next, res(200, {}));
+      const err = await client(f).scheduleSessions(session(), sched).then(() => null, (e: unknown) => e);
+      expect(err).toMatchObject({ code: 'WRITE_UNKNOWN', message: UNKNOWN_MSG });
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('400 vira WRITE_REJECTED com a mensagem fixa e o corpo nunca aparece', async () => {
+    const f = fake(res(400, { message: 'Paciente Fulano Sintetico não pode', title: 'Fulano Sintetico' }));
+    const err = await client(f).addProcedure(session(), '12', { serviceId: 1, teeth: '', faces: '', observation: '' }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SiasbError);
+    expect(err).toMatchObject({ code: 'WRITE_REJECTED', message: REJECT_MSG });
+    const dump = `${(err as Error).message} ${JSON.stringify(err)} ${String((err as Error).stack)}`;
+    expect(dump).not.toContain('Fulano');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('as duas mensagens conhecidas da grade passam, em texto puro ou em JSON, só se exatas', async () => {
+    const known = [
+      'Você não possui aula desta disciplina neste dia e horário.',
+      'O horário final ultrapassa o horário de aula da disciplina.',
+    ];
+    for (const m of known) {
+      for (const r of [res(400, { message: m }), res(422, m), new Response(m, { status: 400 })]) {
+        await expect(client(fake(r)).scheduleSessions(session(), sched)).rejects.toMatchObject({
+          code: 'WRITE_REJECTED',
+          message: m,
+        });
+      }
+    }
+    await expect(
+      client(fake(res(400, { message: `${known[0]} Fulano Sintetico` }))).scheduleSessions(session(), sched),
+    ).rejects.toMatchObject({ code: 'WRITE_REJECTED', message: REJECT_MSG });
+  });
+
+  it('401 e 403 viram REAUTH_NEEDED', async () => {
+    for (const status of [401, 403]) {
+      const f = fake(res(status));
+      await expect(client(f).unscheduleSession(session(), '1', 'x')).rejects.toMatchObject({ code: 'REAUTH_NEEDED' });
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it.each([
+    [{ id: 7 }, '7'],
+    [{ data: { id: '9' } }, '9'],
+    [{ procedureId: 31 }, '31'],
+    [12, '12'],
+    [{}, null],
+    [{ id: 'abc' }, null],
+    [{ id: 1.5 }, null],
+    [{ id: { x: 1 } }, null],
+    ['texto', null],
+  ])('createdId de %j é %j', async (body, expected) => {
+    const out = await client(fake(res(200, body))).scheduleSessions(session(), sched);
+    expect(out).toEqual({ ok: true, createdId: expected });
+  });
+
+  it('corpo de 2xx que não é JSON vira createdId null', async () => {
+    const out = await client(fake(new Response('<html>', { status: 200 }))).scheduleSessions(session(), sched);
+    expect(out).toEqual({ ok: true, createdId: null });
+  });
+
+  it('o jar renovado por uma resposta de escrita marca session.dirty', async () => {
+    const s = session();
+    const f = fake(res(200, { id: 1 }, ['OWEnsino.Modern.Auth=novo; expires=Tue, 15 Jan 2027 04:09:00 GMT']));
+    await client(f).scheduleSessions(s, sched);
+    expect(s.cookies['OWEnsino.Modern.Auth']).toBe('novo');
+    expect(s.dirty).toBe(true);
+    const s2 = session();
+    await client(fake(res(200, {}))).removeProcedure(s2, '1', '2');
+    expect(s2.dirty).toBe(false);
+  });
+
+  it('schedulingOptions lê as três listas com attendanceId e mapeia', async () => {
+    const f = fake(
+      res(200, [{ id: 301, name: 'Profa. Exemplar Alfa', preferred: true }]),
+      res(200, [{ id: 7, name: 'Clínica 1' }]),
+      res(200, [{ id: 4, name: 'Grupo A', preferred: false }]),
+    );
+    const out = await client(f).schedulingOptions(session(), '12');
+    expect(out).toEqual({
+      professors: [{ id: '301', name: 'Profa. Exemplar Alfa', preferred: true }],
+      locations: [{ id: '7', name: 'Clínica 1', preferred: false }],
+      groups: [{ id: '4', name: 'Grupo A', preferred: false }],
+    });
+    const urls = f.mock.calls.map((c) => c[0] as string).sort();
+    expect(urls).toEqual(
+      [
+        `${API}/student/options?kind=professors&attendanceId=12`,
+        `${API}/student/options?kind=ambulatoryLocations&attendanceId=12`,
+        `${API}/student/options?kind=patientGroups&attendanceId=12`,
+      ].sort(),
+    );
+  });
+
+  it('schedulingOptions com formato inesperado ou id ruim', async () => {
+    await expect(
+      client(fake(res(200, {}), res(200, []), res(200, []))).schedulingOptions(session(), '12'),
+    ).rejects.toMatchObject({ code: 'UNEXPECTED_FORMAT' });
+    const f = fake();
+    await expect(client(f).schedulingOptions(session(), '1&x=2')).rejects.toMatchObject({ code: 'FORBIDDEN_ROUTE' });
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
 describe('canário', () => {
   it('senha, valor e nome de cookie não vazam em erros', async () => {
     const cases: Array<() => Promise<unknown>> = [

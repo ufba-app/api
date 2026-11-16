@@ -1,6 +1,34 @@
-import { extractDriveLinks, parseDriveLink } from './drive-link';
+import { driveViewUrl, extractDriveLinks, parseDriveLink } from './drive-link';
 
 const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+
+describe('parseDriveLink: pastas', () => {
+  it.each([
+    `https://drive.google.com/drive/folders/${ID}`,
+    `https://drive.google.com/drive/folders/${ID}?usp=sharing`,
+    `https://drive.google.com/drive/u/1/folders/${ID}`,
+    `https://drive.google.com/drive/folderview?id=${ID}`,
+  ])('reconhece a pasta %s', (url) => {
+    expect(parseDriveLink(url)).toEqual({ kind: 'folder', id: ID });
+  });
+
+  it.each([
+    `https://drive.google.com/drive/folders/curto`,
+    `https://evil.example/drive/folders/${ID}`,
+    `https://docs.google.com/drive/folders/${ID}`,
+    `https://drive.google.com/drive/folderview?id=curto`,
+  ])('recusa %s', (url) => {
+    expect(parseDriveLink(url)).toBeNull();
+  });
+
+  it('driveViewUrl: o link que a PESSOA abre no navegador, por tipo', () => {
+    expect(driveViewUrl({ kind: 'folder', id: ID })).toBe(`https://drive.google.com/drive/folders/${ID}`);
+    expect(driveViewUrl({ kind: 'file', id: ID })).toBe(`https://drive.google.com/file/d/${ID}/view`);
+    expect(driveViewUrl({ kind: 'doc', id: ID })).toBe(`https://docs.google.com/document/d/${ID}/edit`);
+    expect(driveViewUrl({ kind: 'sheet', id: ID })).toBe(`https://docs.google.com/spreadsheets/d/${ID}/edit`);
+    expect(driveViewUrl({ kind: 'slides', id: ID })).toBe(`https://docs.google.com/presentation/d/${ID}/edit`);
+  });
+});
 
 describe('parseDriveLink', () => {
   it.each([
@@ -18,7 +46,6 @@ describe('parseDriveLink', () => {
   });
 
   it.each([
-    `https://drive.google.com/drive/folders/${ID}`,
     `https://docs.google.com/forms/d/${ID}/edit`,
     `https://docs.google.com/document/d/e/2PACX-1vQ/pub`,
     `https://evil.example/file/d/${ID}/view`,
@@ -65,7 +92,8 @@ describe('extractDriveLinks', () => {
 
   it('sem HTML e sem URLs: vazio; links de fora e pastas são ignorados', () => {
     expect(extractDriveLinks(undefined)).toEqual([]);
-    expect(extractDriveLinks(`<a href="https://drive.google.com/drive/folders/${ID}">pasta</a> https://evil.example/x`)).toEqual([]);
+    expect(extractDriveLinks(`<a href="https://docs.google.com/forms/d/${ID}/edit">form</a> https://evil.example/x`)).toEqual([]);
+    expect(extractDriveLinks(`<a href="https://drive.google.com/drive/folders/${ID}">Slides / Arquivos</a>`)).toEqual([{ kind: 'folder', id: ID, label: 'Slides / Arquivos' }]);
   });
 
   it('no máximo 50 links por chamada', () => {

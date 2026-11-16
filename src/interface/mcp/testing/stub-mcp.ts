@@ -26,4 +26,7 @@ export class StubMcpUseCases implements McpUseCases {
   async postarForum() {
     return { postado: true };
   }
+  async verTopico() {
+    return { mensagens: [] };
+  }
 }

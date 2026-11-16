@@ -38,6 +38,9 @@ import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
 import { SiasbReader } from './application/siasb/siasb-reader';
 import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbSessionRunner } from './application/siasb/siasb-session-runner';
+import { SiasbWriter } from './application/siasb/siasb-writer';
+import { SiasbWriteAuditRepository } from './application/ports/siasb-write-audit';
 import { SiasbSyncProvider } from './application/siasb/siasb-sync-provider';
 import { SYNC_PROVIDERS } from './application/jobs/sync-provider';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
@@ -151,7 +154,7 @@ export function buildLiveSources(
         const env = process.env;
         if (!env.SECRETS_KEY) return new DisabledDriveDownloader();
         // Sem Classroom configurado só vale o link público.
-        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined });
+        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined, apiKey: env.GOOGLE_DRIVE_API_KEY || undefined });
       },
     },
     {
@@ -195,6 +198,19 @@ export function buildLiveSources(
       useFactory: (reader: SiasbReader, copy: SiasbCopyRepository, cipher: SecretCipher) =>
         new SiasbSyncer(reader, copy, cipher),
       inject: [SiasbReader, SiasbCopyRepository, SecretCipher],
+    },
+    {
+      // Escrita no SIASB (agenda e procedimentos previstos): mesmo executor de sessão da leitura, sem retry.
+      provide: SiasbWriter,
+      useFactory: (
+        siasb: SiasbSource,
+        accounts: SourceAccountRepository,
+        cipher: SecretCipher,
+        syncer: SiasbSyncer,
+        copy: SiasbCopyRepository,
+        audit: SiasbWriteAuditRepository,
+      ) => new SiasbWriter(new SiasbSessionRunner(accounts, cipher), siasb, syncer, copy, audit),
+      inject: [SiasbSource, SourceAccountRepository, SecretCipher, SiasbSyncer, SiasbCopyRepository, SiasbWriteAuditRepository],
     },
     {
       provide: SiasbSyncProvider,
@@ -452,6 +468,7 @@ export function buildLiveSources(
     SiasbLink,
     SiasbReader,
     SiasbSyncer,
+    SiasbWriter,
     SYNC_PROVIDERS,
     SiasbCopyReader,
     ConsultaService,

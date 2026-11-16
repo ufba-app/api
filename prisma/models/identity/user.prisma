@@ -34,6 +34,7 @@ model User {
   siasbAttendances SiasbSyncedAttendance[]
   siasbSessions    SiasbSyncedSession[]
   siasbSyncState   SiasbSyncState?
+  siasbWriteAudits SiasbWriteAudit[]
 
   @@map("users")
 }

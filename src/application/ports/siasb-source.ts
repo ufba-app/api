@@ -39,7 +39,11 @@ export type SiasbErrorCode =
   | 'CREDENTIAL_REJECTED'
   | 'UNAVAILABLE'
   | 'UNEXPECTED_FORMAT'
-  | 'FORBIDDEN_ROUTE';
+  | 'FORBIDDEN_ROUTE'
+  /** O SIASB recusou a escrita (4xx exceto 401). */
+  | 'WRITE_REJECTED'
+  /** Resultado da escrita desconhecido (timeout, queda de rede, 5xx, redirecionamento). */
+  | 'WRITE_UNKNOWN';
 
 /** Erro do SIASB. A mensagem é fixa e nunca leva senha, cookie (valor ou nome), matrícula ou corpo de resposta. */
 export class SiasbError extends Error {
@@ -59,7 +63,35 @@ export interface SiasbCourse {
   isDefault: boolean;
 }
 
-/** Porta de leitura do SIASB. Toda consulta recebe a sessão da pessoa; nada é copiado para o banco. */
+export interface SchedulingOption {
+  id: string;
+  name: string;
+  preferred: boolean;
+}
+
+export interface SchedulingOptions {
+  professors: SchedulingOption[];
+  locations: SchedulingOption[];
+  groups: SchedulingOption[];
+}
+
+export interface ScheduleSessionsInput {
+  attendanceId: string;
+  professorId: string;
+  locationId: string;
+  groupId: string;
+  startAt: Date;
+  endAt: Date;
+  count: number;
+  description: string;
+}
+
+export interface WriteResult {
+  ok: true;
+  createdId: string | null;
+}
+
+/** Porta do SIASB. Toda consulta recebe a sessão da pessoa; nada é copiado para o banco. */
 export abstract class SiasbSource {
   abstract courseOptions(registration: string): Promise<SiasbCourse[]>;
   abstract login(
@@ -73,4 +105,14 @@ export abstract class SiasbSource {
   abstract procedures(session: SiasbSession, attendanceId: string): Promise<Procedure[]>;
   /** Quantos pacientes sem responsável existem, POR disciplina (id da disciplina como chave). */
   abstract unassignedCount(session: SiasbSession): Promise<Record<string, number>>;
+  /** Professores, locais e grupos para agendar sessões deste atendimento. */
+  abstract schedulingOptions(session: SiasbSession, attendanceId: string): Promise<SchedulingOptions>;
+  abstract scheduleSessions(session: SiasbSession, input: ScheduleSessionsInput): Promise<WriteResult>;
+  abstract unscheduleSession(session: SiasbSession, sessionId: string, reason: string): Promise<WriteResult>;
+  abstract addProcedure(
+    session: SiasbSession,
+    attendanceId: string,
+    input: { serviceId: number; teeth: string; faces: string; observation: string },
+  ): Promise<WriteResult>;
+  abstract removeProcedure(session: SiasbSession, attendanceId: string, procedureId: string): Promise<WriteResult>;
 }

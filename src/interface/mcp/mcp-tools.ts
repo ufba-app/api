@@ -5,6 +5,12 @@ import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memo
 import { memoryInstructionsFor } from '../../application/memory/memory-proxy';
 import { isWebChatClient } from '../../application/memory/connect-guide';
 import { registerClinicaTools } from './clinica-tools';
+import {
+  PERMISSAO_AGENDA,
+  PERMISSAO_PROCEDIMENTOS,
+  registerClinicaAgendaWriteTools,
+  registerClinicaProcedimentoWriteTools,
+} from './clinica-write-tools';
 import { McpClinica, McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 import { run } from './tool-result';
 
@@ -48,6 +54,7 @@ export const FERRAMENTAS = [
   'prazos',
   'ver_curso',
   'ver_forum',
+  'ver_topico',
   'ver_aviso',
   'baixar_anexo',
 ] as const;
@@ -130,7 +137,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       description:
         'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
         'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`; links do Google Drive/Docs postados pelo professor também ' +
-        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login). Classroom: arquivos em `abrirNoNavegador` ' +
+        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login); pasta do Drive vira um anexo por arquivo de dentro (vídeo, arquivo grande e subpasta ficam em `abrirNoNavegador`). Classroom: arquivos em `abrirNoNavegador` ' +
         '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
         '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
@@ -144,13 +151,26 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       title: 'Ver fórum',
       annotations: { title: 'Ver fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Dois modos, use exatamente um. Com `forumId` (de `ver_curso`): a lista de TÓPICOS do fórum, com a mensagem inicial de cada um ' +
-        '(inclui o fórum de avisos da matéria). Com `discussaoId` (o `id` de um tópico de `ver_forum`): as MENSAGENS desse tópico, ' +
-        'inclusive as respostas, em ordem; cada uma traz `postId` e `respostaA`. Para ver o que os colegas postaram, leia o tópico com `discussaoId`. ' +
+        'Lista os TÓPICOS de UM fórum do Moodle (inclui o de avisos da matéria), com a mensagem inicial de cada um e o `id` de cada tópico. ' +
+        'Para ver as respostas de um tópico (o que os colegas postaram), use `ver_topico` com esse `id`. Use o `forumId` de `ver_curso`. ' +
         '(O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
-      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string().optional(), discussaoId: z.string().optional() },
+      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
     },
     (args) => run(() => uc.verForum(p, args)),
+  );
+
+  server.registerTool(
+    'ver_topico',
+    {
+      title: 'Ver tópico do fórum',
+      annotations: { title: 'Ver tópico do fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Todas as MENSAGENS de UM tópico de fórum do Moodle, com as respostas, em ordem cronológica. Cada mensagem traz `autor`, `mensagem`, ' +
+        '`postId` (para responder com `postar_forum`) e `respostaA` (o `postId` da mensagem a que ela responde; ausente na inicial). ' +
+        'Use o `id` de um tópico vindo de `ver_forum`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, discussaoId: z.string() },
+    },
+    (args) => run(() => uc.verTopico(p, args)),
   );
 
   server.registerTool(
@@ -178,7 +198,8 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
         '(até 20). No Classroom, só arquivos anexados nas matérias são entregues. Arquivos do Drive linkados no Moodle ' +
         'também (a `ref` que começa com `gdrive1.`; só os que apareceram no curso): use SEMPRE a `ref`, nunca o link do Drive ' +
         'direto (ele pede login); o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +
-        'de conectar o Google Classroom.',
+        'de conectar o Google Classroom. Vídeo e arquivo acima de 25 MB do Drive NÃO são baixados: o resultado traz `aviso` ' +
+        '(tipo e tamanho) e `abrirNoNavegador` (link para a pessoa abrir), sem link de download.',
       inputSchema: {
         fonte: FONTE,
         conta: CONTA,
@@ -214,7 +235,15 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     ),
   );
 
-  if (p.siasb && clinica) registerClinicaTools(server, clinica, p);
+  if (p.siasb && clinica) {
+    registerClinicaTools(server, clinica, p);
+    // Escrita: só com a permissão do app (ligada no painel) e o escritor disponível.
+    const write = clinica.writes?.();
+    if (write) {
+      registerPermissionedTool(p, PERMISSAO_AGENDA, () => registerClinicaAgendaWriteTools(server, write, p));
+      registerPermissionedTool(p, PERMISSAO_PROCEDIMENTOS, () => registerClinicaProcedimentoWriteTools(server, write, p));
+    }
+  }
 
   if (withMemory) {
     addMemoryTools(server, memory, p);

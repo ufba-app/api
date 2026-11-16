@@ -76,6 +76,21 @@ class FakeSiasb extends SiasbSource {
   async unassignedCount() {
     return {};
   }
+  async schedulingOptions() {
+    return { professors: [], locations: [], groups: [] };
+  }
+  async scheduleSessions() {
+    return { ok: true as const, createdId: null };
+  }
+  async unscheduleSession() {
+    return { ok: true as const, createdId: null };
+  }
+  async addProcedure() {
+    return { ok: true as const, createdId: null };
+  }
+  async removeProcedure() {
+    return { ok: true as const, createdId: null };
+  }
 }
 
 class FakeAccounts extends SourceAccountRepository {

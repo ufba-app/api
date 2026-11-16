@@ -18,7 +18,8 @@ Toda ferramenta de leitura aceita `fonte` (`moodle`, padrão, `classroom` ou `si
 | `listar_cursos(todas?)` | Matérias em andamento (`todas: true` inclui passadas/futuras) | 1 | 1 | 1 (portal do discente; só o semestre atual, `todas` é ignorado) |
 | `prazos()` | Próximos prazos das matérias atuais. Ponto de partida para "o que tenho para hoje" | 1 (calendário) | 1 + 1 por matéria ativa, até 15 (a API não tem calendário agregado) | 1 + 2 por turma, até 8 turmas (portal + entrar na turma + avaliações); só avaliações de hoje em diante |
 | `ver_curso(cursoId)` | Tarefas (descrição + prazo), materiais, avisos, provas e fóruns de **uma** matéria | 2 | 3 | 5 (portal, entrar na turma, notícias, avaliações, tópicos de aula) |
-| `ver_forum(forumId \| discussaoId)` | Com `forumId`: a lista de **tópicos** de um fórum do Moodle (inclui o de avisos), com a mensagem inicial de cada um. Com `discussaoId`: as **mensagens de um tópico**, com as respostas, em ordem (`postId` e `respostaA`) | 1 | não existe | ainda sem suporte |
+| `ver_forum(forumId)` | A lista de **tópicos** de um fórum do Moodle (inclui o de avisos), com a mensagem inicial e o `id` de cada um | 1 | não existe | ainda sem suporte |
+| `ver_topico(discussaoId)` | Todas as **mensagens de um tópico**, com as respostas, em ordem (`postId` e `respostaA`). O `discussaoId` vem de `ver_forum` | 1 | não existe | ainda sem suporte |
 | `ver_aviso(avisoId)` | Texto completo de **um** aviso/notícia (`id` de um item `tipo: aviso` de `ver_curso`) | não existe | não existe | 4 (portal, entrar na turma, lista de notícias, clique "Visualizar"; POST direto em `mostrar.jsf` volta sem a notícia) |
 | `baixar_anexo(ref \| anexos[])` | Links de download temporários (uso único, ~10 min) + comandos `curl` prontos. O arquivo é buscado quando o link é usado | 0 (+1 por download) | 0 (+3 por download: confere o anexo no post, metadados e conteúdo do Drive) | ainda sem suporte |
 
@@ -51,15 +52,15 @@ A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome
 
 ### Metadados para a loja e uso sem dizer "UFBA"
 
-- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e `clinica_*` são somente leitura, exceto `postar_forum` (escrita atrás de permissão, ver acima); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e as `clinica_*` de leitura são somente leitura; as de escrita (`postar_forum` e as 4 do SIASB, todas atrás de permissão) têm `readOnlyHint: false` (desmarcar sessão e excluir procedimento também `destructiveHint: true`); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
 - O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
 - As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
 
 ## Ferramentas das clínicas (SIASB)
 
-As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
+As ferramentas `clinica_*` de leitura leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Quatro ferramentas de escrita existem, opt-in por permissão do app (seção abaixo). Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
 
-**Visibilidade:** as 7 só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
+**Visibilidade:** as 7 de leitura só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
 
 | Ferramenta | O que faz | Requisições: SIASB (máx.) |
 |---|---|---|
@@ -75,6 +76,23 @@ As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome 
 - **Horários** saem com offset da Bahia (`-03:00`, fixo). Datas sem hora valem a hora da Bahia.
 - **Privacidade:** só o primeiro nome do paciente; nunca o sobrenome nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
 - **Segredos:** nenhuma ferramenta aceita senha ou cookie; a conexão é feita no painel (`POST /connections/siasb`).
+
+### Ferramentas de escrita do SIASB
+
+Só aparecem para o app que a pessoa autorizou com a permissão (marcada na tela de autorizar, revogável em Apps autorizados; padrão negado) **e** que tem conexão SIASB. `siasb.schedule_write` libera `clinica_agendar_sessao` e `clinica_desmarcar_sessao`; `siasb.procedures_write` libera `clinica_incluir_procedimento` e `clinica_excluir_procedimento`. Todas têm `confirmado` (booleano, padrão `false`).
+
+| Ferramenta | Parâmetros | Regras |
+|---|---|---|
+| `clinica_agendar_sessao` | `atendimentoId`, `inicio` (ISO 8601 **com fuso**), `duracaoMin` (15 a 240), `quantidade` (1 a 20, padrão 1), `professorId?`, `localId?`, `grupoId?`, `observacao?`, `confirmado` | atendimento ativo; semanal, mesmo horário, tudo ou nada; início futuro e até 365 dias (a última sessão também); ids entre as opções do SIASB |
+| `clinica_desmarcar_sessao` | `sessaoId`, `motivo?`, `confirmado` | só sessão FUTURA marcada de atendimento ativo; **nunca registra falta** |
+| `clinica_incluir_procedimento` | `atendimentoId`, `procedimentoId` (do catálogo, de `clinica_contexto_agendamento`), `dente?`, `face?`, `observacao?`, `confirmado` | fica PREVISTO; **realizar não existe**, é no site |
+| `clinica_excluir_procedimento` | `atendimentoId`, `procedimentoId` (o devolvido por `clinica_incluir_procedimento`, não o do catálogo), `confirmado` | só exclui procedimento **incluído por esta ferramenta** (auditoria `procedure_add` ok da pessoa, no atendimento, com esse id); os demais, pelo site |
+
+**Duas etapas.** Sem `confirmado: true` a ferramenta não escreve: devolve `status: "resumo"` (`resumo`, `detalhes`). A descrição manda o Claude mostrar o resumo e esperar o OK explícito da pessoa antes de repetir com `confirmado: true`, que devolve `status: "feito"` (`resumo`, `detalhes`, com `verificado` e `datasConfirmadas` ao agendar, `verificado` ao desmarcar e `procedimentoId`, ou `null`, ao incluir). Ao agendar sem professor, local ou grupo: `status: "escolher"` com `faltando`, `opcoes` (professores, locais, grupos) e `instrucao` (a pessoa escolhe; o Claude chama de novo **sem** `confirmado` para receber o resumo e só então pede o OK). Horários em `detalhes` (`datas`, `datasConfirmadas`, `inicio`) vêm na hora da Bahia com `-03:00`, como nas leituras; o `inicio` recebido é arredondado para o minuto inteiro (segundos descartados).
+
+**Erros** (mensagens fixas): `entrada_invalida`, `siasb_write_rejected`, `siasb_write_unknown` ("O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo."; sem retry, a pessoa confere o site) e o de reconexão. Cada tentativa de escrita vai para a auditoria `siasb_write_audit` (sem texto livre; ainda sem expurgo de 90 dias).
+
+Rotas de escrita permitidas, verificação depois de gravar, ressincronização e lacunas conhecidas (formatos de resposta nunca confirmados ao vivo, `procedimentoId` nulo ou deduzido): `docs/SIASB.md`, seção 14.
 
 ## Autenticação
 

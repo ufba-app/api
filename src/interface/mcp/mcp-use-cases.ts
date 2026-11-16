@@ -12,6 +12,7 @@ import type {
   PostarForumInput,
   PrazosInput,
   VerAvisoInput,
+  VerTopicoInput,
   VerCursoInput,
   VerForumInput,
 } from './mcp-ports';
@@ -61,13 +62,11 @@ export class McpUseCasesImpl implements McpUseCases {
   }
 
   async verForum(p: McpPrincipal, i: VerForumInput) {
-    if ((i.forumId === undefined) === (i.discussaoId === undefined)) {
-      throw new Error('Informe `forumId` (lista de tópicos do fórum) ou `discussaoId` (mensagens de um tópico), não os dois.');
-    }
-    if (i.discussaoId !== undefined) {
-      return { discussaoId: i.discussaoId, mensagens: await this.consulta.verTopico(quem(p), provider(i.fonte), i.conta, i.discussaoId) };
-    }
-    return { forumId: i.forumId, discussoes: await this.consulta.verForum(quem(p), provider(i.fonte), i.conta, i.forumId!) };
+    return { forumId: i.forumId, discussoes: await this.consulta.verForum(quem(p), provider(i.fonte), i.conta, i.forumId) };
+  }
+
+  async verTopico(p: McpPrincipal, i: VerTopicoInput) {
+    return { discussaoId: i.discussaoId, mensagens: await this.consulta.verTopico(quem(p), provider(i.fonte), i.conta, i.discussaoId) };
   }
 
   async verAviso(p: McpPrincipal, i: VerAvisoInput) {
@@ -90,7 +89,17 @@ export class McpUseCasesImpl implements McpUseCases {
     // Chat web não tem terminal: recebe um link para a ferramenta de leitura de URL abrir (poucos usos, pouco tempo, `inline`).
     const web = isWebChatClient(p.clientName);
 
+    // Arquivo do Drive que é vídeo ou passa do teto: não gera link, avisa na hora (nome, tipo, tamanho) com o link para abrir no navegador.
+    const infos = await Promise.all(anexos.map((a) => (fonte === 'MOODLE' ? this.consulta.driveInfo(quem(p), i.conta, a.ref) : Promise.resolve(null))));
+    const bloqueados = new Map(anexos.map((a, n) => [a.ref, infos[n]] as const).filter(([, info]) => info?.blocked));
+    if (anexos.length === 1 && !i.anexos && bloqueados.size === 1) {
+      const info = [...bloqueados.values()][0]!;
+      return { aviso: info.message, abrirNoNavegador: info.viewUrl };
+    }
+
     const arquivos = anexos.map((a) => {
+      const bloqueado = bloqueados.get(a.ref);
+      if (bloqueado) return { nome: a.nome ?? bloqueado.name, aviso: bloqueado.message, abrirNoNavegador: bloqueado.viewUrl };
       const { id, expiresAt } = this.downloads.criar({ userId: p.userId, provider: fonte, conta, ref: a.ref, nome: a.nome, ...(web ? { usos: WEB_USOS, inline: true } : {}) });
       const arquivo = (a.nome ?? 'anexo').replace(/["\\/]/g, '_');
       if (web) {
