@@ -287,12 +287,12 @@ describe('proxy de memória contra o fake do ai-memory', () => {
 
   it('memory_connect_computer devolve só texto: comando por sistema, permissão, sem segredo e sem falar com o memory', async () => {
     const win = text(await proxy.call(UID, 'memory_connect_computer', { os: 'windows' }));
-    expect(win).toContain('irm https://ufba.app/install.ps1 | iex');
+    expect(win).toContain('irm https://memory.ufba.app/install.ps1 | iex');
     expect(win).not.toContain('install.sh');
     expect(win).toContain('peça permissão');
     const both = text(await proxy.call(UID, 'memory_connect_computer', { os: 'amiga' }));
     expect(both).toContain('install.ps1');
-    expect(both).toContain('curl -fsSL https://ufba.app/install.sh | sh');
+    expect(both).toContain('curl -fsSL https://memory.ufba.app/install.sh | sh');
     expect(both).toContain('http://localhost:3001/memory/computers'); // origem do painel, não fixa
     expect(both).toContain('sem o arquivo `.ai-memory.toml`');
     expect(both).not.toMatch(/aim_|sudos/);

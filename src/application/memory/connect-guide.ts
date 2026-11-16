@@ -5,9 +5,9 @@ export const computersUrl = (webOrigin: string): string => `${webOrigin.replace(
 export const INSTALLER_REPO_URL = 'https://github.com/ufba-app/memory';
 
 export const CONNECT_COMMANDS = {
-  windows: 'irm https://ufba.app/install.ps1 | iex',
-  macos: 'curl -fsSL https://ufba.app/install.sh | sh',
-  linux: 'curl -fsSL https://ufba.app/install.sh | sh',
+  windows: 'irm https://memory.ufba.app/install.ps1 | iex',
+  macos: 'curl -fsSL https://memory.ufba.app/install.sh | sh',
+  linux: 'curl -fsSL https://memory.ufba.app/install.sh | sh',
 } as const;
 
 export type GuideOs = keyof typeof CONNECT_COMMANDS;
