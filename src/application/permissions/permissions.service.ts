@@ -11,12 +11,14 @@ export interface OfferedPermissionView {
   risk: 'low' | 'high';
   available: boolean;
   unavailableReason: 'source_not_connected' | null;
+  /** Já concedida a ESTE app (o pedido em andamento); `false` quando não há app em questão. */
+  granted: boolean;
 }
 
 export type GrantedPermissionView = Pick<OfferedPermissionView, 'key' | 'source' | 'title' | 'description' | 'risk'>;
 
 /** Visão legada de `/me/permissions`: a oferta mais `enabled` (= concedida a algum app). */
-export interface PermissionView extends OfferedPermissionView {
+export interface PermissionView extends Omit<OfferedPermissionView, 'granted'> {
   enabled: boolean;
 }
 
@@ -34,16 +36,16 @@ interface PermissionDef {
 export const PERMISSION_CATALOG: Record<PermissionKey, PermissionDef> = {
   'siasb.schedule_write': {
     source: 'siasb',
-    title: 'Agendar e desmarcar sessões pelo Claude',
+    title: 'Agendar e desmarcar sessões pelo app',
     description:
-      'Permite que o Claude marque e desmarque sessões da clínica no SIASB em seu nome. Cada ação pede a sua confirmação antes de ser feita.',
+      'Permite que o app marque e desmarque sessões da clínica no SIASB em seu nome. Cada ação pede a sua confirmação antes de ser feita.',
     risk: 'low',
   },
   'siasb.procedures_write': {
     source: 'siasb',
-    title: 'Lançar e excluir procedimentos pelo Claude',
+    title: 'Lançar e excluir procedimentos pelo app',
     description:
-      'Permite que o Claude inclua e exclua procedimentos previstos nos seus atendimentos do SIASB, que ficam no prontuário. Cada ação pede a sua confirmação. Procedimentos realizados continuam sendo feitos por você no site.',
+      'Permite que o app inclua e exclua procedimentos previstos nos seus atendimentos do SIASB, que ficam no prontuário. Cada ação pede a sua confirmação. Procedimentos realizados continuam sendo feitos por você no site.',
     risk: 'high',
   },
 };
@@ -77,8 +79,12 @@ export class PermissionsService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** As permissões que a pessoa PODE conceder: só de fontes a que tem acesso, com `available` = fonte conectada. */
-  async offered(userId: string): Promise<OfferedPermissionView[]> {
+  /**
+   * As permissões que a pessoa PODE conceder: só de fontes a que tem acesso, com `available` = fonte conectada e `granted` =
+   * já concedida ao app `clientId` (a tela pré-marca e manda sempre o conjunto inteiro).
+   */
+  async offered(userId: string, clientId?: string): Promise<OfferedPermissionView[]> {
+    const already = clientId ? new Set(await this.repo.keysOf(userId, clientId)) : new Set<string>();
     const sources = [...new Set(PERMISSION_KEYS.map((k) => PERMISSION_CATALOG[k].source))];
     const access = new Map<string, { access: boolean; connected: boolean }>();
     for (const s of sources) {
@@ -88,7 +94,7 @@ export class PermissionsService {
     return PERMISSION_KEYS.filter((k) => access.get(PERMISSION_CATALOG[k].source)?.access).map((key) => {
       const d = PERMISSION_CATALOG[key];
       const connected = access.get(d.source)?.connected === true;
-      return { ...view(key), available: connected, unavailableReason: connected ? null : 'source_not_connected' };
+      return { ...view(key), available: connected, unavailableReason: connected ? null : 'source_not_connected', granted: already.has(key) };
     });
   }
 
@@ -151,7 +157,7 @@ export class PermissionsService {
   /** LEGADO (`GET /me/permissions`): a oferta com `enabled` = concedida a pelo menos um app. */
   async list(userId: string): Promise<PermissionView[]> {
     const granted = new Set((await this.repo.listByUser(userId)).map((r) => r.key));
-    return (await this.offered(userId)).map((o) => ({ ...o, enabled: granted.has(o.key) }));
+    return (await this.offered(userId)).map(({ granted: _app, ...o }) => ({ ...o, enabled: granted.has(o.key) }));
   }
 
   /**

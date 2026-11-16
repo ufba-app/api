@@ -27,7 +27,7 @@ export class AuthorizationRequests {
       client: this.clients.describe(client, pending.redirectUri),
       signedIn: !!p,
       sources: p ? await this.status.sources(p) : null,
-      permissions: p ? await this.permissions.offered(p.userId) : null,
+      permissions: p ? await this.permissions.offered(p.userId, pending.clientId) : null,
       expiresAt: new Date(pending.expiresAt).toISOString(),
     };
   }
