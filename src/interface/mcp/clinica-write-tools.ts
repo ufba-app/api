@@ -1,8 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { WriteInputError, type WriteOutcome } from '../../application/siasb/siasb-writer';
+import { SiasbReadError, ReconectarError } from '../../application/siasb/siasb-session-runner';
+import { WriteFailedError, WriteInputError, type WriteOutcome } from '../../application/siasb/siasb-writer';
 import type { McpClinicaWrite, McpPrincipal } from './mcp-ports';
-import { run } from './tool-result';
+import { falha, json } from './tool-result';
 
 /** Chaves de permissão (por app) que liberam cada par de ferramentas de escrita. */
 export const PERMISSAO_AGENDA = 'siasb.schedule_write';
@@ -38,6 +39,23 @@ function resposta(o: WriteOutcome) {
   return { status: o.status === 'preview' ? ('resumo' as const) : ('feito' as const), resumo: o.summary, detalhes: o.details };
 }
 
+const UNKNOWN_MESSAGE = 'O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo.';
+
+/**
+ * Executa a escrita e só repassa os erros conhecidos (mensagens fixas em pt-BR). Qualquer outro erro vira a resposta
+ * fixa de "não confirmado", sem a mensagem original e sem log.
+ */
+async function runWrite(fn: () => Promise<WriteOutcome>) {
+  try {
+    return json(resposta(await fn()));
+  } catch (e) {
+    if (e instanceof WriteInputError || e instanceof WriteFailedError || e instanceof ReconectarError || e instanceof SiasbReadError) {
+      return falha(e);
+    }
+    return falha(new WriteFailedError('siasb_write_unknown', UNKNOWN_MESSAGE));
+  }
+}
+
 const opcional = (s?: string) => (s === undefined || s === '' ? undefined : s);
 
 export function registerClinicaAgendaWriteTools(server: McpServer, write: McpClinicaWrite, p: McpPrincipal): void {
@@ -54,8 +72,8 @@ export function registerClinicaAgendaWriteTools(server: McpServer, write: McpCli
       inputSchema: {
         atendimentoId: z.string().describe('Id do atendimento ativo, de `clinica_pacientes`.'),
         inicio: z.string().describe('Início da primeira sessão, ISO 8601 com fuso (ex.: 2026-11-20T14:00:00-03:00).'),
-        duracaoMin: z.number().int().describe('Duração de cada sessão, em minutos.'),
-        quantidade: z.number().int().default(1).describe('Quantas sessões semanais a partir de `inicio` (padrão 1).'),
+        duracaoMin: z.number().int().min(15).max(240).describe('Duração de cada sessão, em minutos.'),
+        quantidade: z.number().int().min(1).max(20).default(1).describe('Quantas sessões semanais a partir de `inicio` (padrão 1).'),
         professorId: z.string().optional().describe('Id do professor, das opções devolvidas.'),
         localId: z.string().optional().describe('Id do local, das opções devolvidas.'),
         grupoId: z.string().optional().describe('Id do grupo, das opções devolvidas.'),
@@ -64,9 +82,8 @@ export function registerClinicaAgendaWriteTools(server: McpServer, write: McpCli
       },
     },
     (a) =>
-      run(async () =>
-        resposta(
-          await write.scheduleSession(p.userId, {
+      runWrite(() =>
+        write.scheduleSession(p.userId, {
             attendanceId: a.atendimentoId,
             start: parseInicio(a.inicio),
             durationMin: a.duracaoMin,
@@ -77,7 +94,6 @@ export function registerClinicaAgendaWriteTools(server: McpServer, write: McpCli
             observacao: a.observacao,
             confirmed: a.confirmado === true,
           }),
-        ),
       ),
   );
 
@@ -97,10 +113,8 @@ export function registerClinicaAgendaWriteTools(server: McpServer, write: McpCli
       },
     },
     (a) =>
-      run(async () =>
-        resposta(
-          await write.unscheduleSession(p.userId, { sessionId: a.sessaoId, motivo: a.motivo, confirmed: a.confirmado === true }),
-        ),
+      runWrite(() =>
+        write.unscheduleSession(p.userId, { sessionId: a.sessaoId, motivo: a.motivo, confirmed: a.confirmado === true }),
       ),
   );
 }
@@ -125,9 +139,8 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
       },
     },
     (a) =>
-      run(async () =>
-        resposta(
-          await write.addProcedure(p.userId, {
+      runWrite(() =>
+        write.addProcedure(p.userId, {
             attendanceId: a.atendimentoId,
             serviceId: a.procedimentoId,
             teeth: a.dente,
@@ -135,7 +148,6 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
             observacao: a.observacao,
             confirmed: a.confirmado === true,
           }),
-        ),
       ),
   );
 
@@ -146,7 +158,7 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
       annotations: { title: 'Excluir procedimento previsto', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       description:
         'Exclui um procedimento PREVISTO já lançado no atendimento (`procedimentoId` é o id do procedimento lançado, ' +
-        'devolvido ao incluir ou visto no site). Excluir não dá para desfazer por aqui; é difícil de desfazer. ' +
+        'devolvido ao incluir ou visto no site). Excluir não dá para desfazer por aqui. ' +
         ESCREVE,
       inputSchema: {
         atendimentoId: z.string().describe('Id do atendimento ativo, de `clinica_pacientes`.'),
@@ -155,14 +167,12 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
       },
     },
     (a) =>
-      run(async () =>
-        resposta(
-          await write.removeProcedure(p.userId, {
+      runWrite(() =>
+        write.removeProcedure(p.userId, {
             attendanceId: a.atendimentoId,
             procedureId: a.procedimentoId,
             confirmed: a.confirmado === true,
           }),
-        ),
       ),
   );
 }

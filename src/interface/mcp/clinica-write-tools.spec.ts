@@ -177,6 +177,49 @@ describe('chamadas', () => {
     expect(texto(await call())).toMatch(/^reconectar: /);
   });
 
+
+  it('erro inesperado nunca vaza a mensagem: vira siasb_write_unknown com texto fixo', async () => {
+    const w = new FakeWrite();
+    w.failure = new Error('SEGREDO');
+    const c = await connect(both, clinicaWith(w));
+    const r = await c.callTool({ name: 'clinica_excluir_procedimento', arguments: { atendimentoId: '1', procedimentoId: '2', confirmado: true } });
+    expect(isError(r)).toBe(true);
+    expect(texto(r)).not.toContain('SEGREDO');
+    expect(texto(r)).toBe('siasb_write_unknown: O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo.');
+  });
+
+  it('confirmado "true", 1 e "sim" são recusados pelo esquema e nunca chegam ao escritor', async () => {
+    const w = new FakeWrite();
+    const c = await connect(both, clinicaWith(w));
+    for (const confirmado of ['true', 1, 'sim']) {
+      let rejected = false;
+      try {
+        const r = await c.callTool({ name: 'clinica_desmarcar_sessao', arguments: { sessaoId: '5', confirmado } });
+        rejected = isError(r);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
+    }
+    expect(w.calls).toEqual([]);
+  });
+
+  it('o esquema limita quantidade (1 a 20) e duracaoMin (15 a 240)', async () => {
+    const w = new FakeWrite();
+    const c = await connect(both, clinicaWith(w));
+    for (const extra of [{ quantidade: 0 }, { quantidade: 21 }, { duracaoMin: 14 }, { duracaoMin: 241 }]) {
+      let rejected = false;
+      try {
+        const r = await c.callTool({ name: 'clinica_agendar_sessao', arguments: { atendimentoId: '10', inicio: FUTURO, duracaoMin: 60, ...extra } });
+        rejected = isError(r);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
+    }
+    expect(w.calls).toEqual([]);
+  });
+
   it('a observação não aparece em log nem na resposta de erro', async () => {
     const w = new FakeWrite();
     w.failure = new WriteInputError('Mensagem fixa.');
