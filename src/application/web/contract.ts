@@ -337,6 +337,8 @@ export const PairingRead = z.object({
 export const AccountStatus = z.enum(["connected", "reconnect_required"]);
 export const GuestApp = z.enum(["ufba", "guest"]);
 export const SourceName = z.enum(["sigaa", "moodle", "classroom"]);
+/** Fontes que a tela de autorizar mostra: as de leitura mais o SIASB (só para quem tem acesso a ele). Não vale em `/sources/{source}`. */
+export const AuthorizeSourceName = z.enum(["sigaa", "moodle", "classroom", "siasb"]);
 
 // ---- sessão ----
 
@@ -445,6 +447,30 @@ export const ClientView = z.object({
   metadata: z.enum(["present", "absent"]),
 });
 
+/** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
+export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
+export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+
+/**
+ * Permissão OFERECIDA a quem autoriza um app (só de fontes a que a pessoa tem acesso). Textos em pt-BR vêm daqui.
+ * `available` = a fonte está conectada (ligar exige isso: 409 `permission_unavailable`). `risk: "high"` pede confirmação no web.
+ */
+export const OfferedPermission = z.object({
+  key: z.enum(PERMISSION_KEYS),
+  source: z.string(),
+  title: z.string(),
+  description: z.string(),
+  risk: z.enum(["low", "high"]),
+  available: z.boolean(),
+  unavailableReason: z.literal("source_not_connected").nullable(),
+});
+
+/** Permissão já concedida a um app (em Apps autorizados). */
+export const GrantedPermission = OfferedPermission.pick({ key: true, source: true, title: true, description: true, risk: true });
+
+/** `permissions` ausente = não altera o que o app já tem; presente (mesmo vazio) = o conjunto exato aprovado. */
+export const ApproveRequestBody = z.object({ permissions: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length).optional() });
+
 export const RequestInfo = z.object({
   id: z.string(),
   client: ClientView,
@@ -452,11 +478,13 @@ export const RequestInfo = z.object({
   sources: z
     .array(
       z.object({
-        source: SourceName,
+        source: AuthorizeSourceName,
         status: z.union([SigaaStatus, AccountStatus]),
       }),
     )
     .nullable(),
+  /** As permissões que ESTE pedido pode conceder (só de fontes a que a pessoa tem acesso); `null` sem sessão. */
+  permissions: z.array(OfferedPermission).nullable(),
   expiresAt: z.string().datetime(),
 });
 
@@ -470,6 +498,8 @@ export const AuthorizedApp = ClientView.omit({
   authorizedAt: z.string().datetime(),
   lastUsedAt: z.string().datetime().nullable(),
   sigaa: z.boolean(),
+  /** O que a pessoa liberou para ESTE app; cada uma pode ser revogada sozinha. */
+  permissions: z.array(GrantedPermission),
 });
 
 export const AuthorizedAppsResponse = z.object({
@@ -683,10 +713,7 @@ export const CalendarAlertsResponse = z.object({
 });
 
 // ---- permissões por fonte (o que a pessoa libera para o Claude fazer) ----
-
-/** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
-export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
-export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+// As permissões valem POR APP: marcadas na tela de autorizar e revogadas em Apps autorizados. `/me/permissions` é legado.
 
 export const PermissionView = z.object({
   key: z.enum(PERMISSION_KEYS),
@@ -695,7 +722,7 @@ export const PermissionView = z.object({
   title: z.string(),
   description: z.string(),
   risk: z.enum(["low", "high"]),
-  /** Sem linha no banco = desligada. */
+  /** LEGADO: `true` = concedida a pelo menos um app. Ligar já não existe aqui: a permissão é dada ao autorizar o app. */
   enabled: z.boolean(),
   /** A pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar). */
   available: z.boolean(),

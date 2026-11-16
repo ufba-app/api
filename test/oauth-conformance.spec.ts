@@ -19,7 +19,7 @@ import { PrismaService } from '../src/infrastructure/persistence/prisma.service'
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
 import { CLIENT_DIRECTORY } from '../src/interface/web/web-tokens';
 import { InMemoryComputerRepo, InMemoryDeviceRepo, InMemoryUserRepo } from './support/memory-fakes';
-import { UserPermissionRepository } from '../src/application/ports/permissions';
+import { ClientPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
 import { InMemoryCredentials, InMemoryVaults } from './support/sigaa-store-fake';
 import { SigaaCredentialRepository, SigaaVaultRepository } from '../src/application/ports/repositories';
@@ -82,7 +82,7 @@ describe('conformidade do OAuth do MCP (HTTP, aplicação real)', () => {
       .useValue(new ClientDirectory(store, fakeFetcher, new FileVerifiedApps(), () => 'http://localhost:3000'))
       .overrideProvider(ApiKeyRepository)
       .useValue({ findActiveByHash: async () => null })
-      .overrideProvider(UserPermissionRepository)
+      .overrideProvider(ClientPermissionRepository)
       .useValue(new InMemoryPermissions())
       .overrideProvider(SigaaCredentialRepository)
       .useValue(new InMemoryCredentials())

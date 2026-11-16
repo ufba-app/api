@@ -19,7 +19,7 @@ import { FERRAMENTAS_CLINICA } from '../src/interface/mcp/clinica-tools';
 import { OAUTH_SERVICE } from '../src/interface/mcp/oauth/oauth.controller';
 import { MemoryOAuthStore, MemoryUserDirectory } from '../src/interface/mcp/testing/memory-oauth-store';
 import { PrismaService } from '../src/infrastructure/persistence/prisma.service';
-import { UserPermissionRepository } from '../src/application/ports/permissions';
+import { ClientPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
 import { MoodleLive } from '../src/infrastructure/sources/moodle/moodle-live';
 import { MemorySigaaSessionStore } from '../src/infrastructure/sources/sigaa/memory-session-store';
@@ -141,7 +141,7 @@ describe('MCP + OAuth no AppModule (leitura ao vivo)', () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue({})
-      .overrideProvider(UserPermissionRepository)
+      .overrideProvider(ClientPermissionRepository)
       .useValue(new InMemoryPermissions())
       .overrideProvider(LiveSources)
       .useValue(live)

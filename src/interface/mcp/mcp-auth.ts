@@ -8,7 +8,7 @@ import { McpAuth, McpPrincipal } from './mcp-ports';
 export class AuthenticatorsMcpAuth implements McpAuth {
   constructor(
     private readonly authenticators: readonly Authenticator[],
-    private readonly permissions?: { enabledKeys(userId: string): Promise<ReadonlySet<string>> },
+    private readonly permissions?: { grantedKeys(userId: string, clientId?: string): Promise<ReadonlySet<string>> },
   ) {}
 
   async authenticate(header: string | undefined): Promise<McpPrincipal | null> {
@@ -17,8 +17,9 @@ export class AuthenticatorsMcpAuth implements McpAuth {
     for (const auth of this.authenticators) {
       const found = await auth.authenticate(match[1]);
       if (found) {
-        // As permissões ligadas valem na hora: são lidas a cada requisição, ao montar o servidor.
-        const permissions = this.permissions ? await this.permissions.enabledKeys(found.userId) : undefined;
+        // As permissões são DO APP que chama (cliente do token): lidas a cada requisição, valem na hora. Credencial sem app
+        // (chave de API) não tem nenhuma.
+        const permissions = this.permissions ? await this.permissions.grantedKeys(found.userId, found.clientId) : undefined;
         return {
           userId: found.userId,
           ...(found.clientId ? { cliente: { clientId: found.clientId, ...(found.chave ? { chave: found.chave } : {}) } } : {}),

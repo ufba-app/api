@@ -32,20 +32,35 @@ describe('ferramentas de escrita atrás de permissão', () => {
 });
 
 describe('AuthenticatorsMcpAuth resolve as permissões da pessoa a cada requisição', () => {
-  const authn: Authenticator = { authenticate: async (t: string) => (t === 'tok' ? { userId: 'u1' } : null) } as unknown as Authenticator;
+  const authn: Authenticator = {
+    authenticate: async (t: string) => (t === 'tok' ? { userId: 'u1', clientId: 'app-a' } : t === 'plt' ? { userId: 'u1' } : null),
+  } as unknown as Authenticator;
 
-  it('coloca as chaves ligadas no principal; ligar e desligar vale na hora', async () => {
+  it('coloca no principal as chaves concedidas ao APP do token; conceder e revogar vale na hora', async () => {
     let enabled = new Set<string>();
-    const auth = new AuthenticatorsMcpAuth([authn], { enabledKeys: async () => enabled });
+    const asked: Array<[string, string | undefined]> = [];
+    const auth = new AuthenticatorsMcpAuth([authn], {
+      grantedKeys: async (u, c) => {
+        asked.push([u, c]);
+        return c === 'app-a' ? enabled : new Set();
+      },
+    });
     expect((await auth.authenticate('Bearer tok'))?.permissions?.size).toBe(0);
     enabled = new Set(['siasb.schedule_write']);
     expect([...((await auth.authenticate('Bearer tok'))?.permissions ?? [])]).toEqual(['siasb.schedule_write']);
     enabled = new Set();
     expect((await auth.authenticate('Bearer tok'))?.permissions?.size).toBe(0);
+    expect(asked.every(([, c]) => c === 'app-a')).toBe(true);
+  });
+
+  it('credencial sem app (chave de API) não herda as permissões de nenhum app', async () => {
+    const auth = new AuthenticatorsMcpAuth([authn], { grantedKeys: async (_u, c) => (c ? new Set(['siasb.schedule_write']) : new Set()) });
+    expect((await auth.authenticate('Bearer plt'))?.permissions?.size).toBe(0);
+    expect((await auth.authenticate('Bearer tok'))?.permissions?.size).toBe(1);
   });
 
   it('credencial inválida continua sendo null', async () => {
-    const auth = new AuthenticatorsMcpAuth([authn], { enabledKeys: async () => new Set() });
+    const auth = new AuthenticatorsMcpAuth([authn], { grantedKeys: async () => new Set() });
     expect(await auth.authenticate('Bearer outro')).toBeNull();
     expect(await auth.authenticate(undefined)).toBeNull();
   });

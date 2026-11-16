@@ -341,20 +341,26 @@ Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 
 `GET /calendar[?term=2026.2]` → 200, qualquer pessoa com sessão (`no-store`). Sem `term`: o semestre vigente (o que contém hoje; entre dois semestres, o próximo a começar; passados todos, o mais recente). Reedição do mesmo semestre: vale a mais recente. 404 `not_found` se não há calendário publicado; `term` inválido é 400.
 O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersion: "1", sourceUrl, publishedAt, document: { term, publishedOn }, keyDates: { termStart, progress25, progress50, progress75, termEnd, internship }, events[], teachingDays: { byMonth[], total }, nonTeachingDays[], otherEvents[] }`. Toda data é ISO (`YYYY-MM-DD`); `when` é uma união por `type` (`on`, `between`, `until`, `from`, `undetermined`). A projeção em intervalos de dia ainda não existe.
 
-## 5.3 Permissões por fonte (o que a pessoa libera para o Claude fazer)
+## 5.3 Permissões por app (o que a pessoa libera para UM app fazer)
 
-Interruptores que **só a pessoa liga, pela sessão do painel** (nenhuma ferramenta MCP altera permissões). Genéricos: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada.
+Permissões **por app** (cliente OAuth), marcadas **na tela de autorizar** e revogadas em **Apps autorizados**; **só a pessoa, pela sessão do painel**, concede e revoga (nenhuma ferramenta MCP altera permissões). Genéricas: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada. Padrão **negado**.
 
-- `GET /me/permissions` → `{ items: Permission[] }` (`no-store`), na ordem do catálogo.
-  `Permission = { key, source, title, description, risk: "low"|"high", enabled, available, unavailableReason: "source_not_connected" | null }`.
-  Sem linha no banco = `enabled: false` (todas nascem **desligadas**). `available` = a pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar); sem conexão: `available: false` e `unavailableReason: "source_not_connected"`.
-- `PUT /me/permissions/{key}` `{ enabled }` → 204. Exige sessão, `X-UFBA: 1`, `Origin` da casa e JSON (como as demais rotas que mudam estado). `key` é o enum fechado `PERMISSION_KEYS` do contrato; chave desconhecida ou corpo inválido: 400 `invalid_request`. **Ligar** sem a fonte conectada: 409 `permission_unavailable`. Desligar é sempre permitido.
+- **Oferta:** `GET /authorize/requests/{id}` (com sessão) traz `permissions: OfferedPermission[]` (`null` sem sessão), na ordem do catálogo:
+  `OfferedPermission = { key, source, title, description, risk: "low"|"high", available, unavailableReason: "source_not_connected" | null }`.
+  **Só aparecem permissões de fontes a que a pessoa tem acesso** (o SIASB só para quem tem matrícula de clínica ou conexão; senão a lista vem vazia). `available` = a fonte está conectada (em qualquer estado, inclusive reconectar). `risk: "high"` = o web pede confirmação antes de ligar (a API confia na escolha).
+- **Concessão:** `POST /authorize/requests/{id}/approve` aceita `{ permissions?: key[] }`. Presente (mesmo `[]`): grava o conjunto **exato** para este cliente, trocando o que ele tinha. Ausente: não altera. Validado **antes** de qualquer efeito do pedido: chave fora do enum ou corpo inválido = 400 `invalid_request`; chave de fonte desconectada = 409 `permission_unavailable` (o pedido continua válido). Gravada depois de emitido o code.
+- **Apps autorizados:** cada `AuthorizedApp` traz `permissions: { key, source, title, description, risk }[]` (o que a pessoa liberou para ESTE app). `DELETE /authorized-apps/{clientId}/permissions/{key}` → 204 retira **uma** sem revogar o app (404 se o app não a tinha; 400 chave inválida). Revogar o app leva as permissões dele.
+- **Fonte desconectada:** as permissões dela somem de **todos** os apps (não ficam ligadas para uma conexão futura).
+- **Filtro por acesso:** `GET /me/notification-settings` também devolve só os avisos de fontes a que a pessoa tem acesso (sem SIASB, lista vazia).
+- Rotas que mudam estado exigem sessão, `X-UFBA: 1`, `Origin` da casa e JSON (DELETE sem corpo).
 
-Chaves: `siasb.schedule_write` (risco `low`: agendar e desmarcar sessões) e `siasb.procedures_write` (risco `high`: lançar e excluir procedimentos previstos; o web abre um diálogo de confirmação antes de ligar). Chave nova entra em `PERMISSION_KEYS` e em `PERMISSION_CATALOG` (`src/application/permissions/permissions.service.ts`: título, descrição, fonte e risco são obrigatórios por tipo).
+**Legado (`/me/permissions`, a remover):** `GET` devolve a oferta com `enabled` = concedida a **pelo menos um app** (`no-store`; vazio sem acesso). `PUT /me/permissions/{key}` `{ enabled }`: `false` retira a chave de todos os apps (204); `true` é 400 (a permissão é dada ao autorizar o app). Existe só para o web não ficar sem tela durante a troca.
 
-Armazenamento: `user_permissions (user_id, key, enabled, updated_at)`, chave primária `(user_id, key)`. Desconectar a fonte apaga as linhas daquela fonte (chaves `<fonte>.*`); `DELETE /me` apaga todas (cascade). Cada mudança vai para o log de auditoria sem dado clínico: `permissão: user=<id> chave=<chave> valor=<bool> em=<ISO>`.
+Chaves: `siasb.schedule_write` (risco `low`: agendar e desmarcar sessões) e `siasb.procedures_write` (risco `high`: lançar e excluir procedimentos previstos). Chave nova entra em `PERMISSION_KEYS` e em `PERMISSION_CATALOG` (`src/application/permissions/permissions.service.ts`: título, descrição, fonte e risco são obrigatórios por tipo).
 
-**MCP:** o `/mcp` resolve as permissões LIGADAS da pessoa a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave dela está ligada (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Ligar e desligar vale na próxima requisição. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
+Armazenamento: `client_permissions (user_id, client_id, key, granted_at)`, chave primária `(user_id, client_id, key)`; linha existe = concedida. `DELETE /me` apaga todas (cascade). A antiga `user_permissions` (por pessoa) foi **apagada** (migração `20261116210000`, que só derruba se estiver vazia; senão falha com mensagem clara) e não foi migrada: concessão por app exige consentimento explícito de cada app. Cada concessão/revogação vai para o log de auditoria sem dado clínico (`permissões do app: user=<id> app=<client> chaves=[...] em=<ISO>`, `permissão revogada: ...`).
+
+**MCP:** o `/mcp` resolve as permissões **do app que chama** (o `clientId` do token) a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave foi concedida a esse app (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Conceder e revogar vale na próxima requisição. Credencial sem app (chave de API `plt_`) não tem nenhuma. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
 
 ## 5.5 Notificações (Web Push, canal genérico)
 
@@ -402,12 +408,13 @@ O que continua exposto: a senha fica na resposta HTTP (sob TLS) e no DOM dessa p
   `/register` é ignorado. Nome saneado (sem controle/bidi, até 60 caracteres). Logo servido pela própria API
   (PNG/JPEG/WebP até 256 KB; SVG recusado).
 - `sources`: o acesso não é por escopo: o cliente lê todas as fontes conectadas da pessoa. SIGAA só vai junto se
-  estiver `connected` nesta sessão.
+  estiver `connected` nesta sessão. Inclui `siasb` (`connected`, `reconnect_required` ou `disconnected`) **só para quem tem acesso a ele**.
+- `permissions`: as permissões que este pedido pode conceder (§5.3); `null` sem sessão.
 
 3. Decisão:
 
 ```
-POST /authorize/requests/{id}/approve   {}   → 200 { "redirectTo": "<redirect_uri>?code=…&state=…" }
+POST /authorize/requests/{id}/approve   { permissions?: key[] }   → 200 { "redirectTo": "<redirect_uri>?code=…&state=…" }
 POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_uri>?error=access_denied&state=…" }
 ```
 
@@ -426,7 +433,8 @@ POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_
 `GET /authorized-apps` → 200 `{ apps: AuthorizedApp[] }`; `DELETE /authorized-apps/{clientId}` → 204.
 
 - Lista os clientes com token válido da pessoa (o próprio web não entra).
-- Revogar apaga os tokens do cliente e a senha do SIGAA cifrada para ele. Efeito imediato.
+- Revogar apaga os tokens do cliente, a senha do SIGAA cifrada para ele e as permissões dele (§5.3). Efeito imediato.
+- Cada app traz `permissions` (o que a pessoa liberou para ele); `DELETE /authorized-apps/{clientId}/permissions/{key}` → 204 retira uma só.
 
 ## 8. Dados (leitura ao vivo)
 

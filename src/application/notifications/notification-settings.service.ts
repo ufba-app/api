@@ -15,11 +15,18 @@ export class NotificationSettings {
   constructor(
     private readonly repo: NotificationSettingRepository,
     private readonly now: () => Date = () => new Date(),
+    /** Sem ele, nada é filtrado (testes). */
+    private readonly access?: { hasAccess(userId: string, source: string): Promise<boolean> },
   ) {}
 
+  /** Só os avisos de fontes a que a pessoa tem acesso (quem não tem SIASB não vê os avisos dele). */
   async list(userId: string): Promise<NotificationSettingItem[]> {
     const rows = new Map((await this.repo.list(userId)).map((r) => [r.key, r.enabled]));
-    return NOTIFICATION_KEYS.map((key) => {
+    const allowed = new Map<string, boolean>();
+    for (const s of new Set(NOTIFICATION_KEYS.map((k) => NOTIFICATION_CATALOG[k].source))) {
+      allowed.set(s, this.access ? await this.access.hasAccess(userId, s) : true);
+    }
+    return NOTIFICATION_KEYS.filter((k) => allowed.get(NOTIFICATION_CATALOG[k].source)).map((key) => {
       const def = NOTIFICATION_CATALOG[key];
       return { key, source: def.source, title: def.title, description: def.description, enabled: rows.get(key) ?? def.defaultEnabled };
     });
