@@ -55,8 +55,8 @@ const COMBINATORS = ['anyOf', 'oneOf', 'allOf'];
 function untyped(schema: unknown, path: string, out: string[] = []): string[] {
   if (typeof schema !== 'object' || schema === null) return out;
   const s = schema as Record<string, unknown>;
-  const structured = '$ref' in s || COMBINATORS.some((k) => Array.isArray(s[k]));
-  if (s.type === undefined && !structured) out.push(path);
+  // `type` no PRÓPRIO nível, mesmo com anyOf/oneOf/$ref (é o que o validador da loja exige).
+  if (s.type === undefined) out.push(path);
   for (const k of ['properties', 'patternProperties', '$defs', 'definitions']) {
     const m = s[k];
     if (m && typeof m === 'object') for (const [n, sub] of Object.entries(m)) untyped(sub, `${path}.${n}`, out);
@@ -112,6 +112,21 @@ describe('exigências da loja do Claude: todas as ferramentas do /mcp', () => {
       expect(typeof t.annotations?.destructiveHint).toBe('boolean');
       if (t.annotations!.readOnlyHint) expect(t.annotations!.destructiveHint).toBe(false);
     }
+  });
+
+  it('annotations.title também, nas 34', () => {
+    for (const t of tools) expect((t.annotations as { title?: string }).title).toBe(t.title);
+  });
+
+  it('Option<enum> do ai-memory (anyOf/oneOf com null, $ref): memory_feedback.signal e memory_message_send.nature têm type no nível da propriedade', () => {
+    const props = (n: string) => (tools.find((t) => t.name === n)!.inputSchema as { properties: Record<string, any> }).properties;
+    expect(props('memory_feedback').signal.type).toEqual(['string', 'null']);
+    expect(props('memory_feedback').signal.anyOf).toBeDefined();
+    expect(props('memory_message_send').nature.type).toEqual(['string', 'null']);
+    expect(props('memory_message_send').nature2.type).toEqual(['string', 'null']);
+    expect(props('memory_message_send').nature3.type).toBe('string');
+    expect(props('memory_message_send').nature4.type).toBe('string');
+    expect(props('memory_message_send').nature5.type).toEqual(['string', 'null']);
   });
 
   it('as acadêmicas, clinica_* e a leitura de memória são somente leitura', () => {
@@ -170,8 +185,8 @@ describe('exigências da loja do Claude: todas as ferramentas do /mcp', () => {
     expect(p.obj.properties.de.type).toBe('string');
     expect(p.livre.type).toBe('string');
     expect(p.ok.type).toBe('integer');
-    expect(p.ref.type).toBeUndefined();
-    expect(p.uniao.type).toBeUndefined();
+    expect(p.ref.type).toBe('string');
+    expect(p.uniao.type).toEqual(['string', 'number']);
     expect(p.uniao.anyOf[0].type).toBe('string');
   });
 });

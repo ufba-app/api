@@ -82,7 +82,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'listar_contas',
     {
       title: 'Contas conectadas',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Contas conectadas', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       description:
         'Contas conectadas pela pessoa em cada fonte (ex.: Moodle da UFBA; Classroom no gmail pessoal e no @ufba.br). ' +
         'Use para saber o que passar em `conta` nas outras ferramentas; para ler todas, consulte uma conta por vez. ' +
@@ -96,7 +96,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'listar_cursos',
     {
       title: 'Listar matérias',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Listar matérias', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Lista as matérias que a pessoa cursa (use sempre que ela falar de aula, prova, trabalho, disciplina ou estudo, mesmo sem citar a UFBA). Padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
         'Use o `id` em `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
@@ -109,7 +109,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'prazos',
     {
       title: 'Próximos prazos',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Próximos prazos', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Use quando a pessoa falar de prova, entrega, trabalho ou "o que tenho para amanhã", mesmo sem citar a UFBA. Moodle: uma consulta ao ' +
         'calendário. Classroom: uma consulta por matéria ativa (com teto). Comece por aqui para perguntas como ' +
@@ -124,7 +124,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'ver_curso',
     {
       title: 'Ver matéria',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Ver matéria', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
         'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`. Classroom: arquivos em `abrirNoNavegador` ' +
@@ -139,7 +139,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'ver_forum',
     {
       title: 'Ver fórum',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Ver fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Discussões de UM fórum do Moodle (inclui o fórum de avisos da matéria), com mensagem e anexos. Use o ' +
         '`forumId` vindo de `ver_curso`. (O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
@@ -152,7 +152,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'ver_aviso',
     {
       title: 'Ver aviso',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Ver aviso', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Texto completo de UM aviso/notícia de uma matéria. Hoje só no SIGAA (`fonte: sigaa`). Use o `id` de um ' +
         'item `tipo: aviso` vindo de `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
@@ -165,7 +165,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     'baixar_anexo',
     {
       title: 'Baixar anexo',
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { title: 'Baixar anexo', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Gera links temporários (uso único) para baixar anexos NA MÁQUINA de quem está usando: rode os comandos ' +
         '`comoBaixar` do resultado. O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +

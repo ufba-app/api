@@ -217,12 +217,19 @@ export class FakeAiMemory {
                     project: { type: 'string' },
                     path: { type: 'string' },
                     // Como o ai-memory real: propriedades sem  (a loja do Claude recusa), para o proxy normalizar.
-                    signal: { enum: ['abort', 'timeout'], description: 'sem type' },
-                    nature: { enum: ['info', 'question'] },
+                    // Option<enum> do Rust (schemars): anyOf/oneOf com null e/ou $ref, SEM type no nível da propriedade
+                    // (é o que a loja recusou em memory_feedback.signal e memory_message_send.nature).
+                    signal: { anyOf: [{ enum: ['abort', 'timeout'] }, { type: 'null' }], description: 'sem type' },
+                    nature: { oneOf: [{ $ref: '#/$defs/Nature' }, { type: 'null' }] },
+                    nature2: { anyOf: [{ $ref: '#/$defs/Nature' }, { type: 'null' }] },
+                    nature3: { allOf: [{ $ref: '#/$defs/Nature' }] },
+                    nature4: { $ref: '#/$defs/Nature' },
+                    nature5: { enum: ['a', null] },
                     tags: { type: 'array', items: { enum: ['a', 'b'] } },
                     extra: { anyOf: [{ enum: ['x'] }, { type: 'number' }] },
                     filtro: { properties: { de: { description: 'sem type' } } },
                   },
+            $defs: { Nature: { type: 'string', enum: ['info', 'question'] } },
           },
           annotations: { readOnlyHint: name === 'memory_install_self_routing' },
         })),

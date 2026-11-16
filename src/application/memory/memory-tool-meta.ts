@@ -28,29 +28,53 @@ function typeOfValue(v: unknown): string {
   return 'string';
 }
 
-/** `type` coerente com o que o schema já diz (enum/const, properties, items); sem pista nenhuma, `string`. */
-function inferType(s: Json): string | string[] {
-  const values = Array.isArray(s.enum) ? s.enum : 'const' in s ? [s.const] : null;
-  if (values && values.length > 0) {
-    const kinds = [...new Set(values.map(typeOfValue))];
-    return kinds.length === 1 ? kinds[0] : kinds;
-  }
-  if (isObj(s.properties) || 'required' in s || 'additionalProperties' in s) return 'object';
-  if ('items' in s) return 'array';
-  return 'string';
-}
-
 const COMBINATORS = ['anyOf', 'oneOf', 'allOf'] as const;
 
-/** Copia o schema dando `type` a toda propriedade, item ou sub-schema que não tem (nem `$ref` nem combinador). Não altera o original. */
+/** Segue `$ref` local (`#/$defs/X`, `#/definitions/X`) até o schema de destino (no máximo 8 saltos). */
+function resolveRef(s: Json, root: Json): Json {
+  let cur = s;
+  for (let i = 0; i < 8 && typeof cur.$ref === 'string'; i++) {
+    const m = /^#\/(\$defs|definitions)\/(.+)$/.exec(cur.$ref);
+    const target = m && isObj(root[m[1]]) ? (root[m[1]] as Json)[m[2]] : undefined;
+    if (!isObj(target)) return cur;
+    cur = target;
+  }
+  return cur;
+}
+
+/**
+ * Tipos que o schema declara, direta ou indiretamente: `type`, valores de `enum`/`const`, destino de `$ref` e a UNIÃO dos
+ * tipos das alternativas de `anyOf`/`oneOf`/`allOf` (é o caso de `Option<enum>` no Rust: `anyOf: [{enum}, {type: null}]`).
+ */
+function typesOf(s: Json, root: Json, depth = 0): string[] {
+  if (depth > 8) return [];
+  const r = resolveRef(s, root);
+  if (typeof r.type === 'string') return [r.type];
+  if (Array.isArray(r.type)) return r.type.filter((t): t is string => typeof t === 'string');
+  const values = Array.isArray(r.enum) ? r.enum : 'const' in r ? [r.const] : null;
+  if (values && values.length > 0) return [...new Set(values.map(typeOfValue))];
+  const fromAlternatives = COMBINATORS.flatMap((k) => (Array.isArray(r[k]) ? (r[k] as unknown[]).filter(isObj).flatMap((m) => typesOf(m, root, depth + 1)) : []));
+  if (fromAlternatives.length > 0) return [...new Set(fromAlternatives)];
+  if (isObj(r.properties) || 'required' in r || 'additionalProperties' in r) return ['object'];
+  if ('items' in r) return ['array'];
+  return [];
+}
+
+/**
+ * Copia o schema dando `type` a toda propriedade, item ou sub-schema que não tem, NO PRÓPRIO NÍVEL (a loja do Claude
+ * exige `type` ao lado de `anyOf`/`oneOf`/`$ref`, não só dentro das alternativas). O tipo vem do que o schema já diz;
+ * as alternativas e o `enum` ficam como estão. Sem pista nenhuma, `string`. Não altera o original.
+ */
 export function withTypes(schema: unknown): unknown {
   if (!isObj(schema)) return schema;
-  const out = schema;
+  const root = schema;
   const fix = (s: unknown): unknown => {
     if (!isObj(s)) return s;
     const o: Json = { ...s };
-    const hasStructure = '$ref' in o || COMBINATORS.some((k) => Array.isArray(o[k]));
-    if (o.type === undefined && !hasStructure) o.type = inferType(o);
+    if (o.type === undefined) {
+      const types = typesOf(o, root);
+      o.type = types.length === 0 ? 'string' : types.length === 1 ? types[0] : types;
+    }
     for (const k of ['items', 'additionalProperties', 'not']) if (isObj(o[k])) o[k] = fix(o[k]);
     if (Array.isArray(o.items)) o.items = (o.items as unknown[]).map(fix);
     for (const k of ['properties', 'patternProperties', '$defs', 'definitions']) {
@@ -60,9 +84,9 @@ export function withTypes(schema: unknown): unknown {
     for (const k of COMBINATORS) if (Array.isArray(o[k])) o[k] = (o[k] as unknown[]).map(fix);
     return o;
   };
-  const root = fix(out) as Json;
-  if (root.type === undefined) root.type = 'object';
-  return root;
+  const out = fix(root) as Json;
+  if (out.type === undefined) out.type = 'object';
+  return out;
 }
 
 /** Títulos (pt-BR) das ferramentas `memory_*`. */
