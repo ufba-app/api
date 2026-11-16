@@ -32,6 +32,8 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 **Download:** `GET /download/:id`. O id (aleatório, uso único, ~10 min) é a própria credencial, sem Bearer, para funcionar com `curl`/navegador na máquina da pessoa. Os links ficam só em memória (morrem ao reiniciar; não valem entre instâncias).
 
+**Chat web (sem terminal):** para clientes de chat web (`isWebChatClient`), `baixar_anexo` não devolve `comoBaixar` (curl): devolve `link` + `comoLer`, e o Claude abre o link com a ferramenta de leitura de URL (nada de conteúdo passa pelo MCP). Esse link vale **10 min e 3 acessos** (a ferramenta de URL pode repetir a requisição), é `inline`, leva o nome do arquivo no fim (`/download/<id>/aula.pdf`, só para inferir o tipo) e responde `HEAD` sem gastar acesso. Toda resposta de download traz `Cache-Control: no-store`, `X-Robots-Tag: noindex` e `Referrer-Policy: no-referrer`. Terminal/editor/cliente desconhecido seguem com link de uso único e `curl`. **Não verificado:** se o claude.ai web consegue abrir o link e ler o arquivo (PDF, DOCX, planilha); depende da ferramenta de URL dele (teste real com o Andre).
+
 **Segredos não passam por ferramentas.** Tokens do Moodle e do Google e a senha do SIGAA entram só pela tela de autorização; nenhuma ferramenta aceita senha ou token.
 
 **Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.

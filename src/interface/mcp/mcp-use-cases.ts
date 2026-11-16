@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConsultaService, type Quem } from '../../application/live/consulta.service';
 import { DownloadLinks } from '../../application/live/download-links';
+import { isWebChatClient } from '../../application/memory/connect-guide';
 import type { Provider } from '../../application/ports/source-gateway';
 import type {
   BaixarAnexoInput,
@@ -18,6 +19,12 @@ const PROVIDERS: Record<Fonte, Provider> = { moodle: 'MOODLE', classroom: 'CLASS
 const FONTES: Partial<Record<Provider, Fonte>> = { MOODLE: 'moodle', CLASSROOM: 'classroom', SIGAA: 'sigaa' };
 
 const provider = (f?: Fonte): Provider => PROVIDERS[f ?? 'moodle'];
+
+/** Acessos de um link de leitura no chat web: a ferramenta de URL pode repetir a requisição. */
+export const WEB_USOS = 3;
+export const COMO_LER_WEB =
+  'Abra o `link` com a sua ferramenta de leitura de URL (web fetch) para ler o arquivo: não precisa baixar nem rodar comando. ' +
+  `O link vale 10 minutos e ${WEB_USOS} acessos, só para este arquivo. Se não conseguir abrir, diga isso à pessoa em vez de tentar o link do Drive ou do AVA.`;
 
 /** Quem consulta: o usuário e, em token OAuth, o cliente com a chave K (o SIGAA só abre com ela). */
 const quem = (p: McpPrincipal): Quem => (p.cliente ? { userId: p.userId, cliente: p.cliente } : { userId: p.userId });
@@ -68,14 +75,27 @@ export class McpUseCasesImpl implements McpUseCases {
     if (anexos.length > 20) throw new Error('No máximo 20 anexos por vez');
     const conta = (await this.consulta.conta(quem(p), fonte, i.conta)).accountKey;
     const base = (p.baseUrl ?? process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+    // Chat web não tem terminal: recebe um link para a ferramenta de leitura de URL abrir (poucos usos, pouco tempo, `inline`).
+    const web = isWebChatClient(p.clientName);
 
     const arquivos = anexos.map((a) => {
-      const { id, expiresAt } = this.downloads.criar({ userId: p.userId, provider: fonte, conta, ref: a.ref, nome: a.nome });
-      const link = `${base}/download/${id}`;
+      const { id, expiresAt } = this.downloads.criar({ userId: p.userId, provider: fonte, conta, ref: a.ref, nome: a.nome, ...(web ? { usos: WEB_USOS, inline: true } : {}) });
       const arquivo = (a.nome ?? 'anexo').replace(/["\\/]/g, '_');
+      if (web) {
+        // Só ajuda a inferir o tipo pela extensão: letras, números, `.`, `_`, `-` e espaço; sem `..` nem ponto no começo.
+        const nome = (a.nome ?? '').replace(/[^\p{L}\p{N}._ -]/gu, '_').replace(/\.{2,}/g, '.').replace(/^[. ]+/, '').trim().slice(0, 100);
+        return { nome: a.nome, link: `${base}/download/${id}${nome ? `/${encodeURIComponent(nome)}` : ''}`, expiraEm: expiresAt };
+      }
+      const link = `${base}/download/${id}`;
       return { nome: a.nome, link, expiraEm: expiresAt, comoBaixar: `curl -fL -o "${arquivo}" "${link}"` };
     });
 
+    if (web) {
+      const comoLer = COMO_LER_WEB;
+      return anexos.length === 1 && !i.anexos
+        ? { link: arquivos[0].link, expiraEm: arquivos[0].expiraEm, usos: WEB_USOS, comoLer }
+        : { usos: WEB_USOS, comoLer, arquivos };
+    }
     return anexos.length === 1 && !i.anexos
       ? { link: arquivos[0].link, expiraEm: arquivos[0].expiraEm, usoUnico: true, comoBaixar: arquivos[0].comoBaixar }
       : { usoUnico: true, arquivos };
