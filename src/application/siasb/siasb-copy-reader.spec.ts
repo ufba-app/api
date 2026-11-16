@@ -207,7 +207,7 @@ describe('SiasbCopyReader.situation', () => {
         sess('s4', 'a4', 'd4', iso(7), 'Confirmado'),
       ],
     });
-    const r = await reader.situation('u1');
+    const r = await reader.situation('u1', NOW);
     expect(r.stale).toBe(false);
     expect(r.syncedAt).toEqual(new Date(NOW.getTime() - 60_000));
     const by = Object.fromEntries(r.items.map((x) => [x.disciplineId, x]));
@@ -226,7 +226,7 @@ describe('SiasbCopyReader.situation', () => {
       attendances: [att('a2', 'd2'), att('a3', 'd3')],
       sessions: [sess('s2', 'a2', 'd2', iso(50), 'Confirmado'), sess('s3', 'a3', 'd3', iso(-70), 'Atendido')],
     });
-    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x]));
+    const by = Object.fromEntries((await reader.situation('u1', NOW)).items.map((x) => [x.disciplineId, x]));
     expect(by.d2).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
     expect(by.d3).toMatchObject({ state: 'NO_SESSION', nextSlot: null });
   });
@@ -242,7 +242,7 @@ describe('SiasbCopyReader.situation', () => {
         sess('s3b', 'a3', 'd3', iso(-54), 'Atendido'),
       ],
     });
-    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x]));
+    const by = Object.fromEntries((await reader.situation('u1', NOW)).items.map((x) => [x.disciplineId, x]));
     expect(by.d2.nextSlot).toBeInstanceOf(Date);
     expect(by.d3.nextSlot).toBeNull();
   });
@@ -257,30 +257,30 @@ describe('SiasbCopyReader.situation', () => {
       ],
       sessions: [sess('s3', 'a3', 'd3', iso(7), 'Confirmado')],
     });
-    const by = Object.fromEntries((await reader.situation('u1')).items.map((x) => [x.disciplineId, x.state]));
+    const by = Object.fromEntries((await reader.situation('u1', NOW)).items.map((x) => [x.disciplineId, x.state]));
     expect(by).toEqual({ d1: 'NO_PATIENT', d2: 'NO_SESSION', d3: 'SCHEDULED' });
   });
 
   it('consulta feriados na mesma janela do leitor ao vivo e holidaysConsidered segue o known', async () => {
     const known = new FakeCalendar({ known: true, dates: [] });
     const a = await build({ disciplines: [DISCS[0]] }, known);
-    const [item] = (await a.reader.situation('u1')).items;
+    const [item] = (await a.reader.situation('u1', NOW)).items;
     expect(item.holidaysConsidered).toBe(true);
     expect(known.calls[0]).toEqual({ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) });
     expect(known.calls[1]).toEqual({ from: new Date(NOW.getTime() - 14 * DAY), to: new Date(NOW.getTime() + 45 * DAY) });
     expect(known.calls).toHaveLength(2);
     const b = await build({ disciplines: [DISCS[0]] });
-    expect((await b.reader.situation('u1')).items[0].holidaysConsidered).toBe(false);
+    expect((await b.reader.situation('u1', NOW)).items[0].holidaysConsidered).toBe(false);
   });
 
   it('cópia vazia e sem sincronização: syncedAt null, stale, nenhum item', async () => {
     const { reader } = await build({}, new FakeCalendar(), false);
-    expect(await reader.situation('u1')).toEqual({ syncedAt: null, stale: true, items: [], previous: {} });
+    expect(await reader.situation('u1', NOW)).toEqual({ syncedAt: null, stale: true, items: [], previous: {} });
   });
 
   it('disciplinas sem sincronização continuam NO_PATIENT e stale', async () => {
     const { reader } = await build({ disciplines: [DISCS[0]] }, new FakeCalendar(), false);
-    const r = await reader.situation('u1');
+    const r = await reader.situation('u1', NOW);
     expect(r.stale).toBe(true);
     expect(r.syncedAt).toBeNull();
     expect(r.items.map((i) => i.state)).toEqual(['NO_PATIENT']);
@@ -289,15 +289,15 @@ describe('SiasbCopyReader.situation', () => {
   it('previous: último horário com prazo vencido por disciplina, com covered pela sessão do dia', async () => {
     const weekly = [sess('w1', 'a1', 'd1', iso(-14), 'Atendido'), sess('w2', 'a1', 'd1', iso(-7), 'Atendido')];
     const a = await build({ disciplines: [DISCS[0], DISCS[1]], attendances: [att('a1', 'd1')], sessions: weekly });
-    const r = await a.reader.situation('u1');
+    const r = await a.reader.situation('u1', NOW);
     expect(r.previous.d1).toMatchObject({ slot: new Date(iso(0)), covered: false });
     expect(r.previous.d1!.deadline.getTime()).toBeLessThanOrEqual(NOW.getTime());
     expect(r.previous.d2).toBeNull();
     // a falta do paciente no dia do horário conta como marcada
     const b = await build({ disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: [...weekly, sess('w3', 'a1', 'd1', iso(-1, 14), 'Falta paciente')] });
-    expect((await b.reader.situation('u1')).previous.d1!.covered).toBe(true);
+    expect((await b.reader.situation('u1', NOW)).previous.d1!.covered).toBe(true);
     // e os itens continuam os mesmos
-    expect((await b.reader.situation('u1')).items[0].disciplineId).toBe('d1');
+    expect((await b.reader.situation('u1', NOW)).items[0].disciplineId).toBe('d1');
   });
 
   it('previous usa o PRÓPRIO calendário (agora − 14 d, agora + 45 d): feriado entre o prazo e agora mantém o prazo avisado', async () => {
@@ -318,18 +318,18 @@ describe('SiasbCopyReader.situation', () => {
     // quinta 12/11 é feriado (só a segunda chamada devolve): o prazo do horário de hoje cai na terça, não na quarta
     const cal = new Seq([{ known: false, dates: [] }, { known: false, dates: ['2026-11-12'] }]);
     const a = await build(data, cal);
-    const r = await a.reader.situation('u1');
+    const r = await a.reader.situation('u1', NOW);
     expect(r.previous.d1!.deadline).toEqual(new Date(iso(-5)));
     expect(cal.calls[0]).toEqual({ from: NOW, to: new Date(NOW.getTime() + 45 * DAY) });
     expect(cal.calls[1]).toEqual({ from: new Date(NOW.getTime() - 14 * DAY), to: new Date(NOW.getTime() + 45 * DAY) });
     expect(r.items[0].holidaysConsidered).toBe(false);
     // o calendário falha na segunda chamada: não falha a leitura, usa nenhum feriado
     const b = await build(data, new Seq([{ known: false, dates: [] }, new Error('falhou')]));
-    expect((await b.reader.situation('u1')).previous.d1!.deadline).toEqual(new Date(iso(-4)));
+    expect((await b.reader.situation('u1', NOW)).previous.d1!.deadline).toEqual(new Date(iso(-4)));
   });
 
   it('só enxerga a cópia da própria pessoa', async () => {
     const { reader } = await build({ disciplines: [DISCS[0]] });
-    expect((await reader.situation('u2')).items).toEqual([]);
+    expect((await reader.situation('u2', NOW)).items).toEqual([]);
   });
 });

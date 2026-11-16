@@ -53,7 +53,7 @@ export class SiasbCopyReader {
         names.set(a.id, '');
       }
     }
-    const { syncedAt, stale } = this.freshness(state);
+    const { syncedAt, stale } = this.freshness(state, this.now());
     return {
       syncedAt,
       stale,
@@ -73,17 +73,20 @@ export class SiasbCopyReader {
   }
 
   /** Situação de cada disciplina a partir da cópia (mesma regra do leitor ao vivo; sessões de [agora − 60 d, agora + 45 d]). */
-  async situation(userId: string): Promise<{
+  async situation(
+    userId: string,
+    now: Date,
+    knownState?: SyncState | null,
+  ): Promise<{
     syncedAt: Date | null;
     stale: boolean;
     items: DisciplineSituation[];
     /** Por disciplina: o último horário da clínica cujo prazo já passou (base do "Prazo perdido"). */
     previous: Record<string, PreviousSlot | null>;
   }> {
-    const now = this.now();
     const [from, to] = historyWindow(now);
     const [state, disciplines, attendances, sessions, holidays] = await Promise.all([
-      this.copy.state(userId),
+      knownState !== undefined ? Promise.resolve(knownState) : this.copy.state(userId),
       this.copy.disciplines(userId),
       this.copy.attendances(userId),
       this.copy.sessions(userId, from, to),
@@ -131,13 +134,13 @@ export class SiasbCopyReader {
     for (const d of disciplines) {
       previous[d.id] = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays: previousHolidays });
     }
-    return { ...this.freshness(state), items, previous };
+    return { ...this.freshness(state, now), items, previous };
   }
 
-  private freshness(state: SyncState | null): { syncedAt: Date | null; stale: boolean } {
+  private freshness(state: SyncState | null, now: Date): { syncedAt: Date | null; stale: boolean } {
     const syncedAt = state?.lastSuccessAt ?? null;
     const stale =
-      !state || state.result !== 'OK' || !syncedAt || this.now().getTime() - syncedAt.getTime() > STALE_AFTER_MS;
+      !state || state.result !== 'OK' || !syncedAt || now.getTime() - syncedAt.getTime() > STALE_AFTER_MS;
     return { syncedAt, stale };
   }
 }
