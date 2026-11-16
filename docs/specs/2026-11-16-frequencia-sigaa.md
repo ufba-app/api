@@ -11,7 +11,7 @@ de 25% e a situação ("Em dia", "No limite"). Esta etapa traz só a frequência
 
 - `GET /sigaa/ava/FrequenciaAluno/mapa.jsf` **não funciona direto**, nem depois de entrar na turma: "Comportamento Inesperado!".
   A página só abre pelo clique em **Frequência** (grupo "Alunos") no `form#formMenu` da turma, que é um postback JSF
-  (`jsfcljs(formMenu, {'formMenu:j_id_…': 'formMenu:j_id_…'})`, action `/sigaa/ava/index.jsf`); o SIGAA redireciona para `mapa.jsf`.
+  (`jsfcljs(formMenu, {'formMenu:j_id_…': 'formMenu:j_id_…'})`, action `/sigaa/ava/index.jsf`); no navegador a URL passa a `mapa.jsf`. Não foi medido se a resposta ao POST é 302 ou 200 com o conteúdo; o código aceita os dois (ver `SigaaSession.postback`).
   O nome do `j_id_…` muda por deploy: sempre ler do HTML, achando o link pelo texto "Frequência".
 - Conteúdo da página (`fieldset` "Mapa de Frequências"), tudo em **aulas** (uma aula = 55 min), não em horas:
   - Presenças Registradas
@@ -37,7 +37,7 @@ histórico de semestres anteriores.
 ## Abordagens
 
 1. **Postback do menu por turma, como `verCurso`/`prazos` (escolhida).** Portal → entrar na turma → postback do item
-   "Frequência" → parser. Segue o caminho que o SIGAA aceita e reaproveita `entrarNaTurma` e o `postback` que já segue redirect.
+   "Frequência" → parser. Segue o caminho que o SIGAA aceita e reaproveita `entrarNaTurma`. O `SigaaSession.postback` passou a seguir um 302 para dentro de `/sigaa/` com GET (antes devolvia o corpo vazio do 302).
    Custo: o portal uma vez, mais 2 requisições por turma (entrar na turma e postback do menu).
 2. **GET direto em `mapa.jsf`.** Descartada: falha no SIGAA real.
 3. **Ler o resumo de frequência do histórico/PDF.** Descartada: o histórico não tem frequência do semestre em curso.
