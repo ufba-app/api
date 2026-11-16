@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { MemoryAdminError, MemoryMcp, RemoteTool, RemoteToolResult } from '../../application/memory/memory-ports';
 import type { Secret } from '../../application/shared/secret';
+import { classifyPermissionDenial } from '../../application/memory/permission-denial';
 import { DEFAULT_MEMORY_URL, validateMemoryUrl } from './memory-admin.client';
 
 const TIMEOUT_MS = 30_000;
@@ -68,7 +69,9 @@ export class MemoryMcpClient extends MemoryMcp {
   }
 }
 
-function kindOf(e: unknown): 'forbidden' | 'unavailable' {
+/** 401/403 = chave recusada; erro JSON-RPC de permissão (-32603 "not authorized...") = sem papel no projeto; o resto, indisponível. */
+function kindOf(e: unknown): 'forbidden' | 'unavailable' | 'read_only' | 'no_access' {
   const code = (e as { code?: unknown } | null)?.code;
-  return code === 401 || code === 403 ? 'forbidden' : 'unavailable';
+  if (code === 401 || code === 403) return 'forbidden';
+  return classifyPermissionDenial(String((e as { message?: unknown } | null)?.message ?? '')) ?? 'unavailable';
 }

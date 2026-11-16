@@ -232,6 +232,18 @@ export class FakeAiMemory {
       const name = msg.params?.name as string;
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       this.mcpCalls.push({ username: user.username, name, args });
+      // Como o ai-memory real: recusa de papel vem como ERRO JSON-RPC (-32603), não como resultado.
+      if (args.project === 'readonly') {
+        return this.reply(res, 200, {
+          jsonrpc: '2.0',
+          id: msg.id,
+          error: { code: -32603, message: 'not authorized for ufba-app/readonly: you have read access and this needs write' },
+        });
+      }
+      if (args.project === 'noaccess') {
+        return this.reply(res, 200, { jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'not authorized for ufba-app/noaccess' } });
+      }
+      if (args.project === 'boom') return this.reply(res, 500, { error: 'internal secret detail' });
       if (args.project === 'forbidden') {
         return result({
           isError: true,
