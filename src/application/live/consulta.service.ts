@@ -1,7 +1,14 @@
 import { Secret } from '../shared/secret';
 import { Injectable } from '@nestjs/common';
 import type { AttachmentContent } from '../ports/attachment-reader';
-import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PrazoVivo } from '../ports/live-source';
+import type {
+  AtividadeViva,
+  CursoVivo,
+  DiscussaoViva,
+  FrequenciaViva,
+  LiveSource,
+  PrazoVivo,
+} from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -95,6 +102,15 @@ export class ConsultaService {
       throw new FonteSemLeituraError(`${NOMES[provider]}: ver_aviso não disponível nesta fonte`);
     }
     return this.com(quem, provider, conta, (s, ctx) => s.verAviso!(ctx, avisoId));
+  }
+
+  /** Frequência de cada turma do semestre. Só o SIGAA tem (fonte fixa). */
+  async frequencia(quem: Quem, conta?: string): Promise<FrequenciaViva[]> {
+    const source = this.sources.get('SIGAA');
+    if (source && !source.frequencia) {
+      throw new FonteSemLeituraError('SIGAA: frequência não disponível nesta fonte');
+    }
+    return this.com(quem, 'SIGAA', conta, (s, ctx) => s.frequencia!(ctx));
   }
 
   baixar(quem: Quem, provider: Provider, conta: string | undefined, ref: string): Promise<AttachmentContent> {

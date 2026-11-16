@@ -14,6 +14,7 @@ import { AccountQuery, AttachmentQuery, CoursesQuery, parseInput } from '../../a
 import { ApiError, invalidRequest, sessionExpired, webCopyOf, type WebPrincipal } from '../../application/web/web-api';
 import { contentDisposition } from '../rest/download.controller';
 import { ApiErrorFilter } from './api-error.filter';
+import { toAttendance } from './attendance.mapper';
 import { DataGuard, Principal } from './web-auth';
 
 const PROVIDERS: Record<string, Provider> = { sigaa: 'SIGAA', moodle: 'MOODLE', classroom: 'CLASSROOM' };
@@ -133,6 +134,13 @@ export class DataController {
     const acc = parseInput(AccountQuery, q, invalidRequest).account;
     const list = await this.consulta.prazos(quem(p), provider(source), account(acc));
     return { deadlines: list.map(toDeadline) };
+  }
+
+  /** Só o SIGAA tem frequência (mapa de frequência da turma virtual); por isso a fonte está no caminho. */
+  @Get('sources/sigaa/attendance')
+  async attendance(@Principal() p: WebPrincipal | null, @Query() q?: unknown) {
+    const acc = parseInput(AccountQuery, q, invalidRequest).account;
+    return toAttendance(await this.consulta.frequencia(quem(p), account(acc)));
   }
 
   @Get('sources/:source/courses/:courseId')
