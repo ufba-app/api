@@ -646,18 +646,21 @@ export const MeCalendarQuery = z.object({ from: IsoDay, to: IsoDay });
 export const MeCalendarItem = z.object({
   /** Estável (a tela usa como chave). */
   id: z.string(),
-  /** `class` = aula (recorrência da turma no SIGAA, fora de feriado e dia sem aula); `session` = sessão da clínica marcada no SIASB. */
-  kind: z.enum(["class", "session"]),
+  /**
+   * `class` = aula (recorrência da turma no SIGAA, fora de feriado e dia sem aula); `deadline` = entrega e `exam` = prova/avaliação
+   * (as datas que o SIGAA expõe; só `source: "sigaa"`); `session` = sessão da clínica marcada no SIASB.
+   */
+  kind: z.enum(["class", "deadline", "exam", "session"]),
   source: CalendarSource,
-  /** Aula: o nome da turma. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
+  /** Aula: o nome da turma. Prazo/prova: a descrição no SIGAA. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
   title: z.string(),
   courseName: z.string().nullable(),
   courseCode: z.string().nullable(),
-  /** ISO com o fuso de Salvador (-03:00). */
+  /** ISO com o fuso de Salvador (-03:00). Aula, prova e sessão têm início; entrega não. Prova sem hora no SIGAA vem à meia-noite (T00:00). */
   startsAt: z.string().nullable(),
-  /** Fim da aula ou da sessão. */
+  /** Fim da aula ou da sessão, ou o PRAZO da entrega. Prova: nulo (a fonte só dá o instante de início). */
   endsAt: z.string().nullable(),
-  /** Sala da aula ou local da sessão. */
+  /** Sala da aula, local da sessão ou "SIGAA" (prazo/prova). */
   place: z.string().nullable(),
 });
 

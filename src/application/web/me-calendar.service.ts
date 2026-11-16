@@ -1,5 +1,6 @@
 import { todayInBahia } from '../calendar/calendar-alerts';
 import type { PublishedCalendarView } from '../calendar/published-calendar';
+import type { AgendaSigaa } from '../ports/live-source';
 import { expandClass, type ClassSchedule, type SchedulePeriod } from '../../domain/academic/class-schedule';
 import { isMarked } from '../../domain/siasb/clinical-state';
 import { FonteNaoConectadaError, type Quem } from '../live/consulta.service';
@@ -7,7 +8,7 @@ import { ApiError } from './web-api';
 
 export type CalendarSourceName = 'sigaa' | 'siasb';
 export type CalendarSourceStatus = 'ok' | 'failed' | 'reconnect_required';
-export type CalendarItemKind = 'class' | 'session';
+export type CalendarItemKind = 'class' | 'deadline' | 'exam' | 'session';
 /** Estado do SIGAA nesta sessão (o mesmo de `/me`): só `connected` lê; `password_required`/`locked` pedem reconectar. */
 export type SigaaState = 'connected' | 'disconnected' | 'password_required' | 'locked';
 
@@ -35,8 +36,8 @@ export interface MeCalendarView {
 export interface MeCalendarDeps {
   calendars: { all(): Promise<PublishedCalendarView[]> };
   sigaa: {
-    /** Turmas do semestre com dia, horário, período e sala (1 requisição ao portal do SIGAA). */
-    turmas(q: Quem): Promise<ClassSchedule[]>;
+    /** Turmas com horário e prazos do SIGAA numa passada (UMA leitura do portal; até 1 + 2×8 requisições sequenciais). */
+    agenda(q: Quem): Promise<AgendaSigaa>;
   };
   siasb: {
     /** Conexão com o SIASB e se ele é oferecido à pessoa. */
@@ -54,6 +55,11 @@ export const MAX_RANGE_DAYS = 62;
 const CACHE_TTL_MS = 3 * 60_000;
 const CACHE_MAX = 500;
 const SOURCE_TIMEOUT_MS = 20_000;
+/** Teto da leitura do SIGAA (portal + até 8 turmas, 2 requisições cada, em sequência). */
+const SIGAA_TIMEOUT_MS = 60_000;
+/** A leitura do SIGAA vale por pessoa, não por intervalo: navegar entre meses reaproveita (e poupa o JSF sequencial do SIGAA). */
+const SIGAA_CACHE_TTL_MS = 12 * 60_000;
+const SIGAA_CACHE_MAX = 200;
 const DAY_MS = 86_400_000;
 const BAHIA_OFFSET_MS = 3 * 3_600_000; // America/Bahia: UTC-3 o ano todo desde 2019
 
@@ -83,8 +89,21 @@ const slug = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
-const withTimeout = <T>(p: Promise<T>): Promise<T> =>
-  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), SOURCE_TIMEOUT_MS).unref())]);
+const withTimeout = <T>(p: Promise<T>, ms = SOURCE_TIMEOUT_MS): Promise<T> =>
+  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms).unref())]);
+
+const EXAM_WORDS = /\b(prova|exame|teste|avalia[cç][aã]o|p[1-9])\b/i;
+const DELIVERY_WORDS = /\b(entrega|trabalho|relat[óo]rio|lista|projeto|tarefa|atividade|exerc[íi]cios?|monografia|artigo)s?\b/i;
+
+/**
+ * As datas que o SIGAA expõe (a lista "Avaliações" da turma) são, em geral, provas: `exam`. Quando a descrição diz que é uma ENTREGA
+ * (trabalho, relatório, lista, projeto...), é `deadline`; "prova"/"exame"/"teste"/"avaliação" na descrição vence. A API classifica: o
+ * web não adivinha pelo texto. NÃO validado contra o SIGAA real (o repertório de descrições é do professor).
+ */
+export function classifySigaaDeadline(titulo: string): 'deadline' | 'exam' {
+  if (EXAM_WORDS.test(titulo)) return 'exam';
+  return DELIVERY_WORDS.test(titulo) ? 'deadline' : 'exam';
+}
 
 /**
  * `GET /me/calendar`: compila o que a pessoa tem em cada dia num formato pronto para desenhar. Só três coisas: (1) feriados e
@@ -96,6 +115,8 @@ const withTimeout = <T>(p: Promise<T>): Promise<T> =>
 export class MeCalendar {
   private readonly now: () => Date;
   private readonly cache = new Map<string, { at: number; value: MeCalendarView }>();
+  private readonly sigaaCache = new Map<string, { at: number; value: AgendaSigaa }>();
+  private readonly sigaaPendente = new Map<string, Promise<AgendaSigaa>>();
 
   constructor(private readonly d: MeCalendarDeps) {
     this.now = d.now ?? (() => new Date());
@@ -181,18 +202,40 @@ export class MeCalendar {
    * As aulas: cada turma do portal do SIGAA vira uma `class` por dia da recorrência, dentro do período da própria turma (ou do
    * semestre do calendário, se o portal não o mostrar) e SEM os dias com `nonTeaching`. Entrega e prova do AVA não entram aqui.
    */
+  /**
+   * A leitura do SIGAA (turmas + prazos), 12 min por pessoa em cache e com as leituras simultâneas da mesma pessoa fundidas numa só
+   * (o SIGAA/JSF é sequencial por sessão). Só leitura COMPLETA entra no cache: a incompleta é refeita na próxima.
+   */
+  private lerSigaa(q: Quem): Promise<AgendaSigaa> {
+    const hit = this.sigaaCache.get(q.userId);
+    if (hit && this.now().getTime() - hit.at < SIGAA_CACHE_TTL_MS) return Promise.resolve(hit.value);
+    const andamento = this.sigaaPendente.get(q.userId);
+    if (andamento) return andamento;
+    const p = withTimeout(this.d.sigaa.agenda(q), SIGAA_TIMEOUT_MS)
+      .then((value) => {
+        if (value.prazosCompletos) {
+          if (this.sigaaCache.size >= SIGAA_CACHE_MAX) this.sigaaCache.delete(this.sigaaCache.keys().next().value as string);
+          this.sigaaCache.set(q.userId, { at: this.now().getTime(), value });
+        }
+        return value;
+      })
+      .finally(() => this.sigaaPendente.delete(q.userId));
+    this.sigaaPendente.set(q.userId, p);
+    return p;
+  }
+
   private async classes(q: Quem, state: SigaaState, from: string, to: string, calendar: { termPeriod: SchedulePeriod | null; nonTeaching: Map<string, string> }) {
     const none = { items: [] as CalendarItem[], sources: [] as MeCalendarView['sources'] };
     if (state === 'disconnected') return none;
     if (state === 'password_required' || state === 'locked') return { items: [], sources: [{ source: 'sigaa' as const, status: 'reconnect_required' as const }] };
-    let turmas: ClassSchedule[];
+    let agenda: AgendaSigaa;
     try {
-      turmas = await withTimeout(this.d.sigaa.turmas(q));
+      agenda = await this.lerSigaa(q);
     } catch (e) {
       return { items: [], sources: [{ source: 'sigaa' as const, status: (e instanceof FonteNaoConectadaError ? 'reconnect_required' : 'failed') as CalendarSourceStatus }] };
     }
     const off = (date: string) => calendar.nonTeaching.has(date);
-    const items = turmas.flatMap((t) =>
+    const items: CalendarItem[] = agenda.turmas.flatMap((t) =>
       expandClass(t, from, to, off, calendar.termPeriod).map<CalendarItem>((o) => ({
         id: `sigaa:${slug(t.name)}:${o.date}:${o.start.replace(':', '')}`,
         kind: 'class',
@@ -205,7 +248,26 @@ export class MeCalendar {
         place: t.placeByWeekday[o.weekday] ?? null,
       })),
     );
-    return { items, sources: [{ source: 'sigaa' as const, status: 'ok' as const }] };
+    // Prazos e provas (as datas que o SIGAA expõe): entrega termina no prazo; prova começa na hora. Só de hoje em diante (a fonte não traz o passado).
+    for (const p of agenda.prazos) {
+      const kind = classifySigaaDeadline(p.titulo);
+      const iso = bahiaIso(p.quando);
+      const date = iso.slice(0, 10);
+      if (date < from || date > to) continue;
+      items.push({
+        id: `sigaa:${p.id}`,
+        kind,
+        source: 'sigaa',
+        title: p.titulo,
+        courseName: p.cursoNome ?? null,
+        courseCode: null,
+        startsAt: kind === 'exam' ? iso : null,
+        endsAt: kind === 'deadline' ? iso : null,
+        place: 'SIGAA',
+      });
+    }
+    // Prazos que pararam no meio (falha ou tempo): as aulas ficam e o aviso é da fonte, não da rota.
+    return { items, sources: [{ source: 'sigaa' as const, status: (agenda.prazosCompletos ? 'ok' : 'failed') as CalendarSourceStatus }] };
   }
 
   /** Sessões marcadas na clínica, só para quem tem acesso e conexão com o SIASB; sem nome de paciente. */

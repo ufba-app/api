@@ -3,7 +3,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
-import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
+import type { AgendaSigaa, AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -99,6 +99,16 @@ export class ConsultaService {
     const source = this.sources.get(provider);
     if (!source?.verTopico) throw new FonteSemLeituraError(`${NOMES[provider]}: ler um tópico ainda não disponível`);
     return this.com(quem, provider, conta, (s, ctx) => s.verTopico!(ctx, discussaoId));
+  }
+
+  /**
+   * Turmas com horário E prazos do SIGAA numa passada, com UMA leitura do portal (1 + 2 por turma com Turma Virtual, até 8). Falha
+   * nos prazos não derruba as turmas (`prazosCompletos: false`). Só o SIGAA.
+   */
+  async agendaSigaa(quem: Quem, conta?: string, opts?: { orcamentoMs?: number }): Promise<AgendaSigaa> {
+    const source = this.sources.get('SIGAA');
+    if (!source?.agendaSigaa) throw new FonteSemLeituraError('SIGAA: agenda das turmas ainda não disponível');
+    return this.com(quem, 'SIGAA', conta, (s, ctx) => s.agendaSigaa!(ctx, opts));
   }
 
   /** Turmas do semestre com dia e horário (só o SIGAA). 1 requisição ao portal. */

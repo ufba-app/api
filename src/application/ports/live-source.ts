@@ -94,6 +94,17 @@ export interface PostagemFeita {
   postId?: string;
 }
 
+/**
+ * O que o calendário do Painel lê do SIGAA numa passada só: as turmas com dia e horário e os prazos (avaliações com data). O portal é
+ * lido UMA vez e serve aos dois. `prazosCompletos: false` = a leitura dos prazos parou no meio (falha, ou acabou o orçamento de tempo):
+ * as turmas continuam valendo e `prazos` traz só o que deu para ler.
+ */
+export interface AgendaSigaa {
+  turmas: ClassSchedule[];
+  prazos: PrazoVivo[];
+  prazosCompletos: boolean;
+}
+
 export interface LiveSource {
   readonly provider: Provider;
   /** Matérias atuais da pessoa. `todas` inclui as passadas e futuras. */
@@ -111,6 +122,8 @@ export interface LiveSource {
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent>;
   /** Turmas do semestre com dia, horário, período e sala (só o SIGAA: 1 requisição, a página do portal que já se lê). */
   turmasComHorario?(ctx: SourceContext): Promise<ClassSchedule[]>;
+  /** Turmas com horário e prazos do SIGAA com UMA leitura do portal (calendário do Painel). Ver `AgendaSigaa`. */
+  agendaSigaa?(ctx: SourceContext, opts?: { orcamentoMs?: number }): Promise<AgendaSigaa>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
   /** Mensagens de UM tópico (inicial e respostas). Hoje só o Moodle: 1 chamada. */
