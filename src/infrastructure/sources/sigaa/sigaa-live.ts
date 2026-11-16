@@ -7,6 +7,7 @@ import type {
   CursoVivo,
   DiscussaoViva,
   LiveSource,
+  ParticipanteVivo,
   PrazoVivo,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
@@ -26,6 +27,7 @@ import { parseAvaliacoes, type Avaliacao } from './turma-virtual/avaliacoes';
 import { parsePostbackAcessarTurma } from './turma-virtual/entrar-turma';
 import { parseNoticiaDetalhe } from './turma-virtual/noticia-detalhe';
 import { parseNoticias, parsePostbackNoticia } from './turma-virtual/noticias';
+import { parseDiscentes, parsePostbackParticipantes } from './turma-virtual/participantes';
 import { parseTopicos } from './turma-virtual/topicos';
 import { parseTurmasHorario } from './turma-virtual/turma-horario';
 import { parseTurmaVirtualTokens, type TurmaVirtualToken } from './turma-virtual/turma-virtual-tokens';
@@ -358,6 +360,24 @@ export class SigaaLive implements LiveSource {
       }
     }
     return { prazos: prazos.sort((a, b) => a.quando.getTime() - b.quando.getTime()), completos };
+  }
+
+  /**
+   * Alunos (discentes) da turma: só o nome. 3 requisições: portal, entrar na turma e o postback do link "Participantes"
+   * do menu. Docentes ficam de fora; matrícula e e-mail nunca saem daqui.
+   */
+  listarParticipantes(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]> {
+    return this.usar(ctx, async (s) => {
+      const portal = await s.get(PORTAL_PATH);
+      const turma = parse(() => parseTurmaVirtualTokens(portal)).find((t) => idDaTurma(t) === cursoId);
+      if (!turma) throw new SourceError('UNSUPPORTED_SCOPE', MSG.turmaInexistente);
+      const { fields } = parse(() => parsePostbackAcessarTurma(portal, turma.frontEndIdTurma));
+      const turmaHtml = await s.postback(PORTAL_PATH, fields);
+      const menu = parse(() => parsePostbackParticipantes(turmaHtml));
+      const html = await s.postback(menu.action ?? PORTAL_PATH, menu.fields);
+      const nomes = parse(() => parseDiscentes(html));
+      return nomes.map((nome) => ({ nome, papeis: ['student'] }));
+    });
   }
 
   verForum(_ctx: SourceContext, _forumId: string): Promise<DiscussaoViva[]> {
