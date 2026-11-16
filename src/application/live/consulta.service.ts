@@ -4,7 +4,7 @@ import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
 import type { DriveFileInfo, DriveFolderEntry } from '../ports/drive-downloader';
-import type { AgendaSigaa, AnexoVivo, AtividadeViva, CursoVivo, DiscussaoViva, LinkVivo, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
+import type { AgendaSigaa, AnexoVivo, AtividadeViva, CursoVivo, DiscussaoViva, LinkVivo, LiveSource, MensagemViva, ParticipanteVivo, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -97,6 +97,13 @@ export class ConsultaService {
 
   async verForum(quem: Quem, provider: Provider, conta: string | undefined, forumId: string): Promise<DiscussaoViva[]> {
     return this.expandirPastas(quem, provider, await this.com(quem, provider, conta, (s, ctx) => s.verForum(ctx, forumId)));
+  }
+
+  /** Participantes de UMA matéria (nome e papéis). Só fontes com `listarParticipantes` (hoje, o Moodle). */
+  async listarParticipantes(quem: Quem, provider: Provider, conta: string | undefined, cursoId: string): Promise<ParticipanteVivo[]> {
+    const source = this.sources.get(provider);
+    if (!source?.listarParticipantes) throw new FonteSemLeituraError(`${NOMES[provider]}: listar participantes ainda não disponível`);
+    return this.com(quem, provider, conta, (s, ctx) => s.listarParticipantes!(ctx, cursoId));
   }
 
   /** Mensagens de UM tópico, com as respostas. Só fontes com `verTopico` (hoje, o Moodle). */

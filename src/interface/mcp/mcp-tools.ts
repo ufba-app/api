@@ -55,6 +55,7 @@ export const FERRAMENTAS = [
   'ver_curso',
   'ver_forum',
   'ver_topico',
+  'listar_alunos',
   'ver_aviso',
   'baixar_anexo',
 ] as const;
@@ -171,6 +172,19 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       inputSchema: { fonte: FONTE, conta: CONTA, discussaoId: z.string() },
     },
     (args) => run(() => uc.verTopico(p, args)),
+  );
+
+  server.registerTool(
+    'listar_alunos',
+    {
+      title: 'Listar alunos da matéria',
+      annotations: { title: 'Listar alunos da matéria', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Nomes dos ALUNOS de UMA matéria (o `id` de `listar_cursos`), em ordem alfabética, com o total. Só o nome: não traz e-mail nem contato. ' +
+        'Professores e monitores ficam de fora. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
+    },
+    (args) => run(() => uc.listarAlunos(p, args)),
   );
 
   server.registerTool(

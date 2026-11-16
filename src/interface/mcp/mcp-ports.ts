@@ -115,6 +115,11 @@ export interface VerTopicoInput extends Alvo {
   discussaoId: string;
 }
 
+/** Os alunos de uma matéria (o `id` de `listar_cursos`). */
+export interface ListarAlunosInput extends Alvo {
+  cursoId: string;
+}
+
 export interface VerAvisoInput extends Alvo {
   avisoId: string;
 }
@@ -145,6 +150,8 @@ export interface McpUseCases {
   verForum(p: McpPrincipal, input: VerForumInput): Promise<unknown>;
   /** Todas as mensagens de um tópico, com as respostas (`respostaA` liga cada uma à sua origem). */
   verTopico(p: McpPrincipal, input: VerTopicoInput): Promise<unknown>;
+  /** Nomes dos alunos de uma matéria (só o nome; sem contato). */
+  listarAlunos(p: McpPrincipal, input: ListarAlunosInput): Promise<unknown>;
   /** Texto completo de um aviso (hoje só SIGAA). */
   verAviso(p: McpPrincipal, input: VerAvisoInput): Promise<unknown>;
   /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */

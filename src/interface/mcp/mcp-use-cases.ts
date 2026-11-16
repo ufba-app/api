@@ -11,6 +11,7 @@ import type {
   McpUseCases,
   PostarForumInput,
   PrazosInput,
+  ListarAlunosInput,
   VerAvisoInput,
   VerTopicoInput,
   VerCursoInput,
@@ -63,6 +64,15 @@ export class McpUseCasesImpl implements McpUseCases {
 
   async verForum(p: McpPrincipal, i: VerForumInput) {
     return { forumId: i.forumId, discussoes: await this.consulta.verForum(quem(p), provider(i.fonte), i.conta, i.forumId) };
+  }
+
+  async listarAlunos(p: McpPrincipal, i: ListarAlunosInput) {
+    const participantes = await this.consulta.listarParticipantes(quem(p), provider(i.fonte), i.conta, i.cursoId);
+    const alunos = participantes
+      .filter((x) => x.papeis.includes('student'))
+      .map((x) => x.nome)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    return { cursoId: i.cursoId, total: alunos.length, alunos };
   }
 
   async verTopico(p: McpPrincipal, i: VerTopicoInput) {

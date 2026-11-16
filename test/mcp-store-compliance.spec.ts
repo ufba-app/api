@@ -94,9 +94,9 @@ describe('exigências da loja do Claude: todas as ferramentas do /mcp', () => {
     expect(instructions).toContain('memory_status');
   });
 
-  it('o conjunto é o esperado (casa 8 + clinica 7 + memory 20)', () => {
-    expect(tools).toHaveLength(35);
-    expect(new Set(tools.map((t) => t.name)).size).toBe(35);
+  it('o conjunto é o esperado (casa 9 + clinica 7 + memory 20)', () => {
+    expect(tools).toHaveLength(36);
+    expect(new Set(tools.map((t) => t.name)).size).toBe(36);
   });
 
   it('toda propriedade de todo inputSchema tem type (inclusive aninhadas)', () => {
@@ -132,7 +132,7 @@ describe('exigências da loja do Claude: todas as ferramentas do /mcp', () => {
   it('as acadêmicas, clinica_* e a leitura de memória são somente leitura', () => {
     const readOnly = tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name);
     const esperadas = [
-      'listar_contas', 'listar_cursos', 'prazos', 'ver_curso', 'ver_forum', 'ver_topico', 'ver_aviso', 'baixar_anexo',
+      'listar_contas', 'listar_cursos', 'prazos', 'ver_curso', 'ver_forum', 'ver_topico', 'listar_alunos', 'ver_aviso', 'baixar_anexo',
       'clinica_situacao', 'clinica_sessoes', 'clinica_prazo_marcacao', 'clinica_pacientes', 'clinica_vagas',
       'clinica_contexto_agendamento', 'clinica_progresso',
       'memory_status', 'memory_connect_computer', 'memory_briefing', 'memory_explore', 'memory_handoff_list',
