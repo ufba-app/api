@@ -149,6 +149,13 @@ export class SiasbWriter {
     const count = i.count;
     const durationMs = i.durationMin * 60_000;
     const starts = Array.from({ length: count }, (_, k) => new Date(i.start.getTime() + k * WEEK_MS));
+    const last = starts[starts.length - 1];
+    if (last.getTime() > now.getTime() + MAX_START_DAYS * DAY_MS) {
+      throw new WriteInputError(`A última sessão da série precisa cair em no máximo ${MAX_START_DAYS} dias a partir de hoje.`);
+    }
+    // Janela da conferência: do início da primeira ao fim da última sessão da série.
+    const checkFrom = i.start;
+    const checkTo = new Date(last.getTime() + durationMs);
     const confirmed = i.confirmed === true;
     const holder: AttemptHolder = { attempt: null };
 
@@ -189,6 +196,15 @@ export class SiasbWriter {
         };
         if (!confirmed) return { status: 'preview', summary: `Vai agendar ${what}${tail}`, details };
 
+        // Leitura prévia da janela: só sessões com id NOVO contam na conferência (uma antiga no mesmo início,
+        // marcada ou desmarcada, não prova nada). Falhou (sem ser reconexão)? Escreve assim mesmo e não confere.
+        let known: Set<string> | null;
+        try {
+          known = new Set((await this.siasb.sessions(session, checkFrom, checkTo)).map((s) => s.id));
+        } catch (e) {
+          if (e instanceof SiasbError && e.code === 'REAUTH_NEEDED') throw e;
+          known = null;
+        }
         await this.attemptWrite(holder, () =>
           this.siasb.scheduleSessions(session, {
             attendanceId,
@@ -201,14 +217,19 @@ export class SiasbWriter {
             description,
           }),
         );
-        const last = starts[starts.length - 1];
-        const after = await this.reread(session, i.start, new Date(last.getTime() + durationMs));
+        const after = known ? await this.reread(session, checkFrom, checkTo) : null;
         const expected = new Set(starts.map((d) => d.getTime()));
-        const confirmedDates = after
+        const confirmedDates = after && known
           ? [
               ...new Set(
                 after
-                  .filter((s) => s.attendanceId === attendanceId && expected.has(s.startAt.getTime()))
+                  .filter(
+                    (s) =>
+                      !known.has(s.id) &&
+                      s.attendanceId === attendanceId &&
+                      expected.has(s.startAt.getTime()) &&
+                      isMarked(s.statusLabel),
+                  )
                   .map((s) => s.startAt.getTime()),
               ),
             ]
@@ -259,6 +280,13 @@ export class SiasbWriter {
           throw new WriteInputError('Essa sessão não é de um dos seus atendimentos ativos.');
         }
         if (!isMarked(target.statusLabel)) throw new WriteInputError('Essa sessão não está marcada; não há o que desmarcar.');
+        const nowMs = now.getTime();
+        if (
+          target.startAt.getTime() <= nowMs ||
+          (target.rescheduledStartAt !== null && target.rescheduledStartAt.getTime() <= nowMs)
+        ) {
+          throw new WriteInputError('Só é possível desmarcar sessões futuras; para sessão passada use o site do SIASB.');
+        }
         attendanceId = target.attendanceId;
         const details = {
           sessaoId: sessionId,
@@ -345,6 +373,7 @@ export class SiasbWriter {
             faces,
             observation,
           });
+          // Só id de 1 a 12 dígitos (o limite da rota de excluir no cliente); maior ou não numérico vira null + aviso.
           createdId = r.createdId && isDigits(r.createdId) ? r.createdId : null;
           return r;
         });
@@ -376,12 +405,14 @@ export class SiasbWriter {
     const run = this.runner.run(
       userId,
       async (session): Promise<WriteOutcome> => {
+        // Não há leitura dos procedimentos lançados no atendimento: não dá para conferir que o id é de um procedimento
+        // PREVISTO (nem que existe). O texto não afirma isso; quem decide é o SIASB.
         await this.requireActive(session, attendanceId);
         const details = { atendimentoId: attendanceId, procedimentoId: procedureId };
         if (!confirmed) {
           return {
             status: 'preview',
-            summary: `Vai excluir o procedimento previsto de id ${procedureId} do atendimento ${attendanceId}.`,
+            summary: `Vai pedir ao SIASB para excluir o procedimento de id ${procedureId} do atendimento ${attendanceId}.`,
             details,
           };
         }
@@ -391,7 +422,7 @@ export class SiasbWriter {
         );
         return {
           status: 'done',
-          summary: `O SIASB excluiu o procedimento previsto de id ${procedureId} do atendimento ${attendanceId}.`,
+          summary: `O SIASB aceitou o pedido para excluir o procedimento de id ${procedureId} do atendimento ${attendanceId}.`,
           details,
         };
       },

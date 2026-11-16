@@ -102,6 +102,7 @@ class FakeSiasb extends SiasbSource {
   };
   writeFailure: SiasbError | null = null;
   readFailureAfterWrite: SiasbError | null = null;
+  readFailureBeforeWrite: SiasbError | null = null;
   created: string | null = '555';
   /** Sessões que passam a existir depois do agendamento (o que o SIASB gravou). */
   afterSchedule: ClinicalSession[] = [];
@@ -130,6 +131,7 @@ class FakeSiasb extends SiasbSource {
     this.calls.push('sessions');
     this.sessionRanges.push({ from, to });
     if (this.wrote && this.readFailureAfterWrite) throw this.readFailureAfterWrite;
+    if (!this.wrote && this.readFailureBeforeWrite) throw this.readFailureBeforeWrite;
     return this.list;
   }
   async procedures(_s: SiasbSession, attendanceId: string) {
@@ -376,6 +378,76 @@ describe('SiasbWriter.scheduleSession', () => {
     expect(t.audit.rows.map((r) => r.result)).toEqual(['ok']);
   });
 
+  describe('conferência só por sessões novas', () => {
+    const one = (over = {}) => scheduleInput({ count: 1, confirmed: true, ...over });
+
+    it('sessão desmarcada que já existia no mesmo início não conta', async () => {
+      const t = setup();
+      t.siasb.list = [sess('old', '100', START, 'Desmarcado')];
+      const out = await t.writer.scheduleSession('u1', one());
+      expect(t.writes()).toEqual(['scheduleSessions']);
+      expect(out.status === 'done' && out.details.verificado).toBe(false);
+      expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([]);
+    });
+
+    it('sessão marcada que já existia no mesmo início não conta', async () => {
+      const t = setup();
+      t.siasb.list = [sess('old', '100', START, 'Confirmado')];
+      const out = await t.writer.scheduleSession('u1', one());
+      expect(out.status === 'done' && out.details.verificado).toBe(false);
+    });
+
+    it('sessão nova e marcada conta, mesmo com uma antiga desmarcada no mesmo início', async () => {
+      const t = setup();
+      t.siasb.list = [sess('old', '100', START, 'Desmarcado')];
+      t.siasb.afterSchedule = [sess('n0', '100', START, 'Nova')];
+      const out = await t.writer.scheduleSession('u1', one());
+      expect(out.status === 'done' && out.details.verificado).toBe(true);
+      expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([START.toISOString()]);
+      // a leitura prévia é da mesma janela da conferência
+      expect(t.siasb.sessionRanges).toHaveLength(2);
+      expect(t.siasb.sessionRanges[0]).toEqual(t.siasb.sessionRanges[1]);
+    });
+
+    it('sessão nova mas não marcada não conta', async () => {
+      const t = setup();
+      t.siasb.afterSchedule = [sess('n0', '100', START, 'Desmarcado')];
+      const out = await t.writer.scheduleSession('u1', one());
+      expect(out.status === 'done' && out.details.verificado).toBe(false);
+    });
+
+    it('leitura prévia que falha: escreve assim mesmo e verificado false', async () => {
+      const t = setup();
+      t.siasb.readFailureBeforeWrite = new SiasbError('UNAVAILABLE');
+      t.siasb.afterSchedule = [sess('n0', '100', START, 'Nova')];
+      const out = await t.writer.scheduleSession('u1', one());
+      expect(t.writes()).toEqual(['scheduleSessions']);
+      expect(out.status === 'done' && out.details.verificado).toBe(false);
+    });
+
+    it('leitura prévia com sessão expirada: ReconectarError e nenhuma escrita', async () => {
+      const t = setup();
+      t.siasb.readFailureBeforeWrite = new SiasbError('REAUTH_NEEDED');
+      await expect(t.writer.scheduleSession('u1', one())).rejects.toBeInstanceOf(ReconectarError);
+      expect(t.writes()).toEqual([]);
+    });
+  });
+
+  it('série cuja última sessão passa de 365 dias: WriteInputError sem tocar o SIASB', async () => {
+    const t = setup();
+    const start = new Date(NOW.getTime() + 300 * 86_400_000);
+    const err = await t.writer.scheduleSession('u1', scheduleInput({ start, count: 20, confirmed: true })).catch((e) => e);
+    expect(err).toBeInstanceOf(WriteInputError);
+    expect(t.siasb.calls).toEqual([]);
+  });
+
+  it('última sessão exatamente em 365 dias: aceita', async () => {
+    const t = setup();
+    const start = new Date(NOW.getTime() + 358 * 86_400_000);
+    const out = await t.writer.scheduleSession('u1', scheduleInput({ start, count: 2 }));
+    expect(out.status).toBe('preview');
+  });
+
   it('WRITE_UNKNOWN: siasb_write_unknown, uma tentativa só, auditoria unknown, markDue', async () => {
     const t = setup();
     t.siasb.writeFailure = new SiasbError('WRITE_UNKNOWN', 'O SIASB não confirmou a operação.');
@@ -473,6 +545,26 @@ describe('SiasbWriter.unscheduleSession', () => {
     expect(JSON.stringify(out)).not.toContain(PACIENTE);
   });
 
+  it.each([
+    ['sessão passada', { startAt: new Date(NOW.getTime() - 86_400_000) }],
+    ['sessão começando agora', { startAt: NOW }],
+    ['reagendada para o passado', { rescheduledStartAt: new Date(NOW.getTime() - 3_600_000) }],
+  ])('%s: WriteInputError e nenhuma escrita', async (_n, over) => {
+    const t = setup();
+    t.siasb.list = [{ ...sess('500', '100', future), ...over }];
+    const err = await t.writer.unscheduleSession('u1', { sessionId: '500', confirmed: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(WriteInputError);
+    expect(err.message).toBe('Só é possível desmarcar sessões futuras; para sessão passada use o site do SIASB.');
+    expect(t.writes()).toEqual([]);
+  });
+
+  it('reagendada para o futuro: aceita', async () => {
+    const t = setup();
+    t.siasb.list = [{ ...sess('500', '100', future), rescheduledStartAt: new Date(future.getTime() + 86_400_000) }];
+    const out = await t.writer.unscheduleSession('u1', { sessionId: '500', confirmed: false });
+    expect(out.status).toBe('preview');
+  });
+
   it('sessão alheia (não está na lista da pessoa): recusa sem escrita', async () => {
     const t = setup();
     t.siasb.list = [sess('500', '100', future)];
@@ -500,12 +592,12 @@ describe('SiasbWriter.unscheduleSession', () => {
     expect(t.writes()).toEqual([]);
   });
 
-  it('confirmed: desmarca com o motivo padrão, absence nunca vai, verifica e audita', async () => {
+  // `absence: false` é fixo no cliente (o writer nem passa esse campo): ver siasb-client.spec.ts.
+  it('confirmed: desmarca com o motivo padrão, verifica e audita', async () => {
     const t = setup();
     t.siasb.list = [sess('500', '100', future)];
     const out = await t.writer.unscheduleSession('u1', { sessionId: '500', confirmed: true });
     expect(t.siasb.unscheduleBodies).toEqual([{ sessionId: '500', reason: 'Desmarcado pelo aluno' }]);
-    expect(Object.keys(t.siasb.unscheduleBodies[0])).not.toContain('absence');
     expect(out.status === 'done' && out.details.verificado).toBe(true);
     expect(t.audit.rows).toEqual([
       { userId: 'u1', kind: 'unschedule', attendanceId: '100', targetId: '500', result: 'ok', at: NOW },
@@ -586,6 +678,14 @@ describe('SiasbWriter.addProcedure', () => {
     expect(out.status === 'done' && out.summary).toContain('exclua pelo site');
   });
 
+  it('createdId com mais de 12 dígitos: procedimentoId null e aviso (a rota de excluir só aceita até 12)', async () => {
+    const t = setup();
+    t.siasb.created = '1234567890123';
+    const out = await t.writer.addProcedure('u1', { attendanceId: '100', serviceId: '7', confirmed: true });
+    expect(out.status === 'done' && out.details.procedimentoId).toBeNull();
+    expect(out.status === 'done' && out.summary).toContain('exclua pelo site');
+  });
+
   it('dente, face ou observação inválidos: WriteInputError sem tocar o SIASB', async () => {
     const t = setup();
     for (const over of [{ teeth: 'x'.repeat(51) }, { faces: 'a\nb' }, { observacao: 'a'.repeat(301) }, { serviceId: 'abc' }]) {
@@ -603,7 +703,7 @@ describe('SiasbWriter.removeProcedure', () => {
     const out = await t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed: false });
     expect(out).toEqual({
       status: 'preview',
-      summary: 'Vai excluir o procedimento previsto de id 42 do atendimento 100.',
+      summary: 'Vai pedir ao SIASB para excluir o procedimento de id 42 do atendimento 100.',
       details: { atendimentoId: '100', procedimentoId: '42' },
     });
     expect(t.writes()).toEqual([]);
