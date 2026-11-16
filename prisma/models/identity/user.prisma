@@ -26,7 +26,6 @@ model User {
   ownedProjects    MemoryProject[]
   projectMembers   MemoryProjectMember[]
   teamRoles        UserTeamRole[]
-  permissions      UserPermission[]
   clientPermissions ClientPermission[]
   pushDevices      PushDevice[]
   notificationSettings NotificationSetting[]

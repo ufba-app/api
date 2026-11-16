@@ -167,4 +167,12 @@ describe('PermissionsService (permissões por app)', () => {
     expect(sql).toMatch(/"client_permissions_user_id_fkey".*REFERENCES "users"\("id"\) ON DELETE CASCADE/);
     expect(sql).toMatch(/PRIMARY KEY \("user_id","client_id","key"\)/);
   });
+
+  it('a migração que apaga user_permissions só derruba a tabela vazia (falha com mensagem clara se houver linha)', () => {
+    const sql = readFileSync(join(__dirname, '..', '..', '..', 'prisma', 'migrations', '20261116210000_drop_user_permissions', 'migration.sql'), 'utf-8');
+    const guard = sql.indexOf('RAISE EXCEPTION');
+    expect(sql).toContain('IF EXISTS (SELECT 1 FROM "user_permissions")');
+    expect(guard).toBeGreaterThan(-1);
+    expect(sql.indexOf('DROP TABLE "user_permissions"')).toBeGreaterThan(guard);
+  });
 });
