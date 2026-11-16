@@ -36,7 +36,7 @@ const NOTICIAS_PATH = '/sigaa/ava/NoticiaTurma/listar.jsf';
 const AVALIACOES_PATH = '/sigaa/ava/DataAvaliacao/listar.jsf';
 const TIMELINE_PATH = '/sigaa/ava/Relatorios/timeline.jsf';
 
-/** Teto de turmas que `prazos` visita (2 requisições cada, além do portal). */
+/** Teto de turmas que `prazos` visita: a 1ª custa 2 requisições (entrar + avaliações), as demais 3 (portal fresco + entrar + avaliações). */
 export const MAX_TURMAS_PRAZOS = 8;
 /** Orçamento de tempo da leitura dos prazos no calendário: depois dele não se entra em outra turma. */
 export const ORCAMENTO_PRAZOS_MS = 30_000;
@@ -267,53 +267,73 @@ export class SigaaLive implements LiveSource {
    * antes de cada turma (1 + 3×8) ou mandar o ViewState do próprio form do portal.
    */
   prazos(ctx: SourceContext): Promise<PrazoVivo[]> {
+    let tentativa = 0;
     return this.usar(ctx, async (s) => {
+      tentativa++;
       const portal = await s.get(PORTAL_PATH);
       const turmas = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_PRAZOS);
       // Falha aqui derruba `prazos` inteiro: nada de resultado parcial.
-      return (await this.lerPrazos(s, portal, turmas)).prazos;
+      return (await this.lerPrazos(s, portal, turmas, { relogin: tentativa === 1 })).prazos;
     });
   }
 
   /**
-   * Calendário do Painel: as turmas com horário E os prazos numa passada, com UMA leitura do portal (a de `listarCursos`), no
-   * máximo 1 + 2×`MAX_TURMAS_PRAZOS` requisições sequenciais (JSF não admite paralelo na sessão). Diferente de `prazos`, aqui a
+   * Calendário do Painel: as turmas com horário E os prazos numa passada, com UMA leitura do portal para as aulas (a de `listarCursos`;
+   * serve também à 1ª turma), no máximo 1 + 2 + 3×(`MAX_TURMAS_PRAZOS` − 1) requisições sequenciais (JSF não admite paralelo na sessão). Diferente de `prazos`, aqui a
    * falha na leitura dos prazos NÃO derruba as aulas: a leitura para na primeira falha (não gasta requisições à toa), as turmas
    * seguem valendo e `prazosCompletos` fica `false`. Também para quando acaba o orçamento de tempo (`ORCAMENTO_PRAZOS_MS`).
    * Falha ao ler o portal em si (login, sessão, página inesperada) continua sendo erro: sem portal não há nada.
    */
   agendaSigaa(ctx: SourceContext, opts: { orcamentoMs?: number } = {}): Promise<AgendaSigaa> {
+    let tentativa = 0;
     return this.usar(ctx, async (s) => {
+      tentativa++;
       const portal = await s.get(PORTAL_PATH);
       const turmas = parse(() => parseTurmasHorario(portal));
       const tokens = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_PRAZOS);
       const limite = this.now() + (opts.orcamentoMs ?? ORCAMENTO_PRAZOS_MS);
-      const { prazos, completos } = await this.lerPrazos(s, portal, tokens, limite);
+      const { prazos, completos } = await this.lerPrazos(s, portal, tokens, { limite, relogin: tentativa === 1 });
       return { turmas, prazos, prazosCompletos: completos };
     });
   }
 
   /**
-   * Entra em cada turma e lê as avaliações (2 requisições por turma). Sem `limite`, qualquer falha propaga; com `limite` (ms desde a
-   * época), a falha e o estouro do tempo encerram a leitura e devolvem o que já veio, com `completos: false`.
+   * Entra em cada turma e lê as avaliações. A sequência é a do app antigo (conferida contra o SIGAA real): ANTES de cada entrada, o
+   * portal é lido de novo (UM GET fresco, com o ViewState e os tokens novos) e a turma é achada nessa página pelo nome; só a 1ª
+   * turma aproveita o portal já lido. Custo: 2 requisições na 1ª turma e 3 nas demais. (Antes o portal era lido uma vez e o ViewState da
+   * última página era reaproveitado, o que o SIGAA real recusa: a entrada voltava sem o menu da turma.)
+   *
+   * Se a 1ª entrada volta sem o menu da turma (sessão retomada que o SIGAA não aceita), e ainda há uma tentativa (`relogin`), lança
+   * `SigaaSessionExpiredError`: `SessoesSigaa` faz um login novo e refaz a leitura, como o app antigo, que sempre logava.
+   *
+   * Sem `limite`, qualquer falha propaga; com `limite` (ms desde a época), a falha de uma turma não encerra (tenta a próxima com
+   * portal fresco; duas seguidas encerram) e o estouro do tempo encerra, devolvendo o que já veio com `completos: false`.
    */
   private async lerPrazos(
     s: SigaaSession,
     portal: string,
     turmas: TurmaVirtualToken[],
-    limite?: number,
+    opts: { limite?: number; relogin?: boolean } = {},
   ): Promise<{ prazos: PrazoVivo[]; completos: boolean }> {
+    const { limite } = opts;
     const desde = inicioDeHojeNaBahia(this.now());
     const prazos: PrazoVivo[] = [];
     let completos = true;
-    for (const t of turmas) {
+    let lidas = 0;
+    let falhasSeguidas = 0;
+    for (const [n, t] of turmas.entries()) {
       if (limite !== undefined && this.now() >= limite) {
         completos = false;
         break;
       }
       try {
-        // Da 2ª turma em diante, reaproveita o ViewState da última página (não validado no SIGAA real; ver JSDoc de `prazos`).
-        await entrarNaTurma(s, portal, t);
+        const pagina = n === 0 ? portal : await s.get(PORTAL_PATH);
+        // Os tokens podem mudar a cada renderização do portal: acha a turma na página fresca (mesmo token, senão o mesmo nome).
+        const doPortal = parse(() => parseTurmaVirtualTokens(pagina));
+        const mesmoNome = doPortal.filter((x) => x.nome === t.nome);
+        const ordem = turmas.slice(0, n).filter((x) => x.nome === t.nome).length;
+        const atual = doPortal.find((x) => x.frontEndIdTurma === t.frontEndIdTurma) ?? mesmoNome[ordem] ?? mesmoNome[0] ?? t;
+        await entrarNaTurma(s, pagina, atual, `${n + 1}/${turmas.length}`);
         const html = await s.get(AVALIACOES_PATH);
         const cursoId = idDaTurma(t);
         parse(() => parseAvaliacoes(html)).forEach((a, i) => {
@@ -328,10 +348,13 @@ export class SigaaLive implements LiveSource {
             tipo: 'prova',
           });
         });
+        lidas++;
+        falhasSeguidas = 0;
       } catch (e) {
+        if (e instanceof PaginaInesperada && lidas === 0 && opts.relogin) throw new SigaaSessionExpiredError();
         if (limite === undefined) throw e;
         completos = false;
-        break;
+        if (++falhasSeguidas >= 2) break;
       }
     }
     return { prazos: prazos.sort((a, b) => a.quando.getTime() - b.quando.getTime()), completos };
@@ -367,10 +390,31 @@ export class SigaaLive implements LiveSource {
  * Postback do form "acessar turma virtual" lido do portal. O SIGAA pode responder 200 com o portal de volta em vez
  * da turma (gotcha 1 do ufba-app): sem o menu da turma, é erro, não "turma vazia".
  */
-async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken): Promise<void> {
+/**
+ * Impressão digital de uma página que NÃO é a da turma virtual, para diagnosticar o "bounce" pelo log sem expor conteúdo: tamanho, título
+ * (curto) e marcas da página (portal, login, menu da turma, sessão expirada). Nunca o corpo, o ViewState nem o token.
+ */
+export function impressaoDaPagina(html: string): string {
+  const titulo = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null;
+  return JSON.stringify({
+    tamanho: html.length,
+    titulo,
+    portal: html.includes('form_acessarTurmaVirtual'),
+    login: html.includes('user.login'),
+    menu: html.includes('formMenu'),
+    expirada: html.toLowerCase().includes('expirada'),
+  });
+}
+
+async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken, rotulo = ''): Promise<void> {
   const { fields } = parse(() => parsePostbackAcessarTurma(portal, turma.frontEndIdTurma));
   const html = await s.postback(PORTAL_PATH, fields);
-  parse(() => assertPaginaDaTurmaVirtual(html, 'a página principal da turma'));
+  try {
+    parse(() => assertPaginaDaTurmaVirtual(html, 'a página principal da turma'));
+  } catch (e) {
+    log.warn(`Entrada na Turma Virtual recusada${rotulo ? ` (turma ${rotulo})` : ''}; página recebida: ${impressaoDaPagina(html)}`);
+    throw e;
+  }
 }
 
 function comPrazo(a: Avaliacao): { prazo?: Date } {
