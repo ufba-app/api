@@ -11,7 +11,7 @@ import { AesSecretCipher } from '../src/infrastructure/crypto/aes-secret-cipher'
 import { MemoryAdminClient } from '../src/infrastructure/memory/memory-admin.client';
 import { MemoryMcpClient } from '../src/infrastructure/memory/memory-mcp.client';
 import { FAKE_MEMORY_TOOLS, FakeAiMemory } from '../src/infrastructure/memory/testing/fake-ai-memory';
-import { FERRAMENTAS, buildMcpServer } from '../src/interface/mcp/mcp-tools';
+import { ACADEMIC_INSTRUCTIONS, FERRAMENTAS, buildMcpServer } from '../src/interface/mcp/mcp-tools';
 import type { McpUseCases } from '../src/interface/mcp/mcp-ports';
 import { MemoryComputers } from '../src/application/memory/memory-computers';
 import { InMemoryComputerRepo, NoComputers } from './support/memory-fakes';
@@ -326,7 +326,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(names).not.toContain('memory_delete_page');
     expect(names).toHaveLength(FERRAMENTAS.length + 20);
     expect(names).toContain('memory_connect_computer');
-    expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
+    expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS}`);
     const q = (await client.listTools()).tools.find((t) => t.name === 'memory_query')!;
     expect(q.inputSchema.properties).toHaveProperty('workspace');
   });
@@ -355,11 +357,12 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(t).toContain('Nunca rode comandos de instalação sem o meu OK');
   });
 
-  it('sem MEMORY_ROOT_TOKEN: só as ferramentas da casa e nada de instructions', async () => {
+  it('sem MEMORY_ROOT_TOKEN: só as ferramentas da casa e só as instruções acadêmicas', async () => {
     client = await connect(false);
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([...FERRAMENTAS].sort());
-    expect(client.getInstructions()).toBeUndefined();
+    expect(client.getInstructions()).toContain("MESMO que ela não");
+    expect(client.getInstructions()).not.toContain("memory_");
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     expect(fake.requests).toHaveLength(0);
   });
@@ -376,7 +379,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       expect(names).toContain('memory_query');
       expect(names).not.toContain('memory_connect_computer');
       expect(client.getServerCapabilities()?.prompts).toBeUndefined();
-      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS_WEB);
+      expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS_WEB}`);
       expect(client.getInstructions()).not.toContain('memory_connect_computer');
       expect(await hint(client)).toBe('Nenhum computador conectado.');
       // Chamar pelo nome mesmo assim também não funciona neste cliente.
@@ -388,7 +393,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       client = await connect(true, name);
       expect(await tools(client)).toContain('memory_connect_computer');
       expect((await client.listPrompts()).prompts.map((p) => p.name)).toEqual(['conectar-computador']);
-      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
+      expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS}`);
       const h = await hint(client);
       expect(h).toContain('memory_connect_computer');
       expect(h).toMatch(/terminal ou editor/);
