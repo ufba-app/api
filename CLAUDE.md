@@ -14,6 +14,7 @@ Leia antes de mexer: `README.md`, `docs/ARQUITETURA.md`, `docs/WEB-API.md` (flux
 - **Maestri:** não apague nota nem feche portal sem pedido.
 - **Nomes:** identificadores de código e API em **inglês**; textos para a pessoa (UI e `message`) em **pt-BR**.
 - **Respostas:** diretas, recomendação primeiro, ressalvas agrupadas pela causa. Não varrer pastas fora do projeto.
+- **Permissões:** por APP, não por pessoa: marcadas na tela de autorizar (`POST /authorize/requests/{id}/approve { permissions }`), revogadas em Apps autorizados; o MCP lê as do `clientId` do token (`docs/WEB-API.md` §5.3).
 - **Vínculo:** para trocar o SIGAA ou o AVA ligados, a pessoa exclui a conta (`DELETE /me`) e entra de novo; não existe "trocar".
 - **Relatório:** ao terminar tarefa do orquestrador (`Claude Code - ME #3`), responda com `maestri ask "Claude Code - ME #3" "<resultado>"`.
 

@@ -1,3 +1,4 @@
+// DEPRECADA: permissões por pessoa, substituídas por `client_permissions` (por app). Não é mais lida nem gravada; some numa migração futura.
 // Permissões por fonte: interruptores que a PESSOA liga pelo painel (ex.: deixar o Claude agendar sessões no SIASB).
 // Sem linha = desligado (padrão). Desconectar a fonte apaga as linhas daquela fonte; `DELETE /me` apaga todas (cascade).
 // Só guarda a chave e o valor: nada de dado clínico nem da fonte.

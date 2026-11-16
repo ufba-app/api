@@ -41,7 +41,7 @@ import { WEB_CLIENT_ID } from '../src/application/web/web-api';
 import { InMemoryProjectRepo } from './support/memory-fakes';
 import { InMemorySlots } from './support/slot-fake';
 import { SigaaLoginFormSource } from '../src/application/ports/sigaa-launch';
-import { UserPermissionRepository } from '../src/application/ports/permissions';
+import { ClientPermissionRepository } from '../src/application/ports/permissions';
 import { InMemoryPermissions } from './support/permission-fake';
 import { FakePushSender, InMemoryAlertLog, InMemoryNotificationSettings, InMemoryPushDevices } from './support/notifications-fake';
 import { AlertLogRepository, NotificationSettingRepository, PushDeviceRepository, PushSender } from '../src/application/ports/notifications';
@@ -258,7 +258,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(pairingsRepo)
       .overrideProvider(SigaaLoginFormSource)
       .useValue(loginFormSource)
-      .overrideProvider(UserPermissionRepository)
+      .overrideProvider(ClientPermissionRepository)
       .useValue(permissionsRepo)
       .overrideProvider(PushSender)
       .useValue(pushSender)
@@ -1021,30 +1021,19 @@ describe('API do app web (docs/WEB-API.md)', () => {
   });
 
   describe('permissões por fonte', () => {
-    it('lista as permissões com texto da API, todas DESLIGADAS e indisponíveis sem a fonte conectada', async () => {
+    it('quem não tem acesso ao SIASB recebe a lista de permissões vazia, com no-store', async () => {
       const cookie = await signIn('perm1');
       const r = await get('/me/permissions', cookie);
       expect(r.status).toBe(200);
       expect(r.headers.get('cache-control')).toBe('no-store');
-      const { items } = (await r.json()) as { items: any[] };
-      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write']);
-      expect(items[0]).toMatchObject({
-        source: 'siasb',
-        title: 'Agendar e desmarcar sessões pelo Claude',
-        risk: 'low',
-        enabled: false,
-        available: false,
-        unavailableReason: 'source_not_connected',
-      });
-      expect(items[0].description).toMatch(/pede a sua confirmação/);
-      expect(items[1]).toMatchObject({ risk: 'high', enabled: false });
+      expect(((await r.json()) as any).items).toEqual([]);
     });
 
-    it('ligar sem a fonte conectada: 409 permission_unavailable, e nada é gravado', async () => {
+    it('ligar pelo caminho legado: 400 (a permissão é dada ao autorizar o app) e nada é gravado', async () => {
       const cookie = await signIn('perm2');
       const r = await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: true } });
-      expect(r.status).toBe(409);
-      expect(((await r.json()) as any).error).toBe('permission_unavailable');
+      expect(r.status).toBe(400);
+      expect(((await r.json()) as any).error).toBe('invalid_request');
       expect(permissionsRepo.rows.size).toBe(0);
     });
 
@@ -1172,6 +1161,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
 
     it('ajustes por tipo de aviso: texto pt-BR da API, padrão ligado, liga e desliga; chave desconhecida 400; CSRF', async () => {
       const cookie = await signIn('push7');
+      // Os avisos do SIASB só aparecem para quem tem acesso a ele (matrícula de clínica).
+      registrations.set(((await (await get('/me', cookie)).json()) as any).id, '010099907');
       const r = await get('/me/notification-settings', cookie);
       expect(r.status).toBe(200);
       expect(r.headers.get('cache-control')).toBe('no-store');
@@ -1803,6 +1794,169 @@ describe('API do app web (docs/WEB-API.md)', () => {
       expect(r.status).toBe(409);
       expect(((await r.json()) as any).error).toBe('source_account_mismatch');
       expect((await meOf(cookie)).connections.siasb.status).toBe('disconnected');
+    });
+
+    describe('permissões por app (tela de autorizar e Apps autorizados)', () => {
+      let n = 0;
+      /** Abre um pedido de autorização de um app NOVO e devolve o que a tela precisa. */
+      async function pedido(cookie: string) {
+        const c = await oauth.registerClient({ redirect_uris: [CLAUDE_CB], client_name: `App ${++n}` });
+        const { verifier, challenge } = pkce();
+        const q = new URLSearchParams({
+          response_type: 'code',
+          client_id: c.clientId,
+          redirect_uri: CLAUDE_CB,
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          state: 's',
+        });
+        const a = await get(`/authorize?${q}`);
+        const id = new URL(a.headers.get('location')!).searchParams.get('request')!;
+        return { clientId: c.clientId, id, verifier, info: async () => (await (await get(`/authorize/requests/${id}`, cookie)).json()) as any };
+      }
+      type Pedido = { clientId: string; id: string; verifier: string };
+      /** Aprova; se der certo, troca o code por token (só então o app passa a existir em Apps autorizados). */
+      const aprovar = async (cookie: string, p: Pedido, body: unknown = {}) => {
+        const r = await send('POST', `/authorize/requests/${p.id}/approve`, { cookie, body });
+        if (r.status === 200) {
+          const code = new URL(((await r.clone().json()) as any).redirectTo).searchParams.get('code')!;
+          await oauth.token({ grant_type: 'authorization_code', code, client_id: p.clientId, redirect_uri: CLAUDE_CB, code_verifier: p.verifier });
+        }
+        return r;
+      };
+      const apps = async (cookie: string) => ((await (await get('/authorized-apps', cookie)).json()) as any).apps as any[];
+
+      it('sem acesso ao SIASB: o pedido não mostra o SIASB nem permissões, e /me/permissions e os avisos vêm vazios', async () => {
+        const cookie = await signIn('pa-sem-acesso');
+        const p = await pedido(cookie);
+        const info = await p.info();
+        expect(info.sources.map((s: any) => s.source)).not.toContain('siasb');
+        expect(info.permissions).toEqual([]);
+        expect(((await (await get('/me/permissions', cookie)).json()) as any).items).toEqual([]);
+        expect(((await (await get('/me/notification-settings', cookie)).json()) as any).items).toEqual([]);
+        const anon = (await (await get(`/authorize/requests/${p.id}`)).json()) as any;
+        expect(anon.permissions).toBeNull();
+      });
+
+      it('com acesso mas sem conexão: o SIASB aparece como disconnected e as permissões, indisponíveis; aprovar com elas dá 409 e nada acontece', async () => {
+        const cookie = await aluno('pa-oferecido');
+        const p = await pedido(cookie);
+        const info = await p.info();
+        expect(info.sources).toContainEqual({ source: 'siasb', status: 'disconnected' });
+        expect(info.permissions.map((x: any) => [x.key, x.available, x.unavailableReason])).toEqual([
+          ['siasb.schedule_write', false, 'source_not_connected'],
+          ['siasb.procedures_write', false, 'source_not_connected'],
+        ]);
+        const r = await aprovar(cookie, p, { permissions: ['siasb.schedule_write'] });
+        expect(r.status).toBe(409);
+        expect(((await r.json()) as any).error).toBe('permission_unavailable');
+        // O pedido continua válido (nada foi consumido) e pode ser aprovado sem permissões.
+        expect((await aprovar(cookie, p, { permissions: [] })).status).toBe(200);
+      });
+
+      it('conectado: texto e risco vêm da API; aprovar grava as permissões POR APP e o app aparece com elas', async () => {
+        const cookie = await aluno('pa-conectado');
+        expect((await post(cookie)).status).toBe(204);
+        const a = await pedido(cookie);
+        const info = await a.info();
+        expect(info.sources).toContainEqual({ source: 'siasb', status: 'connected' });
+        expect(info.permissions[0]).toMatchObject({
+          key: 'siasb.schedule_write',
+          source: 'siasb',
+          title: 'Agendar e desmarcar sessões pelo Claude',
+          risk: 'low',
+          available: true,
+          unavailableReason: null,
+        });
+        expect(info.permissions[1]).toMatchObject({ key: 'siasb.procedures_write', risk: 'high', available: true });
+
+        expect((await aprovar(cookie, a, { permissions: ['siasb.schedule_write'] })).status).toBe(200);
+        const b = await pedido(cookie);
+        expect((await aprovar(cookie, b, { permissions: ['siasb.schedule_write', 'siasb.procedures_write'] })).status).toBe(200);
+        const c = await pedido(cookie);
+        expect((await aprovar(cookie, c)).status).toBe(200); // sem o campo: concede nada
+
+        const lista = await apps(cookie);
+        const dele = (id: string) => lista.find((x) => x.clientId === id).permissions;
+        expect(dele(a.clientId).map((x: any) => x.key)).toEqual(['siasb.schedule_write']);
+        expect(dele(b.clientId).map((x: any) => x.key).sort()).toEqual(['siasb.procedures_write', 'siasb.schedule_write']);
+        expect(dele(c.clientId)).toEqual([]);
+        expect(dele(b.clientId)[0]).toEqual(expect.objectContaining({ title: expect.any(String), description: expect.any(String), risk: expect.any(String), source: 'siasb' }));
+        // O legado enxerga a concessão (enabled = algum app).
+        const leg = ((await (await get('/me/permissions', cookie)).json()) as any).items;
+        expect(leg.map((x: any) => [x.key, x.enabled])).toEqual([
+          ['siasb.schedule_write', true],
+          ['siasb.procedures_write', true],
+        ]);
+      });
+
+      it('corpo inválido: 400 e o pedido não é consumido; chave desconhecida também', async () => {
+        const cookie = await aluno('pa-invalido');
+        expect((await post(cookie)).status).toBe(204);
+        const p = await pedido(cookie);
+        for (const body of [{ permissions: ['siasb.nao_existe'] }, { permissions: 'siasb.schedule_write' }, { permissions: [1] }]) {
+          expect((await aprovar(cookie, p, body)).status).toBe(400);
+        }
+        expect((await aprovar(cookie, p, { permissions: ['siasb.schedule_write'] })).status).toBe(200);
+      });
+
+      it('retirar UMA permissão de um app não revoga o app nem mexe nos outros; repetir dá 404; chave inválida 400', async () => {
+        const cookie = await aluno('pa-revoga-uma');
+        expect((await post(cookie)).status).toBe(204);
+        const a = await pedido(cookie);
+        const b = await pedido(cookie);
+        for (const p of [a, b]) expect((await aprovar(cookie, p, { permissions: ['siasb.schedule_write', 'siasb.procedures_write'] })).status).toBe(200);
+        const r = await send('DELETE', `/authorized-apps/${a.clientId}/permissions/siasb.procedures_write`, { cookie });
+        expect(r.status).toBe(204);
+        const lista = await apps(cookie);
+        expect(lista.find((x) => x.clientId === a.clientId).permissions.map((x: any) => x.key)).toEqual(['siasb.schedule_write']);
+        expect(lista.find((x) => x.clientId === b.clientId).permissions).toHaveLength(2);
+        expect((await send('DELETE', `/authorized-apps/${a.clientId}/permissions/siasb.procedures_write`, { cookie })).status).toBe(404);
+        expect((await send('DELETE', `/authorized-apps/${a.clientId}/permissions/siasb.nao_existe`, { cookie })).status).toBe(400);
+        expect((await send('DELETE', `/authorized-apps/${a.clientId}/permissions/siasb.schedule_write`, { cookie, csrf: false })).status).toBe(403);
+        expect((await send('DELETE', `/authorized-apps/${a.clientId}/permissions/siasb.schedule_write`)).status).toBe(401);
+      });
+
+      it('revogar o app leva as permissões dele; desconectar o SIASB limpa as de todos os apps', async () => {
+        const cookie = await aluno('pa-revoga-app');
+        expect((await post(cookie)).status).toBe(204);
+        const a = await pedido(cookie);
+        const b = await pedido(cookie);
+        for (const p of [a, b]) expect((await aprovar(cookie, p, { permissions: ['siasb.schedule_write'] })).status).toBe(200);
+        expect((await send('DELETE', `/authorized-apps/${a.clientId}`, { cookie })).status).toBe(204);
+        expect((await apps(cookie)).map((x) => x.clientId)).toEqual([b.clientId]);
+        expect((await send('DELETE', '/connections/siasb', { cookie })).status).toBe(204);
+        expect((await apps(cookie)).find((x) => x.clientId === b.clientId).permissions).toEqual([]);
+      });
+
+      it('aprovar de novo o mesmo app troca o conjunto', async () => {
+        const cookie = await aluno('pa-reaprova');
+        expect((await post(cookie)).status).toBe(204);
+        const a = await pedido(cookie);
+        expect((await aprovar(cookie, a, { permissions: ['siasb.schedule_write', 'siasb.procedures_write'] })).status).toBe(200);
+        // Novo pedido do MESMO client_id.
+        const { verifier, challenge } = pkce();
+        const q = new URLSearchParams({ response_type: 'code', client_id: a.clientId, redirect_uri: CLAUDE_CB, code_challenge: challenge, code_challenge_method: 'S256', state: 's' });
+        const id = new URL((await get(`/authorize?${q}`)).headers.get('location')!).searchParams.get('request')!;
+        expect((await aprovar(cookie, { clientId: a.clientId, id, verifier }, { permissions: ['siasb.procedures_write'] })).status).toBe(200);
+        expect((await apps(cookie)).find((x) => x.clientId === a.clientId).permissions.map((x: any) => x.key)).toEqual(['siasb.procedures_write']);
+      });
+
+      it('legado: desligar retira de todos os apps (204); ligar é 400', async () => {
+        const cookie = await aluno('pa-legado');
+        expect((await post(cookie)).status).toBe(204);
+        const a = await pedido(cookie);
+        expect((await aprovar(cookie, a, { permissions: ['siasb.schedule_write'] })).status).toBe(200);
+        expect((await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: true } })).status).toBe(400);
+        expect((await send('PUT', '/me/permissions/siasb.schedule_write', { cookie, body: { enabled: false } })).status).toBe(204);
+        expect((await apps(cookie)).find((x) => x.clientId === a.clientId).permissions).toEqual([]);
+      });
+
+      it('os avisos do SIASB aparecem só para quem tem acesso a ele', async () => {
+        const cookie = await aluno('pa-avisos');
+        const items = ((await (await get('/me/notification-settings', cookie)).json()) as any).items;
+        expect(items.map((i: any) => i.key)).toEqual(['siasb.alerts']);
+      });
     });
   });
 

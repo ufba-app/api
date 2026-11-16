@@ -34,6 +34,7 @@ import {
   ConnectSigaaBody,
   AcademicConsentBody,
   PERMISSION_KEYS,
+  ApproveRequestBody,
   PermissionBody,
   NOTIFICATION_KEYS,
   NotificationSettingBody,
@@ -550,8 +551,10 @@ export class AuthorizeRequestsController {
   @Post(':id/approve')
   @HttpCode(200)
   @UseGuards(SessionGuard)
-  approve(@Param('id') id: string, @Principal() p: WebPrincipal | null) {
-    return this.web.approve(id, must(p));
+  approve(@Param('id') id: string, @Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    // Corpo opcional: sem `permissions` o app mantém o que já tem; com a lista (mesmo vazia), vale o conjunto exato.
+    const body = parseInput(ApproveRequestBody, b ?? {}, invalidRequest);
+    return this.web.approve(id, must(p), body.permissions);
   }
 
   @Post(':id/deny')
@@ -578,6 +581,14 @@ export class AuthorizedAppsController {
   @UseGuards(SessionGuard)
   async revoke(@Principal() p: WebPrincipal | null, @Param('clientId') clientId: string): Promise<void> {
     await this.web.revoke(must(p), clientId);
+  }
+
+  /** Retira UMA permissão do app, sem revogar o app. */
+  @Delete(':clientId/permissions/:key')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async revokePermission(@Principal() p: WebPrincipal | null, @Param('clientId') clientId: string, @Param('key') key: string): Promise<void> {
+    await this.web.revokePermission(must(p), clientId, parseInput(z.enum(PERMISSION_KEYS), key, invalidRequest));
   }
 }
 

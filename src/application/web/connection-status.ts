@@ -41,15 +41,19 @@ export class ConnectionStatus {
    * reconnect_required. Falha ao consultar nunca derruba o /me.
    */
   async siasb(p: WebPrincipal): Promise<Me['connections']['siasb']> {
+    return this.siasbOf(p.userId);
+  }
+
+  async siasbOf(userId: string): Promise<Me['connections']['siasb']> {
     try {
-      const s = await this.siasbLink.status(p.userId);
+      const s = await this.siasbLink.status(userId);
       if (s.state === 'disconnected') {
-        const offered = await this.offered(p.userId);
+        const offered = await this.offered(userId);
         return { offered, status: 'disconnected', expiresAt: null, syncedAt: null };
       }
       const expired = s.expiresAt !== null && s.expiresAt.getTime() <= this.now();
       // Já conectado: só o banco decide a oferta (matrícula importada); matrícula apagada não vira erro nem consulta o SIASB.
-      const offered = await this.siasbLink.hasRegistration(p.userId).catch(() => false);
+      const offered = await this.siasbLink.hasRegistration(userId).catch(() => false);
       return {
         offered,
         status: s.state === 'connected' && !expired ? 'connected' : 'reconnect_required',
@@ -80,6 +84,12 @@ export class ConnectionStatus {
     if (source === 'classroom') return (await this.accountsOf(userId, 'CLASSROOM')).length > 0;
     if (source === 'siasb') return (await this.siasbLink.status(userId)).state !== 'disconnected';
     return false;
+  }
+
+  /** A fonte é oferecida a esta pessoa? Só o SIASB é restrito (matrícula de clínica); as demais são abertas a todos. */
+  async hasAccess(userId: string, source: string): Promise<boolean> {
+    if (source !== 'siasb') return true;
+    return (await this.siasbOf(userId)).offered;
   }
 
   async sigaaOpens(p: WebPrincipal): Promise<boolean> {
@@ -124,10 +134,11 @@ export class ConnectionStatus {
 
   /** Resumo por fonte para a tela de autorização. */
   async sources(p: WebPrincipal): Promise<NonNullable<RequestInfo['sources']>> {
-    const [sigaa, moodle, classroom] = await Promise.all([
+    const [sigaa, moodle, classroom, siasb] = await Promise.all([
       this.sigaa(p),
       this.accountsOf(p.userId, 'MOODLE'),
       this.accountsOf(p.userId, 'CLASSROOM'),
+      this.siasbOf(p.userId),
     ]);
     const agg = (list: SourceAccountRecord[]) =>
       list.length === 0 ? 'disconnected' : list.some((a) => a.status === 'OK') ? 'connected' : 'reconnect_required';
@@ -136,6 +147,8 @@ export class ConnectionStatus {
       { source: 'moodle', status: agg(moodle) },
     ];
     if (this.classroom.enabled()) out.push({ source: 'classroom', status: agg(classroom) });
+    // O SIASB só aparece para quem tem acesso a ele (oferta ou conexão); os demais nem sabem que existe.
+    if (siasb.offered || siasb.status !== 'disconnected') out.push({ source: 'siasb', status: siasb.status });
     return out;
   }
 }

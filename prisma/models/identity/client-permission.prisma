@@ -1,0 +1,17 @@
+// Permissões por APP (cliente OAuth): o que a pessoa liberou para UM app fazer em seu nome (ex.: o Claude agendar sessões
+// no SIASB), marcado na tela de autorizar. Linha existe = permissão concedida àquele app; sem linha = negada. Revogar o app
+// (ou a fonte) apaga as linhas; `DELETE /me` apaga todas (cascade). Só guarda a chave: nada de dado clínico nem da fonte.
+// Substitui `user_permissions` (por pessoa, que valia para todo app): aquela tabela não é mais lida nem gravada.
+model ClientPermission {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  clientId  String   @map("client_id")
+  // "<fonte>.<ação>", ex.: "siasb.schedule_write". O conjunto válido é o enum PERMISSION_KEYS do contrato.
+  key       String
+  grantedAt DateTime @default(now()) @map("granted_at")
+
+  @@id([userId, clientId, key])
+  @@index([userId])
+  @@map("client_permissions")
+}

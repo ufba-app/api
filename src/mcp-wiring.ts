@@ -32,7 +32,7 @@ import { WebPushSender } from './infrastructure/push/web-push-sender';
 import { SigaaLaunch } from './application/web/sigaa-launch.service';
 import { SigaaLoginFormSource } from './application/ports/sigaa-launch';
 import { HttpSigaaLoginFormSource } from './infrastructure/sources/sigaa/login-form-source';
-import { UserPermissionRepository } from './application/ports/permissions';
+import { ClientPermissionRepository } from './application/ports/permissions';
 import { ConnectionsService } from './application/web/connections.service';
 import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
 import { SigaaPairings } from './application/web/sigaa-pairings.service';
@@ -190,8 +190,8 @@ export const mcpProviders: Provider[] = [
   { provide: SigaaLoginFormSource, useFactory: () => new HttpSigaaLoginFormSource() },
   {
     provide: PermissionsService,
-    useFactory: (repo: UserPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
-    inject: [UserPermissionRepository, ConnectionStatus],
+    useFactory: (repo: ClientPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
+    inject: [ClientPermissionRepository, ConnectionStatus],
   },
   // Canal de notificações (Web Push). VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT por ambiente; sem elas o canal fica desligado.
   { provide: PushSender, useFactory: () => new WebPushSender() },
@@ -202,8 +202,9 @@ export const mcpProviders: Provider[] = [
   },
   {
     provide: NotificationSettings,
-    useFactory: (repo: NotificationSettingRepository) => new NotificationSettings(repo),
-    inject: [NotificationSettingRepository],
+    // `status` filtra por acesso: quem não tem SIASB não vê os avisos dele.
+    useFactory: (repo: NotificationSettingRepository, status: ConnectionStatus) => new NotificationSettings(repo, undefined, status),
+    inject: [NotificationSettingRepository, ConnectionStatus],
   },
   {
     provide: Notifier,
@@ -215,14 +216,15 @@ export const mcpProviders: Provider[] = [
   { provide: ALERT_PROVIDERS, useFactory: (): AlertProvider[] => [], inject: [] },
   {
     provide: AuthorizationRequests,
-    useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
-      new AuthorizationRequests(oauth, clients, cofre, status),
-    inject: [OAUTH_SERVICE, CLIENT_DIRECTORY, CofreSigaa, ConnectionStatus],
+    useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus, permissions: PermissionsService) =>
+      new AuthorizationRequests(oauth, clients, cofre, status, permissions),
+    inject: [OAUTH_SERVICE, CLIENT_DIRECTORY, CofreSigaa, ConnectionStatus, PermissionsService],
   },
   {
     provide: AuthorizedApps,
-    useFactory: (store: OAuthStore, clients: ClientDirectory, cofre: CofreSigaa) => new AuthorizedApps(store, clients, cofre),
-    inject: [OAUTH_STORE, CLIENT_DIRECTORY, CofreSigaa],
+    useFactory: (store: OAuthStore, clients: ClientDirectory, cofre: CofreSigaa, permissions: PermissionsService) =>
+      new AuthorizedApps(store, clients, cofre, permissions),
+    inject: [OAUTH_STORE, CLIENT_DIRECTORY, CofreSigaa, PermissionsService],
   },
   // Vínculo fixo conta ↔ titular na fonte (CPF no SIGAA, usuário do AVA no Moodle).
   {
