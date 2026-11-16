@@ -72,4 +72,4 @@ Código de saída: **0** se a execução rodou (mesmo com falhas por pessoa ou p
 
 Variáveis (por referência ao serviço da API, sem copiar o valor): `DATABASE_URL` e `SECRETS_KEY` (precisa ser a mesma da API, para abrir a cifra). Não precisa de `WEB_ORIGIN`, `PUBLIC_URL`, das variáveis de Google/Moodle nem de VAPID. `MEMORY_SCHEDULER=off` é imposto pelo próprio job.
 
-**Transição:** enquanto o orquestrador não renomear o serviço `siasb-cron` para `sync-cron` e trocar o start para `node dist/src/sync-job.js`, o serviço antigo continua rodando `node dist/src/siasb-job.js`, um alias deprecado que executa exatamente o mesmo runner com os mesmos provedores. Depois da troca, `src/siasb-job.ts` é apagado.
+O alias `src/siasb-job.ts` (`node dist/src/siasb-job.js`) não existe mais: o start do serviço tem de ser `node dist/src/sync-job.js`.

@@ -38,6 +38,9 @@ import { SiasbSource } from './application/ports/siasb-source';
 import { SiasbLink } from './application/siasb/siasb-link';
 import { SiasbReader } from './application/siasb/siasb-reader';
 import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbSessionRunner } from './application/siasb/siasb-session-runner';
+import { SiasbWriter } from './application/siasb/siasb-writer';
+import { SiasbWriteAuditRepository } from './application/ports/siasb-write-audit';
 import { SiasbSyncProvider } from './application/siasb/siasb-sync-provider';
 import { SYNC_PROVIDERS } from './application/jobs/sync-provider';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
@@ -60,6 +63,9 @@ import { UsuariosController } from './interface/rest/usuarios.controller';
 import { ClassroomGateway } from './infrastructure/sources/classroom/classroom.gateway';
 import { ClassroomLive } from './infrastructure/sources/classroom/classroom-live';
 import { GoogleAuth, GoogleHttp } from './infrastructure/sources/google/google-http';
+import { DriveDownloader } from './application/ports/drive-downloader';
+import { DriveRefs } from './infrastructure/sources/drive/drive-refs';
+import { DisabledDriveDownloader, GoogleDriveDownloader } from './infrastructure/sources/drive/google-drive-downloader';
 import { MoodleGateway } from './infrastructure/sources/moodle/moodle.gateway';
 import { MoodleLive } from './infrastructure/sources/moodle/moodle-live';
 import { createSigaaHttpClient } from './infrastructure/sources/sigaa/http-client';
@@ -73,6 +79,7 @@ import { AcademicImports } from './application/academic/academic-imports';
 import { AcademicRepository, TranscriptSource } from './application/ports/academic';
 import { PdfTextExtractor, TRANSCRIPT_READER, TranscriptReader } from './application/ports/transcript';
 import { ConnectionStatus } from './application/web/connection-status';
+import { MeCalendar } from './application/web/me-calendar.service';
 import { AnthropicTranscriptReader } from './infrastructure/sources/sigaa/history/anthropic-transcript-reader';
 import { SessionTranscriptSource } from './infrastructure/sources/sigaa/history/session-transcript-source';
 import { PdfParseTextExtractor } from './infrastructure/sources/sigaa/history/pdf-text-extractor';
@@ -122,7 +129,8 @@ export function buildLiveSources(
   sessoesSigaa: SessoesSigaa = buildSessoesSigaa(),
 ): LiveSources {
   const live = new LiveSources();
-  live.register(new MoodleLive());
+  // Sem SECRETS_KEY os `ref` do Drive não podem ser assinados: o recurso fica desligado.
+  live.register(new MoodleLive(fetch, env.SECRETS_KEY ? new DriveRefs(env.SECRETS_KEY) : undefined));
   live.register(new SigaaLive(sessoesSigaa));
   const c = classroomClientes(env);
   if (c) live.register(new ClassroomLive(c, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined }));
@@ -139,6 +147,16 @@ export function buildLiveSources(
     BearerGuard,
     ConsultaService,
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
+    {
+      // Arquivos do Drive linkados no Moodle: token da pessoa (Classroom) e, sem acesso, link público; só hosts do Google.
+      provide: DriveDownloader,
+      useFactory: (): DriveDownloader => {
+        const env = process.env;
+        if (!env.SECRETS_KEY) return new DisabledDriveDownloader();
+        // Sem Classroom configurado só vale o link público.
+        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined, apiKey: env.GOOGLE_DRIVE_API_KEY || undefined });
+      },
+    },
     {
       provide: SessoesSigaa,
       useFactory: (store: SigaaSessionStore, cipher: SecretCipher) => buildSessoesSigaa(store, cipher),
@@ -182,6 +200,19 @@ export function buildLiveSources(
       inject: [SiasbReader, SiasbCopyRepository, SecretCipher],
     },
     {
+      // Escrita no SIASB (agenda e procedimentos previstos): mesmo executor de sessão da leitura, sem retry.
+      provide: SiasbWriter,
+      useFactory: (
+        siasb: SiasbSource,
+        accounts: SourceAccountRepository,
+        cipher: SecretCipher,
+        syncer: SiasbSyncer,
+        copy: SiasbCopyRepository,
+        audit: SiasbWriteAuditRepository,
+      ) => new SiasbWriter(new SiasbSessionRunner(accounts, cipher), siasb, syncer, copy, audit),
+      inject: [SiasbSource, SourceAccountRepository, SecretCipher, SiasbSyncer, SiasbCopyRepository, SiasbWriteAuditRepository],
+    },
+    {
       provide: SiasbSyncProvider,
       useFactory: (syncer: SiasbSyncer, copy: SiasbCopyRepository) => new SiasbSyncProvider(syncer, copy),
       inject: [SiasbSyncer, SiasbCopyRepository],
@@ -194,8 +225,9 @@ export function buildLiveSources(
     },
     {
       provide: SiasbCopyReader,
-      useFactory: (copy: SiasbCopyRepository, cipher: SecretCipher) => new SiasbCopyReader(copy, cipher),
-      inject: [SiasbCopyRepository, SecretCipher],
+      useFactory: (copy: SiasbCopyRepository, cipher: SecretCipher, calendar: AcademicCalendar) =>
+        new SiasbCopyReader(copy, cipher, calendar),
+      inject: [SiasbCopyRepository, SecretCipher, AcademicCalendar],
     },
     // Memória compartilhada: sem MEMORY_ROOT_TOKEN o cliente fica "não configurado" e nada de memory_* aparece.
     { provide: MemoryAdmin, useFactory: () => MemoryAdminClient.fromEnv() },
@@ -322,6 +354,16 @@ export function buildLiveSources(
       inject: [CalendarLogRepository, MemoryAdmins, CalendarWatcher],
     },
     { provide: PublishedCalendar, useFactory: (logs: CalendarLogRepository) => new PublishedCalendar(logs), inject: [CalendarLogRepository] },
+    {
+      provide: MeCalendar,
+      useFactory: (calendars: PublishedCalendar, consulta: ConsultaService, status: ConnectionStatus, reader: SiasbCopyReader) =>
+        new MeCalendar({
+          calendars,
+          sigaa: { agenda: (q) => consulta.agendaSigaa(q) },
+          siasb: { status: (userId) => status.siasbOf(userId), agenda: (userId, from, to) => reader.agenda(userId, from, to) },
+        }),
+      inject: [PublishedCalendar, ConsultaService, ConnectionStatus, SiasbCopyReader],
+    },
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
     {
       provide: MemoryProxy,
@@ -418,6 +460,7 @@ export function buildLiveSources(
     ...mcpProviders,
   ],
   exports: [
+    ConnectionStatus,
     IdentityService,
     SourceRegistry,
     SecretCipher,
@@ -425,6 +468,7 @@ export function buildLiveSources(
     SiasbLink,
     SiasbReader,
     SiasbSyncer,
+    SiasbWriter,
     SYNC_PROVIDERS,
     SiasbCopyReader,
     ConsultaService,
@@ -440,6 +484,7 @@ export function buildLiveSources(
     TeamRoles,
     CalendarAlertService,
     PublishedCalendar,
+    MeCalendar,
     CalendarWatcher,
     AccountDeparture,
     DownloadLinks,

@@ -11,7 +11,7 @@ import { AesSecretCipher } from '../src/infrastructure/crypto/aes-secret-cipher'
 import { MemoryAdminClient } from '../src/infrastructure/memory/memory-admin.client';
 import { MemoryMcpClient } from '../src/infrastructure/memory/memory-mcp.client';
 import { FAKE_MEMORY_TOOLS, FakeAiMemory } from '../src/infrastructure/memory/testing/fake-ai-memory';
-import { FERRAMENTAS, buildMcpServer } from '../src/interface/mcp/mcp-tools';
+import { ACADEMIC_INSTRUCTIONS, FERRAMENTAS, buildMcpServer } from '../src/interface/mcp/mcp-tools';
 import type { McpUseCases } from '../src/interface/mcp/mcp-ports';
 import { MemoryComputers } from '../src/application/memory/memory-computers';
 import { InMemoryComputerRepo, NoComputers } from './support/memory-fakes';
@@ -168,7 +168,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     expect(good!.isError).toBeUndefined();
   });
 
-  it('erro do memory (sem permissão no projeto) volta como veio, legível', async () => {
+  it('erro do memory (sem permissão no projeto) vira mensagem pt-BR fixa, sem o texto do servidor', async () => {
     const r = await proxy.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'forbidden' });
     // 'forbidden' não está registrado: o proxy barra antes e nem pergunta ao memory.
     expect(r!.isError).toBe(true);
@@ -177,7 +177,31 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     const p2 = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess(), computers);
     const r2 = await p2.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'forbidden' });
     expect(r2!.isError).toBe(true);
-    expect(text(r2)).toContain('not authorized for ufba-app/forbidden');
+    expect(text(r2)).toContain('Você não tem acesso ao projeto');
+    expect(text(r2)).not.toContain('operator');
+  });
+
+  describe('recusa de permissão do memory (erro JSON-RPC -32603) em mensagem clara', () => {
+    const reg = new SeededProjectRegistry([['ufba-app', 'readonly'], ['ufba-app', 'noaccess'], ['ufba-app', 'boom']]);
+    const p = () => new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess(), computers);
+
+    it('só leitura: pede o papel de mantenedor, cita o projeto e não vaza o texto interno', async () => {
+      const r = await p().call(UID, 'memory_write_page', { workspace: 'ufba-app', project: 'readonly', path: 'a.md' });
+      expect(r!.isError).toBe(true);
+      expect(text(r)).toBe('Você só tem leitura no projeto "ufba-app/readonly". Para gravar, peça o papel de mantenedor a um administrador.');
+      expect(text(r)).not.toMatch(/-32603|not authorized|needs write/);
+    });
+
+    it('sem acesso nenhum: mensagem de acesso, não de indisponibilidade', async () => {
+      const r = await p().call(UID, 'memory_query', { workspace: 'ufba-app', project: 'noaccess' });
+      expect(text(r)).toBe('Você não tem acesso ao projeto "ufba-app/noaccess". Peça acesso a um administrador.');
+    });
+
+    it('falha de servidor (5xx) continua sendo "indisponível", sem detalhe', async () => {
+      const r = await p().call(UID, 'memory_query', { workspace: 'ufba-app', project: 'boom' });
+      expect(text(r)).toBe('A memória está indisponível no momento. Tente de novo em instantes.');
+      expect(text(r)).not.toContain('secret');
+    });
   });
 
   it('limites: 1 MB por chamada e 30 por minuto por pessoa', async () => {
@@ -263,12 +287,12 @@ describe('proxy de memória contra o fake do ai-memory', () => {
 
   it('memory_connect_computer devolve só texto: comando por sistema, permissão, sem segredo e sem falar com o memory', async () => {
     const win = text(await proxy.call(UID, 'memory_connect_computer', { os: 'windows' }));
-    expect(win).toContain('irm https://ufba.app/install.ps1 | iex');
+    expect(win).toContain('irm https://memory.ufba.app/install.ps1 | iex');
     expect(win).not.toContain('install.sh');
     expect(win).toContain('peça permissão');
     const both = text(await proxy.call(UID, 'memory_connect_computer', { os: 'amiga' }));
     expect(both).toContain('install.ps1');
-    expect(both).toContain('curl -fsSL https://ufba.app/install.sh | sh');
+    expect(both).toContain('curl -fsSL https://memory.ufba.app/install.sh | sh');
     expect(both).toContain('http://localhost:3001/memory/computers'); // origem do painel, não fixa
     expect(both).toContain('sem o arquivo `.ai-memory.toml`');
     expect(both).not.toMatch(/aim_|sudos/);
@@ -326,7 +350,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(names).not.toContain('memory_delete_page');
     expect(names).toHaveLength(FERRAMENTAS.length + 20);
     expect(names).toContain('memory_connect_computer');
-    expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
+    expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS}`);
     const q = (await client.listTools()).tools.find((t) => t.name === 'memory_query')!;
     expect(q.inputSchema.properties).toHaveProperty('workspace');
   });
@@ -355,11 +381,12 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
     expect(t).toContain('Nunca rode comandos de instalação sem o meu OK');
   });
 
-  it('sem MEMORY_ROOT_TOKEN: só as ferramentas da casa e nada de instructions', async () => {
+  it('sem MEMORY_ROOT_TOKEN: só as ferramentas da casa e só as instruções acadêmicas', async () => {
     client = await connect(false);
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([...FERRAMENTAS].sort());
-    expect(client.getInstructions()).toBeUndefined();
+    expect(client.getInstructions()).toContain("MESMO que ela não");
+    expect(client.getInstructions()).not.toContain("memory_");
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     expect(fake.requests).toHaveLength(0);
   });
@@ -376,7 +403,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       expect(names).toContain('memory_query');
       expect(names).not.toContain('memory_connect_computer');
       expect(client.getServerCapabilities()?.prompts).toBeUndefined();
-      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS_WEB);
+      expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS_WEB}`);
       expect(client.getInstructions()).not.toContain('memory_connect_computer');
       expect(await hint(client)).toBe('Nenhum computador conectado.');
       // Chamar pelo nome mesmo assim também não funciona neste cliente.
@@ -388,7 +417,9 @@ describe('/mcp com memória: ferramentas da casa + memory_*', () => {
       client = await connect(true, name);
       expect(await tools(client)).toContain('memory_connect_computer');
       expect((await client.listPrompts()).prompts.map((p) => p.name)).toEqual(['conectar-computador']);
-      expect(client.getInstructions()).toBe(MEMORY_INSTRUCTIONS);
+      expect(client.getInstructions()).toBe(`${ACADEMIC_INSTRUCTIONS}
+
+${MEMORY_INSTRUCTIONS}`);
       const h = await hint(client);
       expect(h).toContain('memory_connect_computer');
       expect(h).toMatch(/terminal ou editor/);

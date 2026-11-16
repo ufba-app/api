@@ -241,6 +241,10 @@ const ComponentProgressView = z.object({
   /** Unidade responsável (departamento), quando o SIGAA a imprime. */
   responsibleUnit: z.string().nullable(),
   late: z.boolean(),
+  /** Última tentativa no histórico (a última aprovada, se houve); nulo se a pessoa nunca cursou o código. `term` é nulo nas linhas sem semestre. */
+  lastAttempt: z.object({ term: z.string().nullable(), grade: z.number().nullable(), status: z.string() }).nullable(),
+  /** A última tentativa foi reprovação ou trancamento e o componente não está cumprido nem em curso (a tela mostra "a refazer"). */
+  toRedo: z.boolean(),
 });
 
 const NatureHoursView = z.object({
@@ -256,6 +260,12 @@ export const AcademicProgress = z.object({
   /** O aluno está no mesmo currículo do Ativo; nulo se o histórico não diz. */
   sameCurriculum: z.boolean().nullable(),
   estimate: z.literal(true),
+  /**
+   * Ligações de pré-requisito entre componentes do currículo (`from` é pré-requisito de `to`). `REQUIRED`: exigida em toda forma de
+   * cumprir a expressão; `ALTERNATIVE`: faz parte de um OU. Vazia quando o SIGAA não trouxe pré-requisitos que deem para ler.
+   * O caminho completo (antes e depois) a tela calcula daqui.
+   */
+  prerequisiteEdges: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["REQUIRED", "ALTERNATIVE"]) })),
   required: z.array(ComponentProgressView),
   electives: z.array(ComponentProgressView),
   complementary: z.array(ComponentProgressView),
@@ -327,6 +337,8 @@ export const PairingRead = z.object({
 export const AccountStatus = z.enum(["connected", "reconnect_required"]);
 export const GuestApp = z.enum(["ufba", "guest"]);
 export const SourceName = z.enum(["sigaa", "moodle", "classroom"]);
+/** Fontes que a tela de autorizar mostra: as de leitura mais o SIASB (só para quem tem acesso a ele). Não vale em `/sources/{source}`. */
+export const AuthorizeSourceName = z.enum(["sigaa", "moodle", "classroom", "siasb"]);
 
 // ---- sessão ----
 
@@ -435,6 +447,32 @@ export const ClientView = z.object({
   metadata: z.enum(["present", "absent"]),
 });
 
+/** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
+export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write", "moodle.forum_write"] as const;
+export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+
+/**
+ * Permissão OFERECIDA a quem autoriza um app (só de fontes a que a pessoa tem acesso). Textos em pt-BR vêm daqui.
+ * `available` = a fonte está conectada (ligar exige isso: 409 `permission_unavailable`). `risk: "high"` pede confirmação no web.
+ */
+export const OfferedPermission = z.object({
+  key: z.enum(PERMISSION_KEYS),
+  source: z.string(),
+  title: z.string(),
+  description: z.string(),
+  risk: z.enum(["low", "high"]),
+  available: z.boolean(),
+  unavailableReason: z.literal("source_not_connected").nullable(),
+  /** Já concedida a ESTE app (o do pedido): a tela pré-marca e envia sempre o conjunto inteiro em `approve`. */
+  granted: z.boolean(),
+});
+
+/** Permissão já concedida a um app (em Apps autorizados). */
+export const GrantedPermission = OfferedPermission.pick({ key: true, source: true, title: true, description: true, risk: true });
+
+/** `permissions` ausente = não altera o que o app já tem; presente (mesmo vazio) = o conjunto exato aprovado. */
+export const ApproveRequestBody = z.object({ permissions: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length).optional() });
+
 export const RequestInfo = z.object({
   id: z.string(),
   client: ClientView,
@@ -442,11 +480,13 @@ export const RequestInfo = z.object({
   sources: z
     .array(
       z.object({
-        source: SourceName,
+        source: AuthorizeSourceName,
         status: z.union([SigaaStatus, AccountStatus]),
       }),
     )
     .nullable(),
+  /** As permissões que ESTE pedido pode conceder (só de fontes a que a pessoa tem acesso); `null` sem sessão. */
+  permissions: z.array(OfferedPermission).nullable(),
   expiresAt: z.string().datetime(),
 });
 
@@ -460,6 +500,8 @@ export const AuthorizedApp = ClientView.omit({
   authorizedAt: z.string().datetime(),
   lastUsedAt: z.string().datetime().nullable(),
   sigaa: z.boolean(),
+  /** O que a pessoa liberou para ESTE app; cada uma pode ser revogada sozinha. */
+  permissions: z.array(GrantedPermission),
 });
 
 export const AuthorizedAppsResponse = z.object({
@@ -592,6 +634,54 @@ const CalendarUndetermined = z.object({
 
 export const CalendarQuery = z.object({ term: z.string().regex(/^\d{4}\.[12]$/).optional() });
 
+// ---- calendário do Painel: tudo pronto para desenhar ----
+
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Só estas fontes entram no calendário: aulas (SIGAA) e sessões da clínica (SIASB). Moodle e Classroom não. */
+const CalendarSource = z.enum(["sigaa", "siasb"]);
+
+/** Intervalo visível, inclusivo, em dias de Salvador (America/Bahia). Inválido ou com mais de 62 dias: 400 `invalid_request`. */
+export const MeCalendarQuery = z.object({ from: IsoDay, to: IsoDay });
+
+export const MeCalendarItem = z.object({
+  /** Estável (a tela usa como chave). */
+  id: z.string(),
+  /**
+   * `class` = aula (recorrência da turma no SIGAA, fora de feriado e dia sem aula); `deadline` = entrega e `exam` = prova/avaliação
+   * (as datas que o SIGAA expõe; só `source: "sigaa"`); `session` = sessão da clínica marcada no SIASB.
+   */
+  kind: z.enum(["class", "deadline", "exam", "session"]),
+  source: CalendarSource,
+  /** Aula: o nome da turma. Prazo/prova: a descrição no SIGAA. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
+  title: z.string(),
+  courseName: z.string().nullable(),
+  courseCode: z.string().nullable(),
+  /** ISO com o fuso de Salvador (-03:00). Aula, prova e sessão têm início; entrega não. Prova sem hora no SIGAA vem à meia-noite (T00:00). */
+  startsAt: z.string().nullable(),
+  /** Fim da aula ou da sessão, ou o PRAZO da entrega. Prova: nulo (a fonte só dá o instante de início). */
+  endsAt: z.string().nullable(),
+  /** Sala da aula, local da sessão ou "SIGAA" (prazo/prova). */
+  place: z.string().nullable(),
+});
+
+export const MeCalendarResponse = z.object({
+  from: IsoDay,
+  to: IsoDay,
+  /** Semestre que mais cobre o intervalo ("2026.2"); nulo sem calendário publicado (a rota segue, sem feriados). */
+  term: z.string().nullable(),
+  /** Só os dias que têm algo (item ou dia sem aula), em ordem. */
+  days: z.array(
+    z.object({
+      date: IsoDay,
+      /** Feriado ou dia sem aula, já resolvido (intervalos expandidos). Nesse dia não há `class`; sessões do SIASB continuam. */
+      nonTeaching: z.object({ name: z.string() }).nullable(),
+      items: z.array(MeCalendarItem),
+    }),
+  ),
+  /** Uma entrada por fonte consultada (sigaa se conectado; siasb se conectado e com acesso); falha parcial não derruba a rota. */
+  sources: z.array(z.object({ source: CalendarSource, status: z.enum(["ok", "failed", "reconnect_required"]) })),
+});
+
 /**
  * O calendário acadêmico publicado de um semestre (contrato fiel ao PDF da SUPAC, sem a conferência interna). Toda data é
  * ISO; textos como impressos. `when` é uma união: dia, intervalo, "até", "a partir de" ou sem data.
@@ -672,11 +762,8 @@ export const CalendarAlertsResponse = z.object({
   expired: z.object({ term: z.string(), termEnd: z.string() }).nullable(),
 });
 
-// ---- permissões por fonte (o que a pessoa libera para o Claude fazer) ----
-
-/** Chaves das permissões (enum fechado, como API_ERROR_CODES): "<fonte>.<ação>". Chave nova precisa de texto em PERMISSION_CATALOG. */
-export const PERMISSION_KEYS = ["siasb.schedule_write", "siasb.procedures_write"] as const;
-export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+// ---- permissões por fonte (o que a pessoa libera para um app fazer) ----
+// As permissões valem POR APP: marcadas na tela de autorizar e revogadas em Apps autorizados. `/me/permissions` é legado.
 
 export const PermissionView = z.object({
   key: z.enum(PERMISSION_KEYS),
@@ -685,7 +772,7 @@ export const PermissionView = z.object({
   title: z.string(),
   description: z.string(),
   risk: z.enum(["low", "high"]),
-  /** Sem linha no banco = desligada. */
+  /** LEGADO: `true` = concedida a pelo menos um app. Ligar já não existe aqui: a permissão é dada ao autorizar o app. */
   enabled: z.boolean(),
   /** A pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar). */
   available: z.boolean(),

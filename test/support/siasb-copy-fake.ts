@@ -2,6 +2,7 @@ import {
   SiasbCopyRepository,
   type ClaimResult,
   type SyncedAttendance,
+  type SyncedDiscipline,
   type SyncedSession,
   type SyncResult,
   type SyncState,
@@ -12,6 +13,7 @@ type Stored = SyncState & { lockedUntil: Date | null };
 /** Cópia do SIASB em memória (mesma semântica do Postgres). `accounts` simula a conta SIASB de cada pessoa. */
 export class InMemorySiasbCopy extends SiasbCopyRepository {
   accounts = new Map<string, 'OK' | 'REAUTH_NEEDED'>();
+  private disciplineRows = new Map<string, Map<string, SyncedDiscipline>>();
   private attendanceRows = new Map<string, Map<string, SyncedAttendance>>();
   private sessionRows = new Map<string, Map<string, SyncedSession>>();
   private states = new Map<string, Stored>();
@@ -19,13 +21,18 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
   async replaceWindow(
     userId: string,
     window: { from: Date; to: Date },
-    data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
+    data: { disciplines: SyncedDiscipline[]; attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean> {
     if (!this.accounts.has(userId)) return false;
     // como a PK (user_id, id) do Postgres: id repetido derruba a gravação inteira
-    for (const ids of [data.attendances.map((a) => a.id), data.sessions.map((x) => x.id)]) {
+    for (const ids of [
+      data.disciplines.map((d) => d.id),
+      data.attendances.map((a) => a.id),
+      data.sessions.map((x) => x.id),
+    ]) {
       if (new Set(ids).size !== ids.length) throw new Error('duplicate key value violates unique constraint');
     }
+    this.disciplineRows.set(userId, new Map(data.disciplines.map((d) => [d.id, { ...d }])));
     this.attendanceRows.set(userId, new Map(data.attendances.map((a) => [a.id, { ...a }])));
     const sessions = this.sessionRows.get(userId) ?? new Map<string, SyncedSession>();
     for (const [id, s] of sessions) {
@@ -46,7 +53,14 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     return [...(this.attendanceRows.get(userId)?.values() ?? [])];
   }
 
+  async disciplines(userId: string): Promise<SyncedDiscipline[]> {
+    return [...(this.disciplineRows.get(userId)?.values() ?? [])]
+      .map((d) => ({ ...d }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   async deleteAll(userId: string): Promise<void> {
+    this.disciplineRows.delete(userId);
     this.attendanceRows.delete(userId);
     this.sessionRows.delete(userId);
     this.states.delete(userId);
@@ -103,6 +117,23 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
   async release(userId: string): Promise<void> {
     const s = this.states.get(userId);
     if (s) s.lockedUntil = null;
+  }
+
+  async resetState(userId: string): Promise<void> {
+    const s = this.states.get(userId);
+    if (!s) return;
+    s.result = null;
+    s.nextRunAt = null;
+    s.lastAttemptAt = null;
+  }
+
+  async markDue(userId: string): Promise<void> {
+    const s = this.states.get(userId);
+    if (s) s.nextRunAt = null;
+  }
+
+  async connectedUsers(): Promise<string[]> {
+    return [...this.accounts.keys()];
   }
 
   async dueUsers(now: Date, limit: number): Promise<string[]> {

@@ -5,6 +5,7 @@ import type {
   DiscussaoViva,
   LinkVivo,
   LiveSource,
+  ParticipanteVivo,
   PrazoVivo,
 } from '../../../application/ports/live-source';
 import type { AttachmentContent } from '../../../application/ports/attachment-reader';
@@ -27,7 +28,14 @@ const BASE = 'https://classroom.googleapis.com/v1';
 export const MAX_CURSOS_PRAZOS = 15;
 /** Itens por chamada: só a primeira página, para o número de chamadas ser previsível. */
 const PAGINA = 50;
+/** Páginas de alunos lidas por matéria (50 por página): até 500 alunos. */
+const MAX_PAGINAS_ALUNOS = 10;
 const PARALELO = 4;
+
+/** Aluno de `courses.students.list` (só o nome é usado). */
+interface GcStudent {
+  profile?: { name?: { fullName?: string } };
+}
 
 /** Ids do Classroom e do Drive: alfanuméricos com `_`/`-`; nada de barra, `?` ou `..`. */
 const ID_OK = /^[A-Za-z0-9_-]{1,128}$/;
@@ -123,6 +131,33 @@ export class ClassroomLive implements LiveSource {
         });
       });
       return porCurso.flat().sort((a, b) => a.quando.getTime() - b.quando.getTime());
+    });
+  }
+
+  /**
+   * Alunos da matéria (`courses.students.list`), só nome e papel. Pagina até `MAX_PAGINAS_ALUNOS` páginas de `PAGINA`
+   * (teto para o número de chamadas ser previsível). Exige o escopo `classroom.rosters.readonly`.
+   */
+  listarParticipantes(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]> {
+    return translateErrors(async () => {
+      if (!ID_OK.test(cursoId)) throw new SourceError('UNSUPPORTED_SCOPE', 'Id de matéria do Classroom inválido');
+      const http = this.http(ctx);
+      const rt = refreshTokenOf(ctx);
+      const alunos: ParticipanteVivo[] = [];
+      let pageToken: string | undefined;
+      for (let i = 0; i < MAX_PAGINAS_ALUNOS; i++) {
+        const r = await http.getJson<{ students?: GcStudent[]; nextPageToken?: string }>(rt, `${BASE}/courses/${cursoId}/students`, {
+          pageSize: String(PAGINA),
+          ...(pageToken ? { pageToken } : {}),
+        });
+        for (const s of r.students ?? []) {
+          const nome = s.profile?.name?.fullName;
+          if (nome) alunos.push({ nome, papeis: ['student'] });
+        }
+        pageToken = r.nextPageToken;
+        if (!pageToken) break;
+      }
+      return alunos;
     });
   }
 

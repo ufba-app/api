@@ -26,13 +26,15 @@ model User {
   ownedProjects    MemoryProject[]
   projectMembers   MemoryProjectMember[]
   teamRoles        UserTeamRole[]
-  permissions      UserPermission[]
+  clientPermissions ClientPermission[]
   pushDevices      PushDevice[]
   notificationSettings NotificationSetting[]
   alertLog         AlertLog[]
+  siasbDisciplines SiasbSyncedDiscipline[]
   siasbAttendances SiasbSyncedAttendance[]
   siasbSessions    SiasbSyncedSession[]
   siasbSyncState   SiasbSyncState?
+  siasbWriteAudits SiasbWriteAudit[]
 
   @@map("users")
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res } from '@nestjs/common';
+import { Controller, Get, Head, Param, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import {
   ConsultaService,
@@ -16,6 +16,13 @@ export function contentDisposition(nome: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(limpo)}`;
 }
 
+/** Cabeçalhos de toda resposta de download: nada de cache, indexação nem referer (o id é a credencial). */
+function headersSeguros(res: Response): void {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+}
+
 /**
  * GET /download/:id — o link gerado por `baixar_anexo`. O próprio id (aleatório, uso único, ~10 min) é a
  * credencial; não há Bearer, para funcionar com curl/navegador na máquina da pessoa. O arquivo vem da fonte na hora
@@ -28,9 +35,23 @@ export class DownloadController {
     private readonly consulta: ConsultaService,
   ) {}
 
-  @Get(':id')
+  /**
+   * `HEAD` (leitores de URL costumam sondar antes): confere o link SEM gastar uso e sem tocar a fonte. O nome opcional no
+   * fim da URL (`/download/<id>/aula.pdf`) só ajuda quem infere o tipo pela extensão; quem vale é o id.
+   */
+  @Head([':id', ':id/:nome'])
+  sondar(@Param('id') id: string, @Res() res: Response): void {
+    headersSeguros(res);
+    if (!this.links.espiar(id)) {
+      res.status(404).end();
+      return;
+    }
+    res.status(200).end();
+  }
+
+  @Get([':id', ':id/:nome'])
   async baixar(@Param('id') id: string, @Res() res: Response): Promise<void> {
-    res.setHeader('Cache-Control', 'no-store');
+    headersSeguros(res);
     const t = this.links.consumir(id);
     if (!t) {
       res.status(404).json({ erro: 'LINK_INVALIDO', mensagem: 'Link expirado, já usado ou inexistente: peça outro.' });
@@ -40,7 +61,8 @@ export class DownloadController {
       // O ticket guarda só o usuário (sem cliente nem K): basta para fontes com token guardado.
       const f = await this.consulta.baixar({ userId: t.userId }, t.provider, t.conta, t.ref);
       res.setHeader('Content-Type', f.mimeType);
-      res.setHeader('Content-Disposition', contentDisposition(f.fileName ?? t.nome ?? 'anexo'));
+      const disposition = contentDisposition(f.fileName ?? t.nome ?? 'anexo');
+      res.setHeader('Content-Disposition', t.inline ? disposition.replace(/^attachment/, 'inline') : disposition);
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.status(200).send(Buffer.from(f.bytes));
     } catch (e) {
@@ -51,9 +73,11 @@ export class DownloadController {
             ? 501
             : e instanceof SourceError && e.code === 'UNSUPPORTED_SCOPE'
               ? 400 // pedido inválido (ex.: arquivo que não é anexo do Classroom), não falha da fonte
-              : e instanceof SourceError
-                ? 502
-                : 500;
+              : e instanceof SourceError && e.code === 'NO_ACCESS'
+                ? 403 // sem acesso ao arquivo (ex.: Drive não compartilhado), não falha da fonte
+                : e instanceof SourceError
+                  ? 502
+                  : 500;
       const msg = e instanceof Error && status !== 500 ? e.message : 'Falha ao baixar o arquivo';
       res.status(status).json({ erro: e instanceof SourceError ? e.code : 'ERRO', mensagem: msg });
     }

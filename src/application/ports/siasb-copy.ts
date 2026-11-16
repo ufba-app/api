@@ -1,5 +1,11 @@
 import type { EncryptedSecret } from './repositories';
 
+/** Disciplina clínica do aluno no SIASB (inclusive sem paciente). O nome não é segredo. */
+export interface SyncedDiscipline {
+  id: string;
+  name: string;
+}
+
 /** Atendimento (paciente) do aluno no SIASB. Só o primeiro nome do paciente, cifrado. */
 export interface SyncedAttendance {
   id: string;
@@ -7,6 +13,8 @@ export interface SyncedAttendance {
   disciplineName: string;
   treatmentType: 'TRIAGE' | 'PLANNING' | 'URGENCY' | 'UNKNOWN';
   concluded: boolean;
+  /** Veio da consulta de atendimentos ATIVOS do SIASB (não se deduz de `concluded`). */
+  active: boolean;
   firstName: EncryptedSecret;
 }
 
@@ -40,18 +48,20 @@ export interface SyncState {
  */
 export abstract class SiasbCopyRepository {
   /**
-   * false (e nada gravado) se a pessoa não tem conta SIASB no momento da gravação. Atendimentos: substitui todos.
+   * false (e nada gravado) se a pessoa não tem conta SIASB no momento da gravação. Disciplinas e atendimentos: substitui todos.
    * Sessões: apaga as de `window` (e as de mesmo id das novas) e grava as novas; as de fora ficam. Tudo numa transação que trava a linha da conta SIASB (FOR SHARE):
    * uma desconexão concorrente espera o commit e o `deleteAll` dela, depois, apaga o que foi gravado.
    */
   abstract replaceWindow(
     userId: string,
     window: { from: Date; to: Date },
-    data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
+    data: { disciplines: SyncedDiscipline[]; attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean>;
   /** Ordenadas por `startAt`. */
   abstract sessions(userId: string, from: Date, to: Date): Promise<SyncedSession[]>;
   abstract attendances(userId: string): Promise<SyncedAttendance[]>;
+  /** Ordenadas por nome. */
+  abstract disciplines(userId: string): Promise<SyncedDiscipline[]>;
   /** Cópia e estado. */
   abstract deleteAll(userId: string): Promise<void>;
   abstract state(userId: string): Promise<SyncState | null>;
@@ -64,8 +74,20 @@ export abstract class SiasbCopyRepository {
   abstract claim(userId: string, now: Date, leaseMs: number): Promise<ClaimResult>;
   abstract release(userId: string): Promise<void>;
   /**
+   * Zera o sinal de quebra do estado (`result`, `nextRunAt`, `lastAttemptAt` = null) depois de reconectar; não toca
+   * `lastSuccessAt`, a trava nem a cópia. Sem linha de estado, não faz nada (nunca cria).
+   */
+  abstract resetState(userId: string): Promise<void>;
+  /**
+   * Marca a pessoa como devida na próxima passada do cron (`nextRunAt = null`, a mesma regra de `dueUsers`) depois de uma
+   * escrita no SIASB. Não toca `result`, `lastSuccessAt` nem a trava. Sem linha de estado, não faz nada (nunca cria).
+   */
+  abstract markDue(userId: string): Promise<void>;
+  /**
    * Conta SIASB `OK` e (sem estado, ou sem agenda, ou `nextRunAt <= now`), por `nextRunAt` crescente (sem estado e sem
    * agenda primeiro). Sem agenda cobre a reconexão depois de `RECONNECT_REQUIRED` (que grava `nextRunAt = null`).
    */
   abstract dueUsers(now: Date, limit: number): Promise<string[]>;
+  /** Ids (distintos) de quem tem conta SIASB em QUALQUER estado (`OK` ou `REAUTH_NEEDED`): o aviso de reconexão vencida continua. */
+  abstract connectedUsers(): Promise<string[]>;
 }

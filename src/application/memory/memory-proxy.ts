@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Secret } from '../shared/secret';
+import { classifyPermissionDenial, denialMessage } from './permission-denial';
+import { decorateTool } from './memory-tool-meta';
 import { connectComputerGuide, HINT_NO_COMPUTER_CONDITIONAL, HINT_NO_COMPUTER_WEB, isWebChatClient, MEMORY_CONNECT_TOOL } from './connect-guide';
 import { MemoryComputerDirectory } from './device-ports';
 import {
@@ -128,7 +130,7 @@ export class MemoryProxy {
   async listTools(userId: string, client?: MemoryClient): Promise<RemoteTool[]> {
     if (!this.enabled() || !(await this.access.canUse(userId))) return [];
     // Chat web não tem terminal: a ferramenta de conectar computador nem aparece.
-    const own = isWebChatClient(client?.name) ? [MEMORY_STATUS_TOOL] : [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL];
+    const own = (isWebChatClient(client?.name) ? [MEMORY_STATUS_TOOL] : [MEMORY_STATUS_TOOL, MEMORY_CONNECT_TOOL]).map(decorateTool);
     try {
       await this.users.ensure(userId);
       await this.syncGrants(userId);
@@ -197,7 +199,22 @@ export class MemoryProxy {
       const scoped = await this.checkScope(args);
       if (scoped) return scoped;
     }
-    return this.mcp.callTool(key, name, args);
+    const scope = typeof args.workspace === 'string' && typeof args.project === 'string' ? shown(`${args.workspace}/${args.project}`) : '';
+    try {
+      const result = await this.mcp.callTool(key, name, args);
+      return this.mapDenial(result, scope);
+    } catch (e) {
+      if (e instanceof MemoryAdminError && (e.kind === 'read_only' || e.kind === 'no_access')) return failure(denialMessage(e.kind, scope));
+      throw e;
+    }
+  }
+
+  /** Recusa de permissão devolvida como resultado de erro: vira mensagem pt-BR fixa; o resto passa sem alteração. */
+  private mapDenial(result: RemoteToolResult, scope: string): RemoteToolResult {
+    if (!result.isError) return result;
+    const text = result.content.map((c) => (c as { text?: unknown } | null)?.text).filter((t): t is string => typeof t === 'string').join(' ');
+    const kind = classifyPermissionDenial(text);
+    return kind ? failure(denialMessage(kind, scope)) : result;
   }
 
   /** Workspace e projeto explícitos e registrados (S12); `*_id` não vale (endereçaria um projeto fora do registro). */
@@ -217,7 +234,8 @@ export class MemoryProxy {
     const t = this.now();
     if (this.catalog && t - this.catalog.at < CATALOG_TTL_MS) return this.catalog.tools;
     const all = await this.mcp.listTools(key ?? (await this.users.proxyKey(userId)));
-    const tools = all.filter((x) => isForwardable(x.name));
+    // Schema com type em tudo, title e annotations da casa (exigências da loja); argumentos e resultados seguem intactos.
+    const tools = all.filter((x) => isForwardable(x.name)).map(decorateTool);
     this.catalog = { tools, at: t };
     return tools;
   }

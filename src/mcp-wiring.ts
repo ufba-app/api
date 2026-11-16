@@ -32,7 +32,7 @@ import { WebPushSender } from './infrastructure/push/web-push-sender';
 import { SigaaLaunch } from './application/web/sigaa-launch.service';
 import { SigaaLoginFormSource } from './application/ports/sigaa-launch';
 import { HttpSigaaLoginFormSource } from './infrastructure/sources/sigaa/login-form-source';
-import { UserPermissionRepository } from './application/ports/permissions';
+import { ClientPermissionRepository } from './application/ports/permissions';
 import { ConnectionsService } from './application/web/connections.service';
 import { SigaaPasskeys } from './application/web/sigaa-passkeys.service';
 import { SigaaPairings } from './application/web/sigaa-pairings.service';
@@ -54,6 +54,9 @@ import { SourceBindings } from './application/identity/source-bindings';
 import { HmacSubjectHasher } from './infrastructure/crypto/hmac-subject-hasher';
 import { CofreSigaa } from './application/sigaa/cofre-sigaa';
 import { SiasbLink } from './application/siasb/siasb-link';
+import { SiasbAlertProvider } from './application/siasb/siasb-alert-provider';
+import { SiasbAlerts } from './application/siasb/siasb-alerts';
+import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
@@ -66,6 +69,7 @@ import { McpClinicaImpl } from './interface/mcp/mcp-clinica';
 import { SiasbCopyReader } from './application/siasb/siasb-copy-reader';
 import { SiasbReader } from './application/siasb/siasb-reader';
 import { SiasbSyncer } from './application/siasb/siasb-syncer';
+import { SiasbWriter } from './application/siasb/siasb-writer';
 import { MemoryProxy } from './application/memory/memory-proxy';
 import { AccountDeparture } from './application/memory/memory-departure';
 import { OAUTH_SERVICE } from './interface/mcp/oauth/oauth.controller';
@@ -190,8 +194,8 @@ export const mcpProviders: Provider[] = [
   { provide: SigaaLoginFormSource, useFactory: () => new HttpSigaaLoginFormSource() },
   {
     provide: PermissionsService,
-    useFactory: (repo: UserPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
-    inject: [UserPermissionRepository, ConnectionStatus],
+    useFactory: (repo: ClientPermissionRepository, status: ConnectionStatus) => new PermissionsService(repo, status),
+    inject: [ClientPermissionRepository, ConnectionStatus],
   },
   // Canal de notificações (Web Push). VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT por ambiente; sem elas o canal fica desligado.
   { provide: PushSender, useFactory: () => new WebPushSender() },
@@ -202,8 +206,9 @@ export const mcpProviders: Provider[] = [
   },
   {
     provide: NotificationSettings,
-    useFactory: (repo: NotificationSettingRepository) => new NotificationSettings(repo),
-    inject: [NotificationSettingRepository],
+    // `status` filtra por acesso: quem não tem SIASB não vê os avisos dele.
+    useFactory: (repo: NotificationSettingRepository, status: ConnectionStatus) => new NotificationSettings(repo, undefined, status),
+    inject: [NotificationSettingRepository, ConnectionStatus],
   },
   {
     provide: Notifier,
@@ -212,17 +217,29 @@ export const mcpProviders: Provider[] = [
     inject: [PushSender, NotificationSettings, PushDevices, AlertLogRepository],
   },
   // Fontes de avisos do `notify-cron`: cada fonte entra aqui (injete o que ela precisa e devolva o `AlertProvider`).
-  { provide: ALERT_PROVIDERS, useFactory: (): AlertProvider[] => [], inject: [] },
+  {
+    provide: SiasbAlerts,
+    useFactory: (reader: SiasbCopyReader, copy: SiasbCopyRepository, notifier: Notifier, accounts: SourceAccountRepository) =>
+      new SiasbAlerts(reader, copy, notifier, accounts),
+    inject: [SiasbCopyReader, SiasbCopyRepository, Notifier, SourceAccountRepository],
+  },
+  {
+    provide: SiasbAlertProvider,
+    useFactory: (copy: SiasbCopyRepository, alerts: SiasbAlerts) => new SiasbAlertProvider(copy, alerts),
+    inject: [SiasbCopyRepository, SiasbAlerts],
+  },
+  { provide: ALERT_PROVIDERS, useFactory: (siasb: SiasbAlertProvider): AlertProvider[] => [siasb], inject: [SiasbAlertProvider] },
   {
     provide: AuthorizationRequests,
-    useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>
-      new AuthorizationRequests(oauth, clients, cofre, status),
-    inject: [OAUTH_SERVICE, CLIENT_DIRECTORY, CofreSigaa, ConnectionStatus],
+    useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus, permissions: PermissionsService) =>
+      new AuthorizationRequests(oauth, clients, cofre, status, permissions),
+    inject: [OAUTH_SERVICE, CLIENT_DIRECTORY, CofreSigaa, ConnectionStatus, PermissionsService],
   },
   {
     provide: AuthorizedApps,
-    useFactory: (store: OAuthStore, clients: ClientDirectory, cofre: CofreSigaa) => new AuthorizedApps(store, clients, cofre),
-    inject: [OAUTH_STORE, CLIENT_DIRECTORY, CofreSigaa],
+    useFactory: (store: OAuthStore, clients: ClientDirectory, cofre: CofreSigaa, permissions: PermissionsService) =>
+      new AuthorizedApps(store, clients, cofre, permissions),
+    inject: [OAUTH_STORE, CLIENT_DIRECTORY, CofreSigaa, PermissionsService],
   },
   // Vínculo fixo conta ↔ titular na fonte (CPF no SIGAA, usuário do AVA no Moodle).
   {
@@ -266,9 +283,9 @@ export const mcpProviders: Provider[] = [
   // Ferramentas clinica_*: só aparecem para quem tem conexão SIASB (decidido por requisição no controller).
   {
     provide: MCP_CLINICA,
-    useFactory: (reader: SiasbReader, link: SiasbLink, copyReader: SiasbCopyReader) =>
-      new McpClinicaImpl(reader, link, copyReader),
-    inject: [SiasbReader, SiasbLink, SiasbCopyReader],
+    useFactory: (reader: SiasbReader, link: SiasbLink, copyReader: SiasbCopyReader, writer: SiasbWriter) =>
+      new McpClinicaImpl(reader, link, copyReader, undefined, writer),
+    inject: [SiasbReader, SiasbLink, SiasbCopyReader, SiasbWriter],
   },
   {
     provide: MCP_AUTH,

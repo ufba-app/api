@@ -91,6 +91,13 @@ export class CurriculumGraph {
     return (this.outOf.get(code) ?? []).filter((e) => !relation || e.relation === relation);
   }
 
+  /** Ligações de pré-requisito entre componentes do próprio currículo (as que a tela do mapa consegue desenhar). */
+  prerequisiteEdges(): { from: string; to: string; kind: EdgeStrength }[] {
+    return this.edges
+      .filter((e) => e.relation === 'PREREQUISITE' && this.components.has(e.from) && this.components.has(e.to))
+      .map((e) => ({ from: e.from, to: e.to, kind: e.strength }));
+  }
+
   /** Códigos que `code` libera diretamente pelo pré-requisito (obrigatório ou alternativo). */
   unlocks(code: string): string[] {
     return this.outgoing(code, 'PREREQUISITE').map((e) => e.to);

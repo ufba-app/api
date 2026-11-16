@@ -38,7 +38,7 @@ histórico de semestres anteriores.
 
 1. **Postback do menu por turma, como `verCurso`/`prazos` (escolhida).** Portal → entrar na turma → postback do item
    "Frequência" → parser. Segue o caminho que o SIGAA aceita e reaproveita `entrarNaTurma`. O `SigaaSession.postback` passou a seguir um 302 para dentro de `/sigaa/` com GET (antes devolvia o corpo vazio do 302).
-   Custo: o portal uma vez, mais 2 requisições por turma (entrar na turma e postback do menu).
+   Custo: 1 + 2 + 3×(turmas − 1) requisições (portal fresco, entrar e postback do menu por turma; a 1ª não relê o portal).
 2. **GET direto em `mapa.jsf`.** Descartada: falha no SIGAA real.
 3. **Ler o resumo de frequência do histórico/PDF.** Descartada: o histórico não tem frequência do semestre em curso.
 
@@ -50,8 +50,9 @@ histórico de semestres anteriores.
     `{ action, fields }` com os hidden do `formMenu` (sem `javax.faces.ViewState`, que a sessão manda).
   - `parseFrequencia(html)`: lê os cinco números e o aviso "ainda não foi lançada".
 - **`SigaaLive.frequencia(ctx)`** (fora da porta `LiveSource`, por ser só do SIGAA, como `verAviso?`; vira método opcional da porta):
-  portal uma vez, depois por turma entrar + postback do menu, no máximo `MAX_TURMAS_PRAZOS` turmas. Mesmo risco não validado
-  de `prazos` (ViewState da última página da sessão na 2ª turma em diante); falha alto com `UNAVAILABLE`.
+  por turma, a entrada validada dos prazos (`entrarNaEnesima`, api#74: portal relido antes de cada turma, menos a 1ª; login novo
+  no bounce da 1ª entrada, sem laço) e depois o postback do menu; no máximo `MAX_TURMAS_FREQUENCIA` (8) turmas, 24 requisições.
+  Falha alto com `UNAVAILABLE`, sem lista parcial. (A 1ª versão reaproveitava o ViewState da última página; o SIGAA real recusa.)
 - **Conta (minhas decisões, corrija se estiverem erradas):**
   - `absentClasses = max(recordedClasses − presentClasses, 0)`
   - `allowedAbsentClasses = floor(0.25 × workloadClasses)`

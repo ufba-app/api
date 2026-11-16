@@ -67,6 +67,9 @@ class StepFailure extends Error {
 
 const unavailable = () => new ApiError(503, 'import_unavailable', 'A importação do histórico está indisponível no momento. Tente mais tarde.');
 
+/** A grade marcada com o histórico, mais as ligações de pré-requisito do currículo (para o mapa da Trajetória). */
+export type ProgressView = Progress & { prerequisiteEdges: { from: string; to: string; kind: 'REQUIRED' | 'ALTERNATIVE' }[] };
+
 /** O quadro do contrato → o que o domínio precisa para adequar o histórico ao currículo Ativo. */
 export function toProgressInput(t: TranscriptContract): TranscriptInput {
   return {
@@ -252,13 +255,14 @@ export class AcademicImports {
   }
 
   /** A grade do curso (currículo Ativo) marcada com o que a pessoa já fez. Sempre uma ESTIMATIVA. */
-  async progress(p: WebPrincipal): Promise<Progress> {
+  async progress(p: WebPrincipal): Promise<ProgressView> {
     const transcript = await this.repo.findTranscript(p.userId);
     if (!transcript) throw new ApiError(404, 'import_not_found', 'Importe o histórico antes de ver a grade do curso.');
     const imp = await this.repo.getImport(p.userId);
-    const stored = imp?.programId ? await this.catalog.read(imp.programId) : null;
+    const stored = imp?.programId ? await this.catalog.readView(imp.programId) : null;
     if (!stored) throw new ApiError(409, 'curriculum_unavailable', 'A grade do seu curso ainda não está disponível.');
-    return buildProgress(toProgressInput(transcript), { ...stored.curriculum, components: stored.components });
+    const progress = buildProgress(toProgressInput(transcript), { ...stored.curriculum, components: stored.components });
+    return { ...progress, prerequisiteEdges: stored.graph.prerequisiteEdges() };
   }
 
   // ---- trabalho em segundo plano ----

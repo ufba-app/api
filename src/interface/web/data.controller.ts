@@ -35,7 +35,7 @@ function provider(source: string): Provider {
   return p;
 }
 
-function quem(p: WebPrincipal | null): Quem {
+export function quem(p: WebPrincipal | null): Quem {
   if (!p) throw sessionExpired();
   return p.clientId
     ? {

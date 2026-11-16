@@ -3,13 +3,14 @@ import {
   SiasbCopyRepository,
   type ClaimResult,
   type SyncedAttendance,
+  type SyncedDiscipline,
   type SyncedSession,
   type SyncResult,
   type SyncState,
 } from '../../application/ports/siasb-copy';
 import { PrismaService } from './prisma.service';
 
-/** Cópia por aluno do SIASB (`siasb_attendances`, `siasb_sessions`, `siasb_sync_state`). `DELETE /me` apaga por cascade. */
+/** Cópia por aluno do SIASB (`siasb_disciplines`, `siasb_attendances`, `siasb_sessions`, `siasb_sync_state`). `DELETE /me` apaga por cascade. */
 @Injectable()
 export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
   constructor(private readonly prisma: PrismaService) {
@@ -19,7 +20,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
   async replaceWindow(
     userId: string,
     window: { from: Date; to: Date },
-    data: { attendances: SyncedAttendance[]; sessions: SyncedSession[] },
+    data: { disciplines: SyncedDiscipline[]; attendances: SyncedAttendance[]; sessions: SyncedSession[] },
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       // FOR SHARE trava a linha da conta até o commit: uma desconexão concorrente (DELETE da conta) espera esta
@@ -29,6 +30,12 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
         { id: string }[]
       >`SELECT id FROM source_accounts WHERE user_id = ${userId}::uuid AND provider = 'SIASB' FOR SHARE`;
       if (locked.length === 0) return false;
+      await tx.siasbSyncedDiscipline.deleteMany({ where: { userId } });
+      if (data.disciplines.length) {
+        await tx.siasbSyncedDiscipline.createMany({
+          data: data.disciplines.map((d) => ({ userId, id: d.id, name: d.name })),
+        });
+      }
       await tx.siasbSyncedAttendance.deleteMany({ where: { userId } });
       if (data.attendances.length) {
         await tx.siasbSyncedAttendance.createMany({
@@ -39,6 +46,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
             disciplineName: a.disciplineName,
             treatmentType: a.treatmentType,
             concluded: a.concluded,
+            active: a.active,
             firstNameCiphertext: a.firstName.ciphertext,
             firstNameIv: a.firstName.iv,
             firstNameAuthTag: a.firstName.authTag,
@@ -89,6 +97,7 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       disciplineName: r.disciplineName,
       treatmentType: r.treatmentType as SyncedAttendance['treatmentType'],
       concluded: r.concluded,
+      active: r.active,
       firstName: {
         ciphertext: r.firstNameCiphertext,
         iv: r.firstNameIv,
@@ -97,8 +106,17 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     }));
   }
 
+  async disciplines(userId: string): Promise<SyncedDiscipline[]> {
+    const rows = await this.prisma.siasbSyncedDiscipline.findMany({
+      where: { userId },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map((r) => ({ id: r.id, name: r.name }));
+  }
+
   async deleteAll(userId: string): Promise<void> {
     await this.prisma.$transaction([
+      this.prisma.siasbSyncedDiscipline.deleteMany({ where: { userId } }),
       this.prisma.siasbSyncedSession.deleteMany({ where: { userId } }),
       this.prisma.siasbSyncedAttendance.deleteMany({ where: { userId } }),
       this.prisma.siasbSyncState.deleteMany({ where: { userId } }),
@@ -153,6 +171,26 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
       where: { userId },
       data: { lockedUntil: null },
     });
+  }
+
+  async resetState(userId: string): Promise<void> {
+    await this.prisma.siasbSyncState.updateMany({
+      where: { userId },
+      data: { result: null, nextRunAt: null, lastAttemptAt: null },
+    });
+  }
+
+  async markDue(userId: string): Promise<void> {
+    await this.prisma.siasbSyncState.updateMany({ where: { userId }, data: { nextRunAt: null } });
+  }
+
+  async connectedUsers(): Promise<string[]> {
+    const rows = await this.prisma.sourceAccount.findMany({
+      where: { provider: 'SIASB' },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    return rows.map((r) => r.userId);
   }
 
   async dueUsers(now: Date, limit: number): Promise<string[]> {

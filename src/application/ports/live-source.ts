@@ -1,4 +1,5 @@
 import type { AttachmentContent } from './attachment-reader';
+import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { Provider, SourceContext } from './source-gateway';
 
 /**
@@ -59,6 +60,8 @@ export interface PrazoVivo {
 
 export interface DiscussaoViva {
   id: string;
+  /** Id da mensagem inicial da discussão: é o que se passa para responder (`postarForum` com `postId`). */
+  postId?: string;
   titulo: string;
   mensagem?: string;
   autor?: string;
@@ -79,6 +82,48 @@ export interface FrequenciaViva {
   completa: boolean;
 }
 
+/** Um participante da matéria: só o nome e os papéis (ex.: `student`, `editingteacher`). Nada de e-mail ou id. */
+export interface ParticipanteVivo {
+  nome: string;
+  papeis: string[];
+}
+
+/** Uma mensagem de um tópico (a inicial ou uma resposta), na ordem em que foi postada. */
+export interface MensagemViva {
+  /** Id da mensagem: passe em `postarForum` (com `postId`) para responder a ela. */
+  postId: string;
+  /** Id da mensagem a que esta responde; ausente na mensagem inicial. */
+  respostaA?: string;
+  autor?: string;
+  publicadaEm?: Date;
+  mensagem?: string;
+  anexos: AnexoVivo[];
+}
+
+/** Publicação em fórum: nova discussão (`forumId`) ou resposta a uma mensagem (`postId`). Exatamente um dos dois. */
+export interface PostagemForum {
+  forumId?: string;
+  postId?: string;
+  titulo: string;
+  mensagem: string;
+}
+
+export interface PostagemFeita {
+  discussaoId?: string;
+  postId?: string;
+}
+
+/**
+ * O que o calendário do Painel lê do SIGAA numa passada só: as turmas com dia e horário e os prazos (avaliações com data). O portal é
+ * lido UMA vez e serve aos dois. `prazosCompletos: false` = a leitura dos prazos parou no meio (falha, ou acabou o orçamento de tempo):
+ * as turmas continuam valendo e `prazos` traz só o que deu para ler.
+ */
+export interface AgendaSigaa {
+  turmas: ClassSchedule[];
+  prazos: PrazoVivo[];
+  prazosCompletos: boolean;
+}
+
 export interface LiveSource {
   readonly provider: Provider;
   /** Matérias atuais da pessoa. `todas` inclui as passadas e futuras. */
@@ -94,10 +139,20 @@ export interface LiveSource {
   verForum(ctx: SourceContext, forumId: string): Promise<DiscussaoViva[]>;
   /** Conteúdo de um anexo (`ref` vindo de `verCurso`/`verForum`). */
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent>;
+  /** Turmas do semestre com dia, horário, período e sala (só o SIGAA: 1 requisição, a página do portal que já se lê). */
+  turmasComHorario?(ctx: SourceContext): Promise<ClassSchedule[]>;
+  /** Turmas com horário e prazos do SIGAA com UMA leitura do portal (calendário do Painel). Ver `AgendaSigaa`. */
+  agendaSigaa?(ctx: SourceContext, opts?: { orcamentoMs?: number }): Promise<AgendaSigaa>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
   /** Frequência de cada turma do semestre. Hoje só o SIGAA. */
   frequencia?(ctx: SourceContext): Promise<FrequenciaViva[]>;
+  /** Mensagens de UM tópico (inicial e respostas). Hoje só o Moodle: 1 chamada. */
+  verTopico?(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]>;
+  /** Participantes de UMA matéria, só nome e papéis (sem contato nem id). Hoje só o Moodle: 1 chamada. */
+  listarParticipantes?(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]>;
+  /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
+  postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
 }
 
 /** Fontes com leitura ao vivo disponíveis neste servidor. */

@@ -23,6 +23,7 @@ const session = {
 function setup() {
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: 'acc' }]),
+    siasbSyncedDiscipline: { deleteMany: jest.fn(), createMany: jest.fn() },
     siasbSyncedAttendance: { deleteMany: jest.fn(), createMany: jest.fn() },
     siasbSyncedSession: { deleteMany: jest.fn(), createMany: jest.fn() },
   };
@@ -31,6 +32,7 @@ function setup() {
       Array.isArray(arg) ? Promise.all(arg) : (arg as (t: typeof tx) => unknown)(tx),
     ),
     sourceAccount: { findMany: jest.fn() },
+    siasbSyncedDiscipline: { findMany: jest.fn(), deleteMany: jest.fn() },
     siasbSyncedAttendance: { findMany: jest.fn(), deleteMany: jest.fn() },
     siasbSyncedSession: { findMany: jest.fn(), deleteMany: jest.fn() },
     $executeRaw: jest.fn().mockResolvedValue(1),
@@ -52,6 +54,7 @@ describe('PrismaSiasbCopyRepository', () => {
   it('replaceWindow: uma única $transaction, apaga a janela e grava; atendimentos substituídos', async () => {
     const { repo, prisma, tx } = setup();
     const ok = await repo.replaceWindow(U, W, {
+      disciplines: [{ id: 'd1', name: 'Disciplina Teste' }],
       attendances: [
         {
           id: 'a1',
@@ -59,6 +62,7 @@ describe('PrismaSiasbCopyRepository', () => {
           disciplineName: 'D',
           treatmentType: 'TRIAGE',
           concluded: false,
+          active: true,
           firstName: secret,
         },
       ],
@@ -74,7 +78,12 @@ describe('PrismaSiasbCopyRepository', () => {
     expect(sql).toContain('FOR SHARE');
     expect(tx.$queryRaw.mock.calls[0][1]).toBe(U);
     const lockOrder = tx.$queryRaw.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(tx.siasbSyncedDiscipline.deleteMany.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(tx.siasbSyncedAttendance.deleteMany.mock.invocationCallOrder[0]);
+    expect(tx.siasbSyncedDiscipline.deleteMany).toHaveBeenCalledWith({ where: { userId: U } });
+    expect(tx.siasbSyncedDiscipline.createMany).toHaveBeenCalledWith({
+      data: [{ userId: U, id: 'd1', name: 'Disciplina Teste' }],
+    });
     expect(lockOrder).toBeLessThan(tx.siasbSyncedSession.deleteMany.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(tx.siasbSyncedSession.createMany.mock.invocationCallOrder[0]);
     expect(tx.siasbSyncedAttendance.deleteMany).toHaveBeenCalledWith({
@@ -85,6 +94,8 @@ describe('PrismaSiasbCopyRepository', () => {
         expect.objectContaining({
           userId: U,
           id: 'a1',
+          concluded: false,
+          active: true,
           firstNameCiphertext: 'Y2lwaGVy',
           firstNameIv: 'aXY=',
           firstNameAuthTag: 'dGFn',
@@ -107,9 +118,20 @@ describe('PrismaSiasbCopyRepository', () => {
   it('replaceWindow: false e nada gravado sem conta SIASB', async () => {
     const { repo, tx } = setup();
     tx.$queryRaw.mockResolvedValue([]);
-    await expect(repo.replaceWindow(U, W, { attendances: [], sessions: [session] })).resolves.toBe(false);
+    await expect(repo.replaceWindow(U, W, { disciplines: [], attendances: [], sessions: [session] })).resolves.toBe(false);
+    expect(tx.siasbSyncedDiscipline.deleteMany).not.toHaveBeenCalled();
     expect(tx.siasbSyncedAttendance.deleteMany).not.toHaveBeenCalled();
     expect(tx.siasbSyncedSession.createMany).not.toHaveBeenCalled();
+  });
+
+  it('disciplines: ordenadas por nome e sem campos do banco', async () => {
+    const { repo, prisma } = setup();
+    prisma.siasbSyncedDiscipline.findMany.mockResolvedValue([{ userId: U, id: 'd1', name: 'Alfa' }]);
+    expect(await repo.disciplines(U)).toEqual([{ id: 'd1', name: 'Alfa' }]);
+    expect(prisma.siasbSyncedDiscipline.findMany).toHaveBeenCalledWith({
+      where: { userId: U },
+      orderBy: { name: 'asc' },
+    });
   });
 
   it('sessions: janela inclusiva, ordenada por startAt', async () => {
@@ -133,6 +155,7 @@ describe('PrismaSiasbCopyRepository', () => {
         disciplineName: 'D',
         treatmentType: 'URGENCY',
         concluded: true,
+        active: false,
         firstNameCiphertext: 'Y2lwaGVy',
         firstNameIv: 'aXY=',
         firstNameAuthTag: 'dGFn',
@@ -145,6 +168,7 @@ describe('PrismaSiasbCopyRepository', () => {
         disciplineName: 'D',
         treatmentType: 'URGENCY',
         concluded: true,
+        active: false,
         firstName: secret,
       },
     ]);
@@ -175,6 +199,7 @@ describe('PrismaSiasbCopyRepository', () => {
     const { repo, prisma } = setup();
     await repo.deleteAll(U);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.siasbSyncedDiscipline.deleteMany).toHaveBeenCalledWith({ where: { userId: U } });
     expect(prisma.siasbSyncedSession.deleteMany).toHaveBeenCalledWith({
       where: { userId: U },
     });
@@ -199,6 +224,24 @@ describe('PrismaSiasbCopyRepository', () => {
       where: { userId: U },
       data: { lastAttemptAt: at, result: 'UNAVAILABLE', nextRunAt: null },
     });
+  });
+
+  it('resetState: updateMany só de result, nextRunAt e lastAttemptAt (sem upsert, sem lastSuccessAt, sem trava)', async () => {
+    const { repo, prisma } = setup();
+    await repo.resetState(U);
+    expect(prisma.siasbSyncState.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.siasbSyncState.updateMany.mock.calls[0][0]).toEqual({
+      where: { userId: U },
+      data: { result: null, nextRunAt: null, lastAttemptAt: null },
+    });
+  });
+
+  it('markDue: updateMany só de nextRunAt (sem upsert, sem result, sem lastSuccessAt, sem trava)', async () => {
+    const { repo, prisma } = setup();
+    await repo.markDue(U);
+    expect(prisma.siasbSyncState.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.siasbSyncState.updateMany.mock.calls[0][0]).toEqual({ where: { userId: U }, data: { nextRunAt: null } });
+    expect(prisma.siasbSyncState.createMany).not.toHaveBeenCalled();
   });
 
   it('claim: INSERT só com conta SIASB (EXISTS) e depois UPDATE condicional da trava', async () => {
@@ -267,6 +310,17 @@ describe('PrismaSiasbCopyRepository', () => {
     expect(prisma.sourceAccount.findMany.mock.calls[0][0].where).toEqual({
       provider: 'SIASB',
       status: 'OK',
+    });
+  });
+
+  it("connectedUsers: ids distintos de contas SIASB em qualquer estado", async () => {
+    const { repo, prisma } = setup();
+    prisma.sourceAccount.findMany.mockResolvedValue([{ userId: "a" }, { userId: "b" }]);
+    expect(await repo.connectedUsers()).toEqual(["a", "b"]);
+    expect(prisma.sourceAccount.findMany).toHaveBeenCalledWith({
+      where: { provider: "SIASB" },
+      select: { userId: true },
+      distinct: ["userId"],
     });
   });
 });

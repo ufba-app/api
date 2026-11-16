@@ -82,6 +82,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_situacao',
     {
+      title: 'Situação na clínica',
+      annotations: { title: 'Situação na clínica', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Situação da pessoa em cada disciplina de clínica do SIASB: `estado` (`sem_paciente`, `sem_sessao` ou ' +
         '`sessao_marcada`), `proximaClinica` (próximo horário conhecido) e `prazoEstimado` (até quando marcar o ' +
@@ -111,6 +113,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_sessoes',
     {
+      title: 'Sessões de clínica',
+      annotations: { title: 'Sessões de clínica', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Sessões de clínica da pessoa no SIASB entre `de` e `ate` (datas ISO; padrão: próximos 14 dias; no máximo 45 ' +
         'dias à frente). Traz disciplina, horário (offset da Bahia), local, professor, primeiro nome do paciente, situação ' +
@@ -170,6 +174,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_prazo_marcacao',
     {
+      title: 'Prazo de marcação de paciente',
+      annotations: { title: 'Prazo de marcação de paciente', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Prazo estimado para marcar paciente em uma sessão de clínica. Passe EXATAMENTE UM: `disciplinaId` (de ' +
         '`clinica_situacao`; usa o próximo horário conhecido) ou `inicioSessao` (início ISO de uma sessão). ' +
@@ -200,6 +206,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_pacientes',
     {
+      title: 'Pacientes da clínica',
+      annotations: { title: 'Pacientes da clínica', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Atendimentos ATIVOS da pessoa por disciplina de clínica: `atendimentoId`, `primeiroNome` do paciente e `tipo` ' +
         '(`triagem`, `planejamento`, `urgencia` ou `desconhecido`). Nunca traz nome completo nem prontuário. ' + AO_VIVO,
@@ -218,6 +226,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_vagas',
     {
+      title: 'Vagas da clínica',
+      annotations: { title: 'Vagas da clínica', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Quantos pacientes sem responsável (vagas para pegar) há em cada disciplina de clínica. Só números: a lista ' +
         'de pacientes nunca é lida por esta ferramenta. ' + AO_VIVO,
@@ -236,6 +246,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_contexto_agendamento',
     {
+      title: 'Contexto de agendamento',
+      annotations: { title: 'Contexto de agendamento', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Contexto para marcar as sessões de um atendimento ATIVO (`atendimentoId`, de `clinica_pacientes`): duração ' +
         'da sessão na clínica, quantas sessões o atendimento já teve (janela de uns 60 dias), procedimentos do ' +
@@ -271,6 +283,8 @@ export function registerClinicaTools(server: McpServer, clinica: McpClinica, p: 
   server.registerTool(
     'clinica_progresso',
     {
+      title: 'Progresso nas clínicas',
+      annotations: { title: 'Progresso nas clínicas', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Progresso da pessoa nas clínicas num período: por disciplina, atendimentos ativos, concluídos no período ' +
         '(com alguma sessão nele) e no histórico todo, sessões atendidas e marcadas adiante; e o ritmo (sessões por ' +

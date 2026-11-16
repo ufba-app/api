@@ -351,7 +351,8 @@
                   "enum": [
                     "sigaa",
                     "moodle",
-                    "classroom"
+                    "classroom",
+                    "siasb"
                   ]
                 },
                 "status": {
@@ -381,6 +382,66 @@
               ]
             }
           },
+          "permissions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "siasb.schedule_write",
+                    "siasb.procedures_write",
+                    "moodle.forum_write"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "risk": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "high"
+                  ]
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "unavailableReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "source_not_connected"
+                  ]
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "source",
+                "title",
+                "description",
+                "risk",
+                "available",
+                "unavailableReason",
+                "granted"
+              ]
+            }
+          },
           "expiresAt": {
             "type": "string",
             "format": "date-time"
@@ -391,6 +452,7 @@
           "client",
           "signedIn",
           "sources",
+          "permissions",
           "expiresAt"
         ]
       },
@@ -479,6 +541,45 @@
           },
           "sigaa": {
             "type": "boolean"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "siasb.schedule_write",
+                    "siasb.procedures_write",
+                    "moodle.forum_write"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "risk": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "high"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "source",
+                "title",
+                "description",
+                "risk"
+              ]
+            }
           }
         },
         "required": [
@@ -490,7 +591,8 @@
           "clientId",
           "authorizedAt",
           "lastUsedAt",
-          "sigaa"
+          "sigaa",
+          "permissions"
         ]
       },
       "Course": {
@@ -2298,6 +2400,32 @@
                         true
                       ]
                     },
+                    "prerequisiteEdges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "REQUIRED",
+                              "ALTERNATIVE"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to",
+                          "kind"
+                        ]
+                      }
+                    },
                     "required": {
                       "type": "array",
                       "items": {
@@ -2377,6 +2505,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2393,7 +2552,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2476,6 +2637,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2492,7 +2684,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2575,6 +2769,37 @@
                           },
                           "late": {
                             "type": "boolean"
+                          },
+                          "lastAttempt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "term": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grade": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "term",
+                              "grade",
+                              "status"
+                            ]
+                          },
+                          "toRedo": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -2591,7 +2816,9 @@
                           "corequisiteExpr",
                           "equivalenceExpr",
                           "responsibleUnit",
-                          "late"
+                          "late",
+                          "lastAttempt",
+                          "toRedo"
                         ]
                       }
                     },
@@ -2800,6 +3027,7 @@
                     "curriculumCode",
                     "sameCurriculum",
                     "estimate",
+                    "prerequisiteEdges",
                     "required",
                     "electives",
                     "complementary",
@@ -4152,7 +4380,8 @@
                             "enum": [
                               "sigaa",
                               "moodle",
-                              "classroom"
+                              "classroom",
+                              "siasb"
                             ]
                           },
                           "status": {
@@ -4182,6 +4411,66 @@
                         ]
                       }
                     },
+                    "permissions": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "enum": [
+                              "siasb.schedule_write",
+                              "siasb.procedures_write",
+                              "moodle.forum_write"
+                            ]
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "risk": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "high"
+                            ]
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "unavailableReason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "source_not_connected"
+                            ]
+                          },
+                          "granted": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "source",
+                          "title",
+                          "description",
+                          "risk",
+                          "available",
+                          "unavailableReason",
+                          "granted"
+                        ]
+                      }
+                    },
                     "expiresAt": {
                       "type": "string",
                       "format": "date-time"
@@ -4192,6 +4481,7 @@
                     "client",
                     "signedIn",
                     "sources",
+                    "permissions",
                     "expiresAt"
                   ]
                 }
@@ -4214,7 +4504,7 @@
     "/authorize/requests/{id}/approve": {
       "post": {
         "operationId": "approveAuthorizationRequest",
-        "summary": "Aprovar o pedido",
+        "summary": "Aprovar o pedido; `permissions` (opcional) = as permissões por app marcadas (conjunto exato; ausente = não altera)",
         "tags": [
           "authorize"
         ],
@@ -4245,6 +4535,30 @@
             "in": "header"
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "siasb.schedule_write",
+                        "siasb.procedures_write",
+                        "moodle.forum_write"
+                      ]
+                    },
+                    "maxItems": 3
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -4405,6 +4719,45 @@
                           },
                           "sigaa": {
                             "type": "boolean"
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "enum": [
+                                    "siasb.schedule_write",
+                                    "siasb.procedures_write",
+                                    "moodle.forum_write"
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                },
+                                "risk": {
+                                  "type": "string",
+                                  "enum": [
+                                    "low",
+                                    "high"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "source",
+                                "title",
+                                "description",
+                                "risk"
+                              ]
+                            }
                           }
                         },
                         "required": [
@@ -4416,7 +4769,8 @@
                           "clientId",
                           "authorizedAt",
                           "lastUsedAt",
-                          "sigaa"
+                          "sigaa",
+                          "permissions"
                         ]
                       }
                     }
@@ -4444,7 +4798,7 @@
     "/authorized-apps/{clientId}": {
       "delete": {
         "operationId": "revokeAuthorizedApp",
-        "summary": "Revogar um app",
+        "summary": "Revogar um app (leva junto as permissões dele)",
         "tags": [
           "authorize"
         ],
@@ -4460,6 +4814,70 @@
             },
             "required": true,
             "name": "clientId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Força preflight (CSRF)."
+            },
+            "required": true,
+            "name": "X-UFBA",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/authorized-apps/{clientId}/permissions/{key}": {
+      "delete": {
+        "operationId": "revokeAuthorizedAppPermission",
+        "summary": "Retira UMA permissão de um app, sem revogar o app (404 se ele não a tinha)",
+        "tags": [
+          "authorize"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "clientId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "siasb.schedule_write",
+                "siasb.procedures_write",
+                "moodle.forum_write"
+              ]
+            },
+            "required": true,
+            "name": "key",
             "in": "path"
           },
           {
@@ -6151,6 +6569,214 @@
         }
       }
     },
+    "/me/calendar": {
+      "get": {
+        "operationId": "getMeCalendar",
+        "summary": "Calendário do Painel: feriados e dias sem aula, aulas (recorrência das turmas do SIGAA, fora dos feriados) e sessões do SIASB (só com acesso), por dia, prontos para desenhar; falha parcial em sources[]",
+        "tags": [
+          "calendar"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": true,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": true,
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "to": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "term": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "days": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          "nonTeaching": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ]
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "class",
+                                    "deadline",
+                                    "exam",
+                                    "session"
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "sigaa",
+                                    "siasb"
+                                  ]
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "courseName": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "courseCode": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "startsAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "endsAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "place": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "kind",
+                                "source",
+                                "title",
+                                "courseName",
+                                "courseCode",
+                                "startsAt",
+                                "endsAt",
+                                "place"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "date",
+                          "nonTeaching",
+                          "items"
+                        ]
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "sigaa",
+                              "siasb"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "ok",
+                              "failed",
+                              "reconnect_required"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "status"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to",
+                    "term",
+                    "days",
+                    "sources"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro `{ error, message }`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/calendar": {
       "get": {
         "operationId": "getPublishedCalendar",
@@ -6752,7 +7378,7 @@
     "/me/permissions": {
       "get": {
         "operationId": "listPermissions",
-        "summary": "Permissões por fonte que a pessoa pode ligar para o Claude (padrão desligadas)",
+        "summary": "LEGADO. Permissões oferecidas à pessoa (só de fontes a que tem acesso); `enabled` = concedida a algum app. A concessão é por app, ao autorizar",
         "tags": [
           "permissions"
         ],
@@ -6778,7 +7404,8 @@
                             "type": "string",
                             "enum": [
                               "siasb.schedule_write",
-                              "siasb.procedures_write"
+                              "siasb.procedures_write",
+                              "moodle.forum_write"
                             ]
                           },
                           "source": {
@@ -6849,7 +7476,7 @@
     "/me/permissions/{key}": {
       "put": {
         "operationId": "setPermission",
-        "summary": "Liga ou desliga uma permissão (ligar sem a fonte conectada: 409 permission_unavailable)",
+        "summary": "LEGADO. Só desligar (retira a permissão de todos os apps); ligar é 400: a permissão é concedida ao autorizar o app",
         "tags": [
           "permissions"
         ],
@@ -6864,7 +7491,8 @@
               "type": "string",
               "enum": [
                 "siasb.schedule_write",
-                "siasb.procedures_write"
+                "siasb.procedures_write",
+                "moodle.forum_write"
               ]
             },
             "required": true,

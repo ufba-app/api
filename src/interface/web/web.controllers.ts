@@ -34,6 +34,7 @@ import {
   ConnectSigaaBody,
   AcademicConsentBody,
   PERMISSION_KEYS,
+  ApproveRequestBody,
   PermissionBody,
   NOTIFICATION_KEYS,
   NotificationSettingBody,
@@ -43,6 +44,7 @@ import {
   DeliverPairingBody,
   UnlockSigaaBody,
   SaveSigaaPasskeyBody,
+  MeCalendarQuery,
   SiasbCalendarQuery,
   SigaaPasskeySlotBody,
   parseInput,
@@ -50,6 +52,9 @@ import {
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { WebSessionService } from '../../application/web/web-session.service';
 import { PermissionsService } from '../../application/permissions/permissions.service';
+import { MeCalendar } from '../../application/web/me-calendar.service';
+import { ConnectionStatus } from '../../application/web/connection-status';
+import { quem } from './data.controller';
 import { NotificationSettings } from '../../application/notifications/notification-settings.service';
 import { PushDevices } from '../../application/notifications/push-devices.service';
 import { z } from 'zod';
@@ -428,6 +433,30 @@ export class SiasbController {
 }
 
 /**
+ * Calendário do Painel: tudo pronto para desenhar num só lugar (o web não monta a partir de várias rotas). Falha de uma fonte
+ * não derruba a rota (vira `sources[].status`); sessões do SIASB só para quem tem acesso e sem dado de paciente.
+ */
+@Controller('me/calendar')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class MeCalendarController {
+  constructor(
+    private readonly calendar: MeCalendar,
+    private readonly status: ConnectionStatus,
+  ) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async get(@Principal() p: WebPrincipal | null, @Query() q: unknown) {
+    const who = must(p);
+    const { from, to } = parseInput(MeCalendarQuery, q, invalidRequest);
+    // O SIGAA só se lê com a senha desta sessão: o estado (conectado, a destravar ou desconectado) decide se há aulas.
+    const sigaa = (await this.status.sigaa(who)).status;
+    return this.calendar.get(quem(who), from, to, sigaa === 'connected' || sigaa === 'locked' || sigaa === 'password_required' ? sigaa : 'disconnected');
+  }
+}
+
+/**
  * Vida acadêmica (docs/specs/2026-11-15-vida-academica.md): consentimento, importação do histórico em segundo plano
  * (a IA só LÊ), confirmação da pessoa antes de gravar, e a grade do curso adequada ao currículo Ativo. Tudo apagável.
  */
@@ -550,8 +579,10 @@ export class AuthorizeRequestsController {
   @Post(':id/approve')
   @HttpCode(200)
   @UseGuards(SessionGuard)
-  approve(@Param('id') id: string, @Principal() p: WebPrincipal | null) {
-    return this.web.approve(id, must(p));
+  approve(@Param('id') id: string, @Principal() p: WebPrincipal | null, @Body() b: unknown) {
+    // Corpo opcional: sem `permissions` o app mantém o que já tem; com a lista (mesmo vazia), vale o conjunto exato.
+    const body = parseInput(ApproveRequestBody, b ?? {}, invalidRequest);
+    return this.web.approve(id, must(p), body.permissions);
   }
 
   @Post(':id/deny')
@@ -578,6 +609,14 @@ export class AuthorizedAppsController {
   @UseGuards(SessionGuard)
   async revoke(@Principal() p: WebPrincipal | null, @Param('clientId') clientId: string): Promise<void> {
     await this.web.revoke(must(p), clientId);
+  }
+
+  /** Retira UMA permissão do app, sem revogar o app. */
+  @Delete(':clientId/permissions/:key')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async revokePermission(@Principal() p: WebPrincipal | null, @Param('clientId') clientId: string, @Param('key') key: string): Promise<void> {
+    await this.web.revokePermission(must(p), clientId, parseInput(z.enum(PERMISSION_KEYS), key, invalidRequest));
   }
 }
 

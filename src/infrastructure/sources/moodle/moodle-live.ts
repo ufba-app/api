@@ -5,14 +5,31 @@ import type {
   CursoVivo,
   DiscussaoViva,
   LiveSource,
+  MensagemViva,
+  ParticipanteVivo,
+  PostagemFeita,
+  PostagemForum,
   PrazoVivo,
   TipoAtividade,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
+import { DRIVE_KIND_NAME, extractDriveLinks, parseDriveLink } from '../../../domain/drive/drive-link';
+import type { DriveRefs } from '../drive/drive-refs';
 import { accessOf, type MoodleAccess } from './moodle-access';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
 import { cleanUrl, type MoodleAssignment, type MoodleDiscussion, type MoodleFile } from './moodle-mapper';
+
+/** Teto de arquivos HTML (capítulos de livro, recursos HTML, páginas) baixados por `verCurso` só para achar links do Drive. */
+export const MAX_HTML_LEITURAS = 12;
+/** HTML maior que isso não é lido. */
+const MAX_HTML_BYTES = 512 * 1024;
+const PARALELO_HTML = 4;
+
+interface MoodlePageRow {
+  coursemodule?: number;
+  content?: string;
+}
 
 interface TimelineCourse {
   id: number;
@@ -47,6 +64,24 @@ interface UpcomingEvent {
   course?: { id: number; fullname?: string };
 }
 type Discussion = MoodleDiscussion & { userfullname?: string };
+/** Participante de `core_enrol_get_enrolled_users` (só os campos usados). */
+interface MoodleEnrolledUser {
+  id: number;
+  fullname: string;
+  roles?: Array<{ shortname?: string }>;
+}
+/** Mensagem de `mod_forum_get_discussion_posts` (só os campos usados). */
+interface MoodlePost {
+  id: number;
+  /** Id da mensagem pai (0 na inicial). Na resposta real do Moodle o campo é `parentid`; `parent` fica como reserva. */
+  parentid?: number;
+  parent?: number;
+  author?: { fullname?: string };
+  userfullname?: string;
+  created?: number;
+  message?: string;
+  attachments?: MoodleFile[];
+}
 
 const TIPO_POR_MODULO: Record<string, TipoAtividade> = {
   assign: 'tarefa',
@@ -79,22 +114,56 @@ export function htmlToText(html?: string): string | undefined {
   return text || undefined;
 }
 
+/** Texto digitado → HTML do Moodle: escapa tudo e faz um parágrafo por linha (linha vazia não vira parágrafo). */
+export function textoParaHtml(texto: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return texto
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .map((l) => `<p>${esc(l)}</p>`)
+    .join('');
+}
+
 function anexo(f: MoodleFile): AnexoVivo {
   return { nome: f.filename, mimeType: f.mimetype, tamanhoBytes: f.filesize, ref: cleanUrl(f.fileurl) };
 }
 
 /**
  * Moodle ao vivo. Chamadas por método (nunca varre curso por curso):
- * listarCursos 1 · prazos 1 · verCurso 2 · verForum 1 · baixar 1 (o arquivo).
+ * listarCursos 1 · prazos 1 · verCurso 2 (+1 se houver módulo "page", +até 12 arquivos HTML de livro/recurso/página, só para achar
+ * links do Drive) · verForum 1 · baixar 1 (o arquivo).
  */
 export class MoodleLive implements LiveSource {
   readonly provider: Provider = 'MOODLE';
   private readonly client: MoodleClient;
   private readonly files: MoodleAttachmentReader;
 
-  constructor(fetchFn: FetchFn = fetch) {
+  /** `drive` liga os arquivos do Drive linkados no curso (assina os `ref`); sem ele, os links ficam só como links. */
+  constructor(
+    fetchFn: FetchFn = fetch,
+    private readonly drive?: DriveRefs,
+  ) {
     this.client = new MoodleClient(fetchFn);
     this.files = new MoodleAttachmentReader(fetchFn);
+  }
+
+  /**
+   * Links do Drive/Docs que o professor pôs no conteúdo (HTML e URLs) viram anexos com `ref` ASSINADO e preso à pessoa:
+   * só o que apareceu no curso desta pessoa pode ser baixado depois.
+   */
+  private driveAnexos(userId: string, html: string | undefined, urls: readonly string[] = []): AnexoVivo[] {
+    if (!this.drive) return [];
+    return extractDriveLinks(html, urls).map((l) => ({
+      nome: l.label ?? DRIVE_KIND_NAME[l.kind],
+      ...(l.kind === 'sheet'
+        ? { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+        : l.kind === 'file'
+          ? {}
+          : l.kind === 'folder'
+            ? { mimeType: 'application/vnd.google-apps.folder' }
+            : { mimeType: 'application/pdf' }),
+      ref: this.drive!.sign(userId, l),
+    }));
   }
 
   listarCursos(ctx: SourceContext, opts?: { todas?: boolean }): Promise<CursoVivo[]> {
@@ -144,13 +213,23 @@ export class MoodleLive implements LiveSource {
       ]);
       const tarefas = new Map<number, MoodleAssignment>();
       for (const c of assigns.courses ?? []) for (const a of c.assignments) if (a.cmid) tarefas.set(a.cmid, a);
+      // Corpo de páginas, capítulos de livro e recursos HTML: é onde o professor costuma pôr o link do Drive.
+      const corpos = await this.corposHtml(ctx, m, id, sections);
 
       const out: AtividadeViva[] = [];
       for (const s of sections) {
         for (const mod of s.modules ?? []) {
-          if (mod.visible === 0 || mod.uservisible === false || mod.modname === 'label') continue;
+          if (mod.visible === 0 || mod.uservisible === false) continue;
           const contents = mod.contents ?? [];
           const tarefa = mod.modname === 'assign' ? tarefas.get(mod.id) : undefined;
+          const htmlDescricao = tarefa?.intro ?? mod.description;
+          const doDrive = this.driveAnexos(
+            ctx.userId,
+            [htmlDescricao, ...(corpos.get(mod.id) ?? [])].join(' '),
+            contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
+          );
+          // Rótulos (texto solto na página do curso) só entram se trouxerem arquivo do Drive.
+          if (mod.modname === 'label' && doDrive.length === 0) continue;
           out.push({
             id: String(mod.id),
             tipo: TIPO_POR_MODULO[mod.modname] ?? 'outro',
@@ -162,14 +241,63 @@ export class MoodleLive implements LiveSource {
             anexos: [
               ...contents.filter((f) => f.type !== 'url').map(anexo),
               ...(tarefa?.introattachments ?? []).map(anexo),
+              ...doDrive,
             ],
-            links: contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
+            // Link do Drive que virou anexo sai de `links`: o agente deve usar o `ref` (o link direto pede login).
+            links: contents
+              .filter((f) => f.type === 'url' && !(this.drive && parseDriveLink(f.fileurl)))
+              .map((f) => f.fileurl),
             forumId: mod.modname === 'forum' && mod.instance ? String(mod.instance) : undefined,
           });
         }
       }
       return out;
     });
+  }
+
+  /**
+   * HTML dos módulos que guardam o texto fora da descrição, por id do módulo (`cmid`): `page` (1 chamada `mod_page_get_pages_by_courses`
+   * para o curso todo; se falhar, baixa o index.html de cada página), `book` (capítulos) e `resource` HTML (arquivo). Melhor esforço:
+   * qualquer falha aqui só deixa de achar links, nunca derruba `verCurso`. Teto de 12 arquivos e 512 KB cada.
+   */
+  private async corposHtml(ctx: SourceContext, m: MoodleAccess, courseId: number, sections: LiveSection[]): Promise<Map<number, string[]>> {
+    const out = new Map<number, string[]>();
+    if (!this.drive) return out; // só serve para achar links do Drive
+    const visible = sections.flatMap((s) => s.modules ?? []).filter((mod) => mod.visible !== 0 && mod.uservisible !== false);
+    const add = (cmid: number, html: string) => out.set(cmid, [...(out.get(cmid) ?? []), html]);
+    const isHtml = (f: MoodleFile) => f.type !== 'url' && (f.mimetype?.toLowerCase().startsWith('text/html') || /\.html?$/i.test(f.filename)) && (f.filesize ?? 0) <= MAX_HTML_BYTES;
+
+    const pages = visible.filter((mod) => mod.modname === 'page');
+    let pagesViaWs = false;
+    if (pages.length > 0) {
+      try {
+        const r = await this.client.call<{ pages?: MoodlePageRow[] }>(m, 'mod_page_get_pages_by_courses', { 'courseids[0]': courseId });
+        for (const p of r.pages ?? []) if (p.coursemodule && p.content) add(p.coursemodule, p.content);
+        pagesViaWs = true;
+      } catch {
+        // Função fora do serviço do AVA ou sem permissão: cai no index.html de cada página.
+      }
+    }
+    const files: Array<{ cmid: number; file: MoodleFile }> = [];
+    for (const mod of visible) {
+      const wanted = mod.modname === 'book' || mod.modname === 'resource' || (mod.modname === 'page' && !pagesViaWs);
+      if (!wanted) continue;
+      for (const f of mod.contents ?? []) if (isHtml(f)) files.push({ cmid: mod.id, file: f });
+    }
+    const queue = files.slice(0, MAX_HTML_LEITURAS);
+    const worker = async () => {
+      for (let it = queue.shift(); it; it = queue.shift()) {
+        try {
+          // O leitor só aceita URL do Moodle da própria conta e acrescenta o token (nunca logado).
+          const r = await this.files.read(ctx, cleanUrl(it.file.fileurl));
+          if (r.content.length <= MAX_HTML_BYTES) add(it.cmid, r.content.toString('utf8'));
+        } catch {
+          // melhor esforço
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PARALELO_HTML, queue.length) }, worker));
+    return out;
   }
 
   verForum(ctx: SourceContext, forumId: string): Promise<DiscussaoViva[]> {
@@ -181,12 +309,81 @@ export class MoodleLive implements LiveSource {
       });
       return (res.discussions ?? []).map((d) => ({
         id: String(d.discussion ?? d.id),
+        postId: String(d.id),
         titulo: d.name,
         mensagem: htmlToText(d.message),
         autor: d.userfullname,
         publicadaEm: date(d.created),
-        anexos: (Array.isArray(d.attachments) ? d.attachments : []).map(anexo),
+        anexos: [...(Array.isArray(d.attachments) ? d.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, d.message)],
       }));
+    });
+  }
+
+  /**
+   * Mensagens de UM tópico, com as respostas (`mod_forum_get_discussion_posts`, 1 chamada). `verForum` só traz a mensagem
+   * inicial de cada tópico; para ler a conversa, pede-se o tópico. Ordem cronológica; `respostaA` liga cada resposta à sua mensagem.
+   */
+  verTopico(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]> {
+    return this.run(ctx, async (m) => {
+      const id = Number(discussaoId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'discussaoId inválido');
+      const res = await this.client.call<{ posts?: MoodlePost[] }>(m, 'mod_forum_get_discussion_posts', {
+        discussionid: id,
+        sortby: 'created',
+        sortdirection: 'ASC',
+      });
+      return (res.posts ?? []).map((p) => ({
+        postId: String(p.id),
+        ...((p.parentid ?? p.parent) ? { respostaA: String(p.parentid ?? p.parent) } : {}),
+        autor: p.author?.fullname ?? p.userfullname,
+        publicadaEm: date(p.created),
+        mensagem: htmlToText(p.message),
+        anexos: [...(Array.isArray(p.attachments) ? p.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, p.message)],
+      }));
+    });
+  }
+
+  /**
+   * Participantes da matéria (`core_enrol_get_enrolled_users`, 1 chamada). Devolve só nome e papéis: o resto da resposta
+   * (e-mail, id, imagem) não sai daqui.
+   */
+  listarParticipantes(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]> {
+    return this.run(ctx, async (m) => {
+      const id = Number(cursoId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'cursoId inválido');
+      const res = await this.client.call<MoodleEnrolledUser[]>(m, 'core_enrol_get_enrolled_users', { courseid: id });
+      return (Array.isArray(res) ? res : []).map((u) => ({
+        nome: u.fullname,
+        papeis: (u.roles ?? []).map((r) => r.shortname).filter((s): s is string => typeof s === 'string'),
+      }));
+    });
+  }
+
+  /**
+   * Publica no fórum: nova discussão (`mod_forum_add_discussion`, pelo `forumId`) ou resposta a uma mensagem
+   * (`mod_forum_add_discussion_post`, pelo `postId` de `verForum`). 1 chamada. O texto vai como HTML escapado, um parágrafo por linha.
+   */
+  postarForum(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita> {
+    return this.run(ctx, async (m) => {
+      const mensagem = textoParaHtml(post.mensagem);
+      if (post.postId !== undefined) {
+        const id = Number(post.postId);
+        if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'postId inválido');
+        const res = await this.client.call<{ postid?: number }>(m, 'mod_forum_add_discussion_post', {
+          postid: id,
+          subject: post.titulo,
+          message: mensagem,
+        });
+        return { postId: res.postid !== undefined ? String(res.postid) : undefined };
+      }
+      const id = Number(post.forumId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'forumId inválido');
+      const res = await this.client.call<{ discussionid?: number }>(m, 'mod_forum_add_discussion', {
+        forumid: id,
+        subject: post.titulo,
+        message: mensagem,
+      });
+      return { discussaoId: res.discussionid !== undefined ? String(res.discussionid) : undefined };
     });
   }
 

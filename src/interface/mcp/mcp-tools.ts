@@ -5,6 +5,12 @@ import { CONNECT_PROMPT_NAME, CONNECT_PROMPT_TEXT } from '../../application/memo
 import { memoryInstructionsFor } from '../../application/memory/memory-proxy';
 import { isWebChatClient } from '../../application/memory/connect-guide';
 import { registerClinicaTools } from './clinica-tools';
+import {
+  PERMISSAO_AGENDA,
+  PERMISSAO_PROCEDIMENTOS,
+  registerClinicaAgendaWriteTools,
+  registerClinicaProcedimentoWriteTools,
+} from './clinica-write-tools';
 import { McpClinica, McpMemory, McpPrincipal, McpUseCases } from './mcp-ports';
 import { run } from './tool-result';
 
@@ -24,6 +30,21 @@ const CONTA = z
       'uma conta só nessa fonte; com mais de uma, é obrigatória.',
   );
 
+/**
+ * Instruções do servidor, lidas pelo Claude ao conectar. Servem para ele usar o conector em QUALQUER conversa de contexto
+ * acadêmico, mesmo sem a pessoa dizer "UFBA" (ex.: "amanhã tenho prova, me ajuda a estudar").
+ */
+export const ACADEMIC_INSTRUCTIONS =
+  'Este conector dá acesso à vida acadêmica REAL da pessoa na UFBA (SIGAA, AVA/Moodle e Google Classroom). Quem o ' +
+  'conectou é estudante da UFBA: use-o sempre que a conversa tocar em estudos ou faculdade, MESMO que ela não ' +
+  'mencione a UFBA, o SIGAA ou o Moodle. Exemplos: prova, trabalho, entrega, prazo, aula, matéria, disciplina, ' +
+  'professor, nota, falta, semestre, material, fórum, aviso, "o que tenho para hoje/amanhã/esta semana", pedir ajuda ' +
+  'para estudar ou se organizar. Antes de responder de memória, consulte: comece por `listar_contas` e `prazos`, e ' +
+  'use `listar_cursos` e `ver_curso` para o conteúdo da matéria (tarefas, materiais, avisos). Assim a ajuda parte do ' +
+  'que a pessoa realmente tem, não de suposições. Links do Google Drive/Docs em cursos do Moodle: use `baixar_anexo` ' +
+  'com a `ref` que começa com `gdrive1.` (vem em `ver_curso`/`ver_forum`); NÃO abra o link do Drive direto, ele pede ' +
+  'login. Só lê, nunca altera nada nas fontes.';
+
 const AO_VIVO = 'Consulta a fonte AO VIVO, em UMA conta, com o acesso que a pessoa conectou; não grava nada.';
 
 /** Ferramentas e quantas chamadas cada uma faz à fonte (o teste garante esse teto). */
@@ -33,6 +54,8 @@ export const FERRAMENTAS = [
   'prazos',
   'ver_curso',
   'ver_forum',
+  'ver_topico',
+  'listar_alunos',
   'ver_aviso',
   'baixar_anexo',
 ] as const;
@@ -59,13 +82,17 @@ export function buildMcpServer(
 ): McpServer {
   const withMemory = memory?.enabled() === true;
   const server = new McpServer(
-    { name: 'platform', version: '0.1.0' },
-    withMemory ? { instructions: memoryInstructionsFor(p.clientName) } : undefined,
+    { name: 'platform', title: 'UFBA: vida acadêmica', version: '0.1.0' },
+    { instructions: withMemory ? `${ACADEMIC_INSTRUCTIONS}
+
+${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
   );
 
   server.registerTool(
     'listar_contas',
     {
+      title: 'Contas conectadas',
+      annotations: { title: 'Contas conectadas', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       description:
         'Contas conectadas pela pessoa em cada fonte (ex.: Moodle da UFBA; Classroom no gmail pessoal e no @ufba.br). ' +
         'Use para saber o que passar em `conta` nas outras ferramentas; para ler todas, consulte uma conta por vez. ' +
@@ -78,8 +105,10 @@ export function buildMcpServer(
   server.registerTool(
     'listar_cursos',
     {
+      title: 'Listar matérias',
+      annotations: { title: 'Listar matérias', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Lista as matérias da pessoa na fonte (padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
+        'Lista as matérias que a pessoa cursa (use sempre que ela falar de aula, prova, trabalho, disciplina ou estudo, mesmo sem citar a UFBA). Padrão: só as em andamento; `todas: true` inclui passadas e futuras). ' +
         'Use o `id` em `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, todas: z.boolean().optional() },
     },
@@ -89,8 +118,10 @@ export function buildMcpServer(
   server.registerTool(
     'prazos',
     {
+      title: 'Próximos prazos',
+      annotations: { title: 'Próximos prazos', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Moodle: uma consulta ao ' +
+        'Próximos prazos das matérias atuais (tarefas a entregar, provas, eventos). Use quando a pessoa falar de prova, entrega, trabalho ou "o que tenho para amanhã", mesmo sem citar a UFBA. Moodle: uma consulta ao ' +
         'calendário. Classroom: uma consulta por matéria ativa (com teto). Comece por aqui para perguntas como ' +
         '"o que tenho para hoje/esta semana"; para uma visão completa, consulte cada conta de `listar_contas`. ' +
         AO_VIVO,
@@ -102,9 +133,12 @@ export function buildMcpServer(
   server.registerTool(
     'ver_curso',
     {
+      title: 'Ver matéria',
+      annotations: { title: 'Ver matéria', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Conteúdo de UMA matéria: tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
-        'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`. Classroom: arquivos em `abrirNoNavegador` ' +
+        'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
+        'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`; links do Google Drive/Docs postados pelo professor também ' +
+        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login); pasta do Drive vira um anexo por arquivo de dentro (vídeo, arquivo grande e subpasta ficam em `abrirNoNavegador`). Classroom: arquivos em `abrirNoNavegador` ' +
         '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
         '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
@@ -115,17 +149,49 @@ export function buildMcpServer(
   server.registerTool(
     'ver_forum',
     {
+      title: 'Ver fórum',
+      annotations: { title: 'Ver fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Discussões de UM fórum do Moodle (inclui o fórum de avisos da matéria), com mensagem e anexos. Use o ' +
-        '`forumId` vindo de `ver_curso`. (O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
+        'Lista os TÓPICOS de UM fórum do Moodle (inclui o de avisos da matéria), com a mensagem inicial de cada um e o `id` de cada tópico. ' +
+        'Para ver as respostas de um tópico (o que os colegas postaram), use `ver_topico` com esse `id`. Use o `forumId` de `ver_curso`. ' +
+        '(O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
     },
     (args) => run(() => uc.verForum(p, args)),
   );
 
   server.registerTool(
+    'ver_topico',
+    {
+      title: 'Ver tópico do fórum',
+      annotations: { title: 'Ver tópico do fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Todas as MENSAGENS de UM tópico de fórum do Moodle, com as respostas, em ordem cronológica. Cada mensagem traz `autor`, `mensagem`, ' +
+        '`postId` (para responder com `postar_forum`) e `respostaA` (o `postId` da mensagem a que ela responde; ausente na inicial). ' +
+        'Use o `id` de um tópico vindo de `ver_forum`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, discussaoId: z.string() },
+    },
+    (args) => run(() => uc.verTopico(p, args)),
+  );
+
+  server.registerTool(
+    'listar_alunos',
+    {
+      title: 'Listar alunos da matéria',
+      annotations: { title: 'Listar alunos da matéria', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Nomes dos ALUNOS de UMA matéria (o `id` de `listar_cursos`), em ordem alfabética, com o total. Só o nome: não traz e-mail nem contato. ' +
+        'Professores e monitores ficam de fora. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
+    },
+    (args) => run(() => uc.listarAlunos(p, args)),
+  );
+
+  server.registerTool(
     'ver_aviso',
     {
+      title: 'Ver aviso',
+      annotations: { title: 'Ver aviso', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
         'Texto completo de UM aviso/notícia de uma matéria. Hoje só no SIGAA (`fonte: sigaa`). Use o `id` de um ' +
         'item `tipo: aviso` vindo de `ver_curso`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
@@ -137,11 +203,17 @@ export function buildMcpServer(
   server.registerTool(
     'baixar_anexo',
     {
+      title: 'Baixar anexo',
+      annotations: { title: 'Baixar anexo', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Gera links temporários (uso único) para baixar anexos NA MÁQUINA de quem está usando: rode os comandos ' +
-        '`comoBaixar` do resultado. O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
+        'Gera links temporários para baixar anexos NA MÁQUINA de quem está usando (rode os comandos `comoBaixar` do resultado) ' +
+        'ou, em chat web (sem terminal), para a sua ferramenta de leitura de URL abrir (`comoLer`: abra o `link`; vale 10 min e 3 acessos). O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
         'Passe `ref` (e `nome`) de um anexo de `ver_curso`/`ver_forum`, ou `anexos` com vários da mesma conta ' +
-        '(até 20). No Classroom, só arquivos anexados nas matérias são entregues.',
+        '(até 20). No Classroom, só arquivos anexados nas matérias são entregues. Arquivos do Drive linkados no Moodle ' +
+        'também (a `ref` que começa com `gdrive1.`; só os que apareceram no curso): use SEMPRE a `ref`, nunca o link do Drive ' +
+        'direto (ele pede login); o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +
+        'de conectar o Google Classroom. Vídeo e arquivo acima de 25 MB do Drive NÃO são baixados: o resultado traz `aviso` ' +
+        '(tipo e tamanho) e `abrirNoNavegador` (link para a pessoa abrir), sem link de download.',
       inputSchema: {
         fonte: FONTE,
         conta: CONTA,
@@ -153,7 +225,39 @@ export function buildMcpServer(
     (args) => run(() => uc.baixarAnexo(p, args)),
   );
 
-  if (p.siasb && clinica) registerClinicaTools(server, clinica, p);
+  // Escrita: só existe para o app que a pessoa autorizou com a permissão `moodle.forum_write` (ver docs/MCP.md).
+  registerPermissionedTool(p, 'moodle.forum_write', () =>
+    server.registerTool(
+      'postar_forum',
+      {
+        title: 'Postar no fórum',
+        annotations: { title: 'Postar no fórum', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        description:
+          'Publica no fórum do Moodle (AVA) em nome da pessoa. Dois modos: nova discussão (passe `forumId`, o de `ver_curso`) ou ' +
+          'resposta (passe `postId`, o de `ver_forum`). Sempre `titulo` (no modo resposta, use "Re: " + o título da discussão) e `mensagem` (texto puro). ' +
+          'A publicação não pode ser desfeita por aqui e fica visível para a turma e o professor: mostre o texto à pessoa e só publique depois que ela confirmar. ' +
+          'Escreve na fonte (o AVA), na hora; não grava nada no serviço.',
+        inputSchema: {
+          conta: CONTA,
+          forumId: z.string().optional(),
+          postId: z.string().optional(),
+          titulo: z.string(),
+          mensagem: z.string(),
+        },
+      },
+      (args) => run(() => uc.postarForum(p, args)),
+    ),
+  );
+
+  if (p.siasb && clinica) {
+    registerClinicaTools(server, clinica, p);
+    // Escrita: só com a permissão do app (ligada no painel) e o escritor disponível.
+    const write = clinica.writes?.();
+    if (write) {
+      registerPermissionedTool(p, PERMISSAO_AGENDA, () => registerClinicaAgendaWriteTools(server, write, p));
+      registerPermissionedTool(p, PERMISSAO_PROCEDIMENTOS, () => registerClinicaProcedimentoWriteTools(server, write, p));
+    }
+  }
 
   if (withMemory) {
     addMemoryTools(server, memory, p);

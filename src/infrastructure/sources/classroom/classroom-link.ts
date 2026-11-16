@@ -20,6 +20,7 @@ export const CLASSROOM_LINK_SCOPES = [
   'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
   'https://www.googleapis.com/auth/classroom.announcements.readonly',
   'https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly',
+  'https://www.googleapis.com/auth/classroom.rosters.readonly',
   DRIVE_READONLY_SCOPE,
 ];
 

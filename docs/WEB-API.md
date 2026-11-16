@@ -314,7 +314,8 @@ Todas as rotas exigem sessão e CSRF (os `POST` sem dado de negócio mandam `{}`
 - `DELETE /me/academic/draft` → 204. Descarta **só** o rascunho (`NEEDS_CONFIRMATION`) ou a falha (`FAILED`) de um Atualizar, sem tocar no histórico gravado: com histórico o estado volta a `READY`; sem, a `NONE`. 409 `import_in_progress` durante a leitura (`RUNNING`); 404 `import_not_found` sem rascunho nem falha.
 - `GET /me/academic/curriculum` → a grade do curso (currículo Ativo) marcada com o que a pessoa já fez: componentes obrigatórios,
   optativas e complementares com `state` (`DONE`, `DONE_VIA_EQUIVALENCE`, `ENROLLED`, `AVAILABLE`, `BLOCKED` + o que falta de
-  pré-requisito), `corequisiteExpr` (texto do co-requisito como o SIGAA imprime; o cumprimento não é calculado) e `responsibleUnit` (unidade responsável) em cada componente, ambos `string | null`, horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`. 404 `import_not_found`
+  pré-requisito), `corequisiteExpr` (texto do co-requisito como o SIGAA imprime; o cumprimento não é calculado) e `responsibleUnit` (unidade responsável) em cada componente, ambos `string | null`, horas por natureza, `percentComplete`, atrasados e divergências. Sempre `estimate: true`.
+  Para o **mapa da Trajetória** (`dev/ufba/handoffs/trajetoria-mapa.md`): `prerequisiteEdges` (`{ from, to, kind }`: `from` é pré-requisito de `to`; `kind` é `REQUIRED` quando a ligação é exigida em toda forma de cumprir a expressão e `ALTERNATIVE` quando faz parte de um OU; só ligações entre componentes do currículo; lista vazia quando o SIGAA não trouxe pré-requisitos legíveis) e, em cada componente, `lastAttempt` (`{ term, grade, status }` da tentativa que vale: a última aprovada, se houve, senão a última; `term` nulo nas linhas sem semestre; `null` se a pessoa nunca cursou o código) e `toRedo` (a última tentativa foi `REP`, `REPF`, `REPMF` ou `TRANC` e o componente não está cumprido nem em curso; o `state` segue `AVAILABLE` ou `BLOCKED`, a tela mostra "a refazer"). O caminho completo (tudo que o componente exige e libera, em qualquer profundidade) a tela calcula a partir de `prerequisiteEdges`. O currículo e o grafo ficam em cache na API (5 min, renovado na hora quando a importação grava). 404 `import_not_found`
   sem histórico gravado; 409 `curriculum_unavailable` enquanto a grade do curso não está pronta.
 
 A fonte do PDF está ligada (fase 5): a importação baixa o "Histórico Escolar" pela sessão do SIGAA da pessoa (reaproveita o cookie guardado; a senha só é aberta se for preciso logar) em 2 requisições (portal e menu "Emitir Histórico"). A importação só existe com `ANTHROPIC_API_KEY` configurada (`available: false` sem ela). Falha da fonte vira `SIGAA_UNAVAILABLE` (SIGAA fora do ar, página inesperada) ou `SESSION_EXPIRED` (senha recusada).
@@ -340,20 +341,48 @@ Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 
 `GET /calendar[?term=2026.2]` → 200, qualquer pessoa com sessão (`no-store`). Sem `term`: o semestre vigente (o que contém hoje; entre dois semestres, o próximo a começar; passados todos, o mais recente). Reedição do mesmo semestre: vale a mais recente. 404 `not_found` se não há calendário publicado; `term` inválido é 400.
 O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersion: "1", sourceUrl, publishedAt, document: { term, publishedOn }, keyDates: { termStart, progress25, progress50, progress75, termEnd, internship }, events[], teachingDays: { byMonth[], total }, nonTeachingDays[], otherEvents[] }`. Toda data é ISO (`YYYY-MM-DD`); `when` é uma união por `type` (`on`, `between`, `until`, `from`, `undetermined`). A projeção em intervalos de dia ainda não existe.
 
-## 5.3 Permissões por fonte (o que a pessoa libera para o Claude fazer)
+## 5.2.1 Calendário do Painel (`GET /me/calendar`)
 
-Interruptores que **só a pessoa liga, pela sessão do painel** (nenhuma ferramenta MCP altera permissões). Genéricos: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada.
+`GET /me/calendar?from=AAAA-MM-DD&to=AAAA-MM-DD` → 200 `MeCalendarResponse` (`no-store`, sessão normal). Compila tudo pronto para desenhar; o web **não** monta isso a partir de várias rotas. `from` e `to` (inclusivos, dias de Salvador, America/Bahia): ausentes, inválidos, invertidos ou com mais de **62 dias** = 400 `invalid_request`.
 
-- `GET /me/permissions` → `{ items: Permission[] }` (`no-store`), na ordem do catálogo.
-  `Permission = { key, source, title, description, risk: "low"|"high", enabled, available, unavailableReason: "source_not_connected" | null }`.
-  Sem linha no banco = `enabled: false` (todas nascem **desligadas**). `available` = a pessoa tem conexão com a fonte em qualquer estado (inclusive reconectar); sem conexão: `available: false` e `unavailableReason: "source_not_connected"`.
-- `PUT /me/permissions/{key}` `{ enabled }` → 204. Exige sessão, `X-UFBA: 1`, `Origin` da casa e JSON (como as demais rotas que mudam estado). `key` é o enum fechado `PERMISSION_KEYS` do contrato; chave desconhecida ou corpo inválido: 400 `invalid_request`. **Ligar** sem a fonte conectada: 409 `permission_unavailable`. Desligar é sempre permitido.
+```
+{ from, to, term: "2026.2" | null,
+  days: [{ date, nonTeaching: { name } | null, items: Item[] }],     // só dias com algo, em ordem
+  sources: [{ source: "sigaa"|"siasb", status: "ok"|"failed"|"reconnect_required" }] }
+Item = { id, kind: "class"|"deadline"|"exam"|"session", source: "sigaa"|"siasb", title, courseName|null, courseCode|null,
+         startsAt, endsAt, place|null }                              // ISO com -03:00
+```
 
-Chaves: `siasb.schedule_write` (risco `low`: agendar e desmarcar sessões) e `siasb.procedures_write` (risco `high`: lançar e excluir procedimentos previstos; o web abre um diálogo de confirmação antes de ligar). Chave nova entra em `PERMISSION_KEYS` e em `PERMISSION_CATALOG` (`src/application/permissions/permissions.service.ts`: título, descrição, fonte e risco são obrigatórios por tipo).
+**Só entram** (decisão do André): feriados e dias sem aula, aulas e **prazos do SIGAA** (a fonte primária), e sessões do SIASB. **Nada do Moodle/Classroom** (a rota não chama essas fontes).
 
-Armazenamento: `user_permissions (user_id, key, enabled, updated_at)`, chave primária `(user_id, key)`. Desconectar a fonte apaga as linhas daquela fonte (chaves `<fonte>.*`); `DELETE /me` apaga todas (cascade). Cada mudança vai para o log de auditoria sem dado clínico: `permissão: user=<id> chave=<chave> valor=<bool> em=<ISO>`.
+- **Feriados e dias sem aula:** do calendário acadêmico publicado (`nonTeachingDays`, intervalos expandidos e recortados no intervalo; de todos os calendários publicados, então um mês entre semestres também vem). `term` = o semestre que mais cobre o intervalo (empate: o mais novo); sem calendário: `null` e a rota segue.
+- **Aulas (`kind: "class"`, `source: "sigaa"`):** a recorrência que o **próprio SIGAA aponta**: as linhas da tabela de turmas do portal do discente (a mesma página que `listar_cursos` lê, **1 requisição**, inclusive turmas sem Turma Virtual) trazem o horário, ex. `35T45 (18/08/2026 - 19/12/2026)`. Código: dígitos dos dias (1 domingo, 2 segunda … 7 sábado) + turno (`M`/`T`/`N`) + módulos; vários códigos na mesma célula (`2N12 4N34`) dividem um período só no fim; módulos não consecutivos viram faixas separadas (`2M136` = três faixas); **módulo que o turno não tem é ignorado sozinho** (`2N45` fica com o 4), sem derrubar o bloco. A API expande por dia dentro do **período da turma** (sem período no portal, vale o semestre do calendário; sem nenhum, nada é inventado) e **exclui os dias com `nonTeaching`**. `title`/`courseName` = nome da turma; `courseCode` só quando o portal traz `CODIGO - Nome` (o da UFBA costuma trazer só o nome: então `null`). `place` = o local **do dia**, em texto curto lido da coluna Local (texto livre do professor): `PAF 1 · 208`, `ENG`, `PAF II · Smart Class III` (sala diferente por dia vale); sem padrão conhecido, o texto original enxuto. A linha de cabeçalho de semestre (`2026.2`) marca as turmas. Horários dos módulos (`domain/academic/class-schedule.ts`): 55 min contínuos a partir de **07:00 (M1–M6), 13:00 (T1–T6) e 18:30 (N1–N4)**, ex. `35T45` = 15:45 às 17:35: a mesma tabela do app antigo (um teste compara módulo a módulo) e a que o próprio portal real imprime na coluna Local. A leitura segue as fixtures reais do app antigo (`portal-discente-turmas.html`).
+- **Prazos e provas do SIGAA (`kind: "exam"` ou `"deadline"`, `source: "sigaa"`):** as datas que o SIGAA expõe na lista **"Avaliações"** de cada turma virtual (data, hora e descrição; o leitor foi conferido contra o SIGAA real no app antigo). A API classifica: descrição com prova/exame/teste/avaliação/P1 = `exam`; com entrega/trabalho/relatório/lista/projeto/tarefa/atividade = `deadline`; o resto = `exam` (a lista é de avaliações). Semântica de horário: **prova** tem `startsAt` (o instante da fonte) e `endsAt: null`; **entrega** tem `endsAt` = o prazo e `startsAt: null`. Avaliação **sem hora** no SIGAA vem à meia-noite (`T00:00:00-03:00`; o SIGAA não diz se é o dia todo). `place` = "SIGAA". Só **de hoje em diante** (a fonte não traz o passado) e só turmas **com Turma Virtual**; os prazos **continuam em feriado** (a aula não). **Tarefas** do SIGAA (a página "Tarefas" da turma) **ainda não são lidas**: não há parser nem fixture dela; precisa de uma leitura real da página para escrever. Os prazos **não foram validados** de ponta a ponta no SIGAA real nesta API.
+- **Custo (SIGAA):** uma leitura traz as turmas e os prazos juntos. O portal lido para as aulas serve à 1ª turma; **antes de cada turma seguinte o portal é relido** (o SIGAA real recusa o `ViewState` reaproveitado: ver `docs/MCP.md`): **1 + 2 + 3×(N−1)** requisições para N turmas com Turma Virtual, no máximo **1 + 2 + 3×7 = 24** (teto de 8 turmas), em sequência (JSF não admite paralelo na sessão); típico de 5–6 turmas: 15–18. Se a 1ª entrada volta sem o menu da turma, **um login novo e uma nova tentativa** (+ ~3 requisições de login); uma turma que falha não impede a seguinte, duas seguidas encerram a leitura. **Cache de 12 min por pessoa** (a leitura não depende do intervalo: navegar entre meses não relê) e as chamadas simultâneas da mesma pessoa viram uma só. Teto de tempo: 60 s no total e **30 s de orçamento** para os prazos (acabou o orçamento, não se entra em outra turma). Leitura **incompleta** (falha ou tempo) não vai para o cache e marca `sigaa: failed`, **sem derrubar as aulas** (nem os prazos já lidos).
+- **Sessões do SIASB (`kind: "session"`):** só para quem tem o SIASB **conectado** (sem acesso ou sem conexão: nenhum item e o `siasb` nem entra em `sources`). Vêm da cópia sincronizada (nunca fala com o SIASB), só as **marcadas** (não as canceladas nem atendidas), com `title` fixo "Sessão na clínica", disciplina em `courseName` e o local em `place`. **Nenhum dado de paciente** (a leitura nem decifra nome). **Não são excluídas em feriado.** Cópia desatualizada: `siasb: failed` e as sessões guardadas continuam; conexão a refazer: `reconnect_required`.
+- **`sources`:** `sigaa` aparece quando o SIGAA está conectado (`connected`): `ok`; sessão que precisa de senha/passkey (`locked`, `password_required`) ou conta recusada: `reconnect_required` (sem consultar o portal); erro ao ler o portal (página inesperada, fora do ar, mais de 60 s) ou prazos que pararam no meio: `failed`. SIGAA desconectado: nem entra. Falha de uma fonte não derruba a rota. Sem nenhuma fonte: 200 só com feriados e `sources: []`.
+- **Cache** em memória por pessoa, intervalo e estado do SIGAA, 3 min; resultado com falha parcial não é guardado.
 
-**MCP:** o `/mcp` resolve as permissões LIGADAS da pessoa a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave dela está ligada (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Ligar e desligar vale na próxima requisição. Hoje não há ferramenta de escrita registrada (as do SIASB virão com a fonte).
+## 5.3 Permissões por app (o que a pessoa libera para UM app fazer)
+
+Permissões **por app** (cliente OAuth), marcadas **na tela de autorizar** e revogadas em **Apps autorizados**; **só a pessoa, pela sessão do painel**, concede e revoga (nenhuma ferramenta MCP altera permissões). Genéricas: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada. Padrão **negado**.
+
+- **Oferta:** `GET /authorize/requests/{id}` (com sessão) traz `permissions: OfferedPermission[]` (`null` sem sessão), na ordem do catálogo:
+  `OfferedPermission = { key, source, title, description, risk: "low"|"high", available, unavailableReason: "source_not_connected" | null, granted }`. `granted` = já concedida a **este** app (o do pedido): a tela pré-marca e envia sempre o conjunto inteiro em `approve` (reautorizar não desliga o que já estava ligado). Os textos são neutros ("pelo app"): o app pode não ser o Claude.
+  **Só aparecem permissões de fontes a que a pessoa tem acesso** (o SIASB só para quem tem matrícula de clínica ou conexão; senão a lista vem vazia). `available` = a fonte está conectada (em qualquer estado, inclusive reconectar). `risk: "high"` = o web pede confirmação antes de ligar (a API confia na escolha).
+- **Concessão:** `POST /authorize/requests/{id}/approve` aceita `{ permissions?: key[] }`. Presente (mesmo `[]`): grava o conjunto **exato** para este cliente, trocando o que ele tinha. Ausente: não altera. Validado **antes** de qualquer efeito do pedido: chave fora do enum ou corpo inválido = 400 `invalid_request`; chave de fonte desconectada = 409 `permission_unavailable` (o pedido continua válido). Gravada depois de emitido o code.
+- **Apps autorizados:** cada `AuthorizedApp` traz `permissions: { key, source, title, description, risk }[]` (o que a pessoa liberou para ESTE app). `DELETE /authorized-apps/{clientId}/permissions/{key}` → 204 retira **uma** sem revogar o app (404 se o app não a tinha; 400 chave inválida). Revogar o app leva as permissões dele.
+- **Fonte desconectada:** as permissões dela somem de **todos** os apps (não ficam ligadas para uma conexão futura).
+- **Filtro por acesso:** `GET /me/notification-settings` também devolve só os avisos de fontes a que a pessoa tem acesso (sem SIASB, lista vazia).
+- Rotas que mudam estado exigem sessão, `X-UFBA: 1`, `Origin` da casa e JSON (DELETE sem corpo).
+
+**Legado (`/me/permissions`, a remover):** `GET` devolve a oferta com `enabled` = concedida a **pelo menos um app** (`no-store`; vazio sem acesso). `PUT /me/permissions/{key}` `{ enabled }`: `false` retira a chave de todos os apps (204); `true` é 400 (a permissão é dada ao autorizar o app). Existe só para o web não ficar sem tela durante a troca.
+
+Chaves: `siasb.schedule_write` (risco `low`: agendar e desmarcar sessões), `siasb.procedures_write` (risco `high`: lançar e excluir procedimentos previstos) e `moodle.forum_write` (risco `high`: postar em fóruns do AVA). Chave nova entra em `PERMISSION_KEYS` e em `PERMISSION_CATALOG` (`src/application/permissions/permissions.service.ts`: título, descrição, fonte e risco são obrigatórios por tipo).
+
+Armazenamento: `client_permissions (user_id, client_id, key, granted_at)`, chave primária `(user_id, client_id, key)`; linha existe = concedida. `DELETE /me` apaga todas (cascade). A antiga `user_permissions` (por pessoa) foi **apagada** (migração `20261116210000`, que só derruba se estiver vazia; senão falha com mensagem clara) e não foi migrada: concessão por app exige consentimento explícito de cada app. Cada concessão/revogação vai para o log de auditoria sem dado clínico (`permissões do app: user=<id> app=<client> chaves=[...] em=<ISO>`, `permissão revogada: ...`).
+
+**MCP:** o `/mcp` resolve as permissões **do app que chama** (o `clientId` do token) a cada requisição (`McpPrincipal.permissions`) e só registra uma ferramenta de escrita se a chave foi concedida a esse app (`registerPermissionedTool` em `mcp-tools.ts`); sem a chave a ferramenta nem aparece em `tools/list`. Conceder e revogar vale na próxima requisição. Credencial sem app (chave de API `plt_`) não tem nenhuma. Ferramentas de escrita registradas: `postar_forum` com `moodle.forum_write` e as quatro do SIASB (`clinica_agendar_sessao` e `clinica_desmarcar_sessao` com `siasb.schedule_write`; `clinica_incluir_procedimento` e `clinica_excluir_procedimento` com `siasb.procedures_write`), descritas em `docs/MCP.md` (e, as do SIASB, em `docs/SIASB.md`, seção 14).
 
 ## 5.5 Notificações (Web Push, canal genérico)
 
@@ -401,12 +430,13 @@ O que continua exposto: a senha fica na resposta HTTP (sob TLS) e no DOM dessa p
   `/register` é ignorado. Nome saneado (sem controle/bidi, até 60 caracteres). Logo servido pela própria API
   (PNG/JPEG/WebP até 256 KB; SVG recusado).
 - `sources`: o acesso não é por escopo: o cliente lê todas as fontes conectadas da pessoa. SIGAA só vai junto se
-  estiver `connected` nesta sessão.
+  estiver `connected` nesta sessão. Inclui `siasb` (`connected`, `reconnect_required` ou `disconnected`) **só para quem tem acesso a ele**.
+- `permissions`: as permissões que este pedido pode conceder (§5.3); `null` sem sessão.
 
 3. Decisão:
 
 ```
-POST /authorize/requests/{id}/approve   {}   → 200 { "redirectTo": "<redirect_uri>?code=…&state=…" }
+POST /authorize/requests/{id}/approve   { permissions?: key[] }   → 200 { "redirectTo": "<redirect_uri>?code=…&state=…" }
 POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_uri>?error=access_denied&state=…" }
 ```
 
@@ -425,7 +455,8 @@ POST /authorize/requests/{id}/deny      {}   → 200 { "redirectTo": "<redirect_
 `GET /authorized-apps` → 200 `{ apps: AuthorizedApp[] }`; `DELETE /authorized-apps/{clientId}` → 204.
 
 - Lista os clientes com token válido da pessoa (o próprio web não entra).
-- Revogar apaga os tokens do cliente e a senha do SIGAA cifrada para ele. Efeito imediato.
+- Revogar apaga os tokens do cliente, a senha do SIGAA cifrada para ele e as permissões dele (§5.3). Efeito imediato.
+- Cada app traz `permissions` (o que a pessoa liberou para ele); `DELETE /authorized-apps/{clientId}/permissions/{key}` → 204 retira uma só.
 
 ## 8. Dados (leitura ao vivo)
 
@@ -461,10 +492,13 @@ Os tipos (`Course`, `Deadline`, `Activity`, `Discussion`, `Attachment`, `Attenda
 - **`summary`:** soma de `absentClasses` e `allowedAbsentClasses`; `atRiskCourses` conta `at_risk` e `failed`.
 - Sem turmas no portal: `{ courses: [], summary: { …zeros } }`.
 - Sem código da disciplina (o SIGAA não o traz nessa página): só `courseId` e `courseName`.
-- **Custo:** 1 requisição do portal + 2 por turma (entrar na turma e clicar em "Frequência" no menu).
-- `mapa.jsf` só abre pelo postback do menu da turma; GET direto dá "Comportamento Inesperado!".
-- Mesmo risco de `deadlines`: da 2ª turma em diante o `ViewState` é o da última página; se o SIGAA recusar, a rota falha
-  com `502 source_unavailable`, nunca com lista parcial. **Não validado contra o SIGAA real com várias turmas.**
+- **Custo:** 1 + 2 + 3×(turmas − 1) requisições, no máximo 24 (até 8 turmas). Entra em cada turma pela mesma entrada dos
+  prazos (portal relido antes de cada turma, menos a 1ª; login novo se a 1ª entrada voltar sem o menu da turma, sem laço) e
+  clica em "Frequência" no menu.
+- `mapa.jsf` só abre pelo postback do menu da turma; GET direto dá "Comportamento Inesperado!". Se esse postback responder
+  302, a sessão segue um redirect para dentro de `/sigaa/`.
+- Falha em qualquer turma derruba a rota com `502 source_unavailable`, nunca com lista parcial. **Não validado contra o
+  SIGAA real com várias turmas**; o clique em "Frequência" foi observado no navegador com uma turma.
 
 - Datas em ISO-8601. Textos vêm como texto puro (renderizar como texto, nunca HTML).
 - Classroom: arquivos do Drive vêm em `openInBrowser` (a pessoa abre no Google); `attachment` só para anexos de

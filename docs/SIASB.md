@@ -1,6 +1,6 @@
 # SIASB (clínicas)
 
-O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. É **só leitura**. As ferramentas `clinica_*` vão ao SIASB na hora, com a conexão que a pessoa fez; a exceção é a cópia de sessões e atendimentos feita por cron (seção 10).
+O SIASB é o sistema das clínicas-escola da UFBA. A integração deixa a pessoa, pelo Claude, ver a situação nas disciplinas de clínica, as sessões, os pacientes em atendimento e o **prazo estimado** para marcar paciente. A leitura é o uso principal e **não grava nada**; a escrita (agendar, desmarcar, incluir e excluir procedimento previsto) é opt-in, atrás de permissão por app e de confirmação, e está na seção 14. As ferramentas `clinica_*` de leitura vão ao SIASB na hora, com a conexão que a pessoa fez; a exceção é a cópia de sessões e atendimentos feita por cron (seção 10).
 
 Desenho completo: `docs/superpowers/specs/2026-11-15-siasb-design.md`. Ferramentas MCP: tabela abaixo e `docs/MCP.md`. Rotas do web: `docs/WEB-API.md`, seção 5.
 
@@ -36,7 +36,7 @@ Casos de uso em `src/application/siasb/siasb-link.ts` (`SiasbLink`):
 
 ## 4. Rotas do SIASB
 
-Base `https://api.siasb.ufba.br/api/v1`. **Só GET**, fora o login. A lista fica num lugar só (`ALLOWED` em `siasb-client.ts`); cada item casa o caminho inteiro, com a query. O que não casa vira `FORBIDDEN_ROUTE` **antes de qualquer rede**.
+Base `https://api.siasb.ufba.br/api/v1`. **Leitura só GET**; as únicas escritas são as 4 rotas da seção 14. A lista fica num lugar só (`ALLOWED` em `siasb-client.ts`); cada item casa o caminho inteiro, com a query. O que não casa vira `FORBIDDEN_ROUTE` **antes de qualquer rede**.
 
 Permitidas:
 
@@ -56,8 +56,8 @@ Proibidas (nunca chamadas):
 
 - `student/attendances?status=4` (pacientes de outros alunos) e qualquer outro `status`;
 - qualquer rota de dado clínico (prontuário, anamnese, exames, documentos);
-- qualquer método que não seja GET (exceto o login);
-- rotas administrativas e de escrita (agendar, desmarcar): ficam para a fase 4 e pedem OK específico;
+- qualquer método que não seja GET, exceto o login e as 4 rotas de escrita da seção 14 (tabela `WRITE_ALLOWED`, separada da `ALLOWED`);
+- rotas administrativas e qualquer outra escrita;
 - caminho com `..`, barra dupla, fragmento ou parâmetro fora do formato acima.
 
 GET repete até 2 vezes, só em 5xx ou falha de rede. 429 e redirecionamento viram `UNAVAILABLE`; timeout de 15 s por chamada.
@@ -148,7 +148,7 @@ Erros da conexão:
 
 Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railway** (cron `sync-cron`, `docs/SYNC-CRON.md`) copia as sessões e os atendimentos de cada pessoa conectada para as tabelas `siasb_*`. O painel e a ferramenta `clinica_sessoes` leem dessa cópia, sem ir ao SIASB a cada pedido. A senha continua sem ser guardada; o job usa o jar de cookies da conexão.
 
-**O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por atendimento, disciplina, tipo de tratamento, se foi concluído e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
+**O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por disciplina (`siasb_disciplines`), id e nome; por atendimento, disciplina, tipo de tratamento, se foi concluído, se veio da consulta de atendimentos **ativos** (`siasb_attendances.active`) e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
 
 **O que NÃO guarda:** sobrenome, prontuário, texto de procedimento e qualquer dado clínico. Não passam do mapeador. A lista de pacientes sem responsável também não é copiada.
 
@@ -172,12 +172,75 @@ Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railw
 
 **Teste de integração:** o repositório da cópia tem um spec contra Postgres de verdade (`prisma-siasb-copy.repository.int.spec.ts`) que só roda no CI com `RUN_DB_TESTS=1`, no Postgres efêmero do workflow. Nunca o rode contra um banco compartilhado.
 
-## 11. O que NÃO está nesta fase
+## 11. Avisos por push (fase 2B)
 
-- **Alertas por push**, **Google Agenda** e **escrita** (agendar e desmarcar): ficam para as fases 2, 3 e 4 do spec (seções 5.4, 5.6 e 5.7). Nada aqui grava no SIASB.
-- Avisos por push em segundo plano (o job de sincronização já existe; ver seção 10).
+Os avisos usam o canal genérico (`docs/NOTIFICACOES.md`) e leem **só a cópia do banco** (nenhuma requisição ao SIASB). O código está em `src/application/siasb/siasb-alerts.ts` (decisão e textos), `src/domain/siasb/alert-schedule.ts` (instantes) e `src/domain/siasb/alert-format.ts` (datas em pt-BR).
 
-## 12. Pendências (spec, seção 6)
+### O que avisa e quando
+
+Avisa por disciplina, só nos estados **① sem paciente** e **② sem sessão marcada** (`NO_PATIENT` e `NO_SESSION`), quando há **prazo estimado conhecido** (um próximo horário da clínica deduzido do histórico, seção 6). O estado **③ com sessão marcada nunca avisa**. O prazo é sempre uma estimativa.
+
+**Cadeia de avisos de um prazo.** Os instantes dependem só do prazo, nunca de quando o estado foi visto:
+
+- o **último aviso** é 6 horas **acordado** antes do prazo (o silêncio das 22h às 7h da Bahia não conta nessas 6 horas);
+- os anteriores ficam de **36 em 36 horas**, contados para trás a partir do último; o que cairia no silêncio recua para as 21h; o penúltimo some se ficar a menos de 12 h do último; a cadeia não passa de 60 dias antes do prazo;
+- o **primeiro aviso** sai quando o estado é visto pela primeira vez (nenhum aviso anterior para aquele horário: `lastSentAt` nulo), no instante da cadeia mais recente até agora; se a cadeia ainda não começou, o instante registrado é **agora truncado à hora** (um instante futuro da cadeia nunca é reivindicado antes da hora, para não bloquear o aviso das 6 h);
+- o **episódio** é o **horário da clínica** (`nextSlot`), não o dia do prazo: se o prazo estimado desloca um dia útil (por exemplo, o calendário publicado passa a cobrir o período), os instantes da cadeia deslocam e pode sair um aviso a mais, mas nunca um episódio novo;
+- **só o mais recente devido**: depois de uma queda ou do silêncio, se vários instantes ficaram para trás, sai um aviso só (o mais recente). Os mais antigos são gravados como suprimidos (`suppressed`) **somente depois** de um envio de verdade (ou duplicata), para um envio que falhou não apagar o histórico.
+
+**① sem horário conhecido da clínica** (sem paciente e sem prazo): um aviso a cada 36 h desde o último enviado, sem citar prazo. O primeiro sai na hora; o que cair no silêncio vale as 7h seguintes.
+
+**"Prazo perdido"** (aviso final). Sai quando **todas** as condições valem:
+
+- a disciplina ainda está em ① ou ②;
+- o horário anterior da clínica teve o prazo estimado vencido há no máximo 72 h (depois disso nunca sai um aviso velho) **e** vem **estritamente antes** do próximo horário da disciplina (o que os itens apontam como próximo). Os itens e o horário anterior usam consultas de calendário de janelas diferentes; quando uma é "conhecida" e a outra não, no vão de um dia útil entre os dois prazos o horário atual voltaria como "anterior" com o prazo ainda aberto, e por isso é descartado (guarda única em `SiasbCopyReader.situation`);
+- a pessoa **não marcou nenhuma sessão válida** entre aquele prazo e agora (início ou remarcação dentro de [prazo, agora]; vale qualquer sessão da disciplina que não esteja cancelada nem "não agendada"; **"Falta paciente" conta como marcada**);
+- a pessoa **foi avisada naquele episódio** (há um aviso enviado para aquele horário da clínica);
+- a **cópia foi sincronizada depois do prazo** (uma marcação de última hora ainda não teria aparecido); enquanto isso, nem o "perdido" nem o primeiro aviso do horário seguinte saem.
+
+Na rodada em que o "perdido" sai, o primeiro aviso do horário seguinte **só é anotado** (já enviado, `suppressed` falso), sem push: o texto do "perdido" já anuncia a próxima chance. Todos os avisos de uma disciplina usam a mesma `tag`, então o novo substitui o anterior no aparelho.
+
+**Reconexão** (por pessoa, não por disciplina). Avisa que o acesso ao SIASB vence **7, 3 e 1 dia antes**, no **instante do vencimento** e depois **a cada 36 h** desde ele. Também vale depois de vencido (por isso o provedor lê contas SIASB em qualquer estado). Só o mais recente devido sai; os anteriores viram suprimidos depois de um envio, e só se já houve um aviso de reconexão antes. Se o acesso já **quebrou** (última tentativa da cópia `RECONNECT_REQUIRED` ou conta em `REAUTH_NEEDED`), vale como vencido desde a **última tentativa da cópia** (`min(vencimento, lastAttemptAt)`, estável nesse estado), e o aviso de "venceu" segue a cadência de 36 h. **Reconectar zera esse sinal**: `SiasbLink.connect` limpa `result`, `nextRunAt` e `lastAttemptAt` do estado da cópia (`resetState`; não cria linha, não toca `lastSuccessAt`, a trava nem a cópia; uma falha no reset nunca derruba a conexão), então nenhum "venceu" sai depois da volta e a pessoa fica devida na próxima rodada da sincronização; sem linha de estado não há âncora e vale o vencimento declarado.
+
+### Silêncio, confiança na cópia e quem roda
+
+- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É regra **só do SIASB**: o `Notifier` genérico é neutro quanto a horário (api#52) e envia a qualquer hora. `SiasbAlerts.evaluateUser` consulta `inQuietHours(now)` (`src/domain/notifications/quiet-hours.ts`) antes de qualquer `Notifier.send` ou `Notifier.record`: dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio.
+- **A cópia só é confiável** se `syncedAt` não é nulo, a última tentativa **não** é `RECONNECT_REQUIRED` e o último sucesso tem **no máximo 24 h**. Fora disso, os avisos de prazo esperam (o de reconexão não depende da cópia). A migração que acrescentou `siasb_attendances.active` zera `last_success_at` e `next_run_at`: depois dela os avisos de prazo esperam a próxima sincronização (até cerca de 30 minutos).
+- **Quem roda.** O `notify-cron` (a cada 15 minutos) percorre a lista `ALERT_PROVIDERS` (`src/mcp-wiring.ts`); o `SiasbAlertProvider` (`key` `siasb`) lista as pessoas com conta SIASB em qualquer estado e chama `SiasbAlerts.evaluateUser`. Sem aparelho cadastrado a pessoa é pulada. Nunca lança: erro vira falha contada, sem registrar mensagem.
+- **Controle:** o interruptor genérico `siasb.alerts` ("Avisos do SIASB", **ligado** por padrão; `GET`/`PUT /me/notification-settings`).
+
+### Textos (título sempre `SIASB`; `url` `/`)
+
+Datas na Bahia, `sexta, 20/11, às 10h` (ou `às 10h30`); o dia da semana do "clínica de ..." vem do próximo horário (`segunda`, `terça`, `quarta`, `quinta`, `sexta`...).
+
+| Aviso | Texto |
+|---|---|
+| ② sem sessão | `Você tem paciente em <disciplina>, mas a clínica de <dia> ainda está sem sessão. Prazo estimado: <dia, dd/mm, às Hh>.` |
+| ① com prazo | `Você ainda não tem paciente em <disciplina>, e a clínica de <dia> está sem sessão. Cadastre ou pegue um paciente e marque até <dia, dd/mm, às Hh> (prazo estimado).` |
+| ① sem horário | `Você ainda não tem paciente nem sessão marcada em <disciplina>. Confira os horários no SIASB.` |
+| prazo perdido | `Prazo perdido em <disciplina>.` e, se houver prazo seguinte, ` Próxima chance: <dia, dd/mm, às Hh>.` |
+| reconexão (antes) | `Seu acesso ao SIASB vence em <n> dia(s). Reconecte no painel.` |
+| reconexão (vencido) | `Seu acesso ao SIASB venceu. Reconecte no painel.` |
+
+### Privacidade
+
+Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O **único dado do SIASB** nos textos é o **nome da disciplina** e os **horários estimados**. Os `subject` (parte da chave anti-duplicata) são `disc:<disciplineId>:<instante do horário da clínica em ISO UTC>` (separa um episódio do seguinte), `disc:<disciplineId>:unscheduled` e `connection`. A `tag` é `siasb-disc:<disciplineId>` para todo aviso de uma disciplina (o novo substitui o anterior) e `siasb-connection` para a reconexão.
+
+### Limites conhecidos
+
+- O prazo é **estimado** (horas úteis, feriados quando há calendário; sem calendário entra 1 dia útil de margem). Pode errar para mais ou para menos; os textos dizem "estimado".
+- Uma sessão de **outro horário semanal da mesma disciplina** depois do prazo perdido conta como marcada e **suprime** o "prazo perdido": o erro cai para o lado de avisar menos.
+- Se o prazo estimado desloca (por exemplo, `known` do calendário muda), o episódio continua o mesmo (o `subject` é o horário da clínica), mas os instantes da cadeia deslocam e pode sair **um aviso a mais**.
+- Uma **sessão cancelada pela clínica** dentro de [prazo, agora] **não conta** como marcada: a pessoa pode receber "prazo perdido" mesmo tendo marcado a tempo.
+- O silêncio é decidido **só** pelo serviço de avisos do SIASB, antes de chamar o `Notifier`. Se outra fonte quiser o mesmo silêncio, ela mesma precisa checar `inQuietHours`; o canal genérico não o faz.
+- Os avisos só chegam a quem tem **aparelho registrado** pelo canal genérico (`/me/push-devices`); sem aparelho, nada é enviado.
+- Não existe ainda rota que mostre ao painel a situação e o prazo por disciplina (`SiasbCopyReader.situation` é interno); a faixa fixa de "prazo aberto" depende dessa rota (ver `handoffs/siasb-avisos-telas.md`, fora do repositório).
+
+## 12. O que NÃO está nesta fase
+
+- **Google Agenda**: fica para a fase 3 do spec (seção 5.6). A escrita (fase 4) está na seção 14; as ferramentas de leitura e a sincronização da cópia continuam sem gravar nada no SIASB. Os avisos por push estão na seção 11.
+
+## 13. Pendências (spec, seção 6)
 
 Nenhuma delas exige requisição ao SIASB sem OK do André.
 
@@ -186,3 +249,61 @@ Nenhuma delas exige requisição ao SIASB sem OK do André.
 - **DevTools:** conferir horas úteis, horário de funcionamento e datas bloqueadas do prazo real.
 - **Cookie a partir do Railway:** confirmar que o cookie funciona do IP de produção.
 - Ainda abertas: se `schedule/sessions` aceita intervalo maior que ~59 dias (afeta `clinica_progresso`), grade de aula da turma, formato de `requests` e `dashboard`.
+
+## 14. Escrita (fase 4)
+
+Quatro ferramentas MCP gravam no SIASB, em nome da pessoa, com a conexão dela. Estão **desligadas por padrão**: só aparecem no `/mcp` do app (cliente OAuth) que a pessoa autorizou, no painel, com a permissão certa. As ferramentas de leitura continuam sem gravar nada.
+
+| Permissão (por app) | Ferramentas |
+|---|---|
+| `siasb.schedule_write` ("Agendar e desmarcar sessões pelo app") | `clinica_agendar_sessao`, `clinica_desmarcar_sessao` |
+| `siasb.procedures_write` | `clinica_incluir_procedimento`, `clinica_excluir_procedimento` |
+
+Parâmetros e respostas: `docs/MCP.md`. Código: `SiasbWriter` (`src/application/siasb/siasb-writer.ts`), ferramentas em `src/interface/mcp/clinica-write-tools.ts`, executor de sessão compartilhado com a leitura em `siasb-session-runner.ts`.
+
+### Rotas de escrita permitidas
+
+Lista própria no cliente (`WRITE_ALLOWED`, método + caminho; o que não casa vira `FORBIDDEN_ROUTE` antes de qualquer rede; ids de 1 a 12 dígitos):
+
+| Rota | Para quê |
+|---|---|
+| `POST /student/schedule/sessions` | Agendar (1 a 20 sessões semanais) |
+| `POST /student/schedule/sessions/<id>/disposition` | Desmarcar (sempre com `absence: false`) |
+| `POST /student/attendances/<id>/procedures` | Incluir procedimento (fica PREVISTO) |
+| `DELETE /student/attendances/<id>/procedures/<id>` | Excluir procedimento |
+
+### Confirmação em duas etapas
+
+Cada ferramenta tem `confirmado` (booleano, padrão `false`); só `=== true` grava. Sem ele, a ferramenta valida e devolve o resumo exato do que fará (`status: resumo`), sem escrever. O Claude mostra o resumo, a pessoa dá o OK e a chamada se repete com `confirmado: true`. Não há estado entre as duas chamadas. Quando faltam professor, local ou grupo ao agendar, a resposta é `status: escolher` (com `faltando`, `opcoes` e `instrucao`: chamar de novo **sem** `confirmado` para receber o resumo, e só então pedir o OK), com ou sem `confirmado`. Horários em `detalhes` vêm na hora da Bahia com `-03:00`; o início recebido é arredondado para o minuto inteiro antes de enviar e de conferir. Gravado: `status: feito`.
+
+### Regras e validações (antes de tocar o SIASB; mensagens fixas em pt-BR, sem eco do valor)
+
+- O atendimento precisa estar **ativo** (lista ativa lida ao vivo).
+- Ids (atendimento, sessão, procedimento, professor, local, grupo) só dígitos, 1 a 12; professor, local e grupo precisam estar entre as opções do SIASB (`schedulingOptions`) para o atendimento; o procedimento a incluir precisa estar no catálogo do atendimento.
+- Agendar: `quantidade` inteira de 1 a 20; `duracaoMin` inteira de 15 a 240; início no futuro e no máximo 365 dias à frente; o início da **última** sessão da série também no máximo 365 dias. A série é semanal, no mesmo horário, tudo ou nada.
+- Desmarcar: só sessão **FUTURA** (início e eventual reagendamento depois de agora), marcada e de atendimento ativo, achada entre as sessões de 14 dias atrás a 45 dias à frente. Motivo padrão "Desmarcado pelo aluno". **Falta nunca é registrada** (`absence` fixo em `false`).
+- **Realizar** (dar baixa) procedimento não existe: o incluído fica PREVISTO e a baixa é no site.
+- Excluir: só um procedimento **incluído por `clinica_incluir_procedimento`**: precisa haver na auditoria `procedure_add` com resultado `ok` da mesma pessoa, no mesmo atendimento, com esse `target_id` (`SiasbWriteAuditRepository.hasProcedureAdd`). Senão: "Só é possível excluir por aqui um procedimento incluído por esta ferramenta; para os demais use o site do SIASB.", sem tocar o SIASB. Falha ao consultar a auditoria também recusa.
+- Textos livres (`observacao`, `motivo`) até 300 caracteres; dente e face até 50, sem caracteres de controle.
+
+### Sem retry; resultado desconhecido
+
+Cada operação faz **uma** chamada de escrita, sem repetir (repetir pode duplicar). 4xx vira `siasb_write_rejected` ("O SIASB recusou a operação."; só duas mensagens exatas da grade passam: aula inexistente no horário e horário final além da aula). 5xx, redirecionamento, falha de rede ou timeout viram `siasb_write_unknown`: "O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo." O corpo da resposta nunca vira texto de erro. 401/403 viram reconexão, como na leitura. A ferramenta só repassa erros conhecidos; qualquer outro vira a mensagem de "não confirmou".
+
+### Conferência depois de gravar
+
+- **Agendar:** lê a agenda da janela da série antes e depois. Só conta sessão com **id novo**, do mesmo atendimento, no início esperado e marcada. `verificado: true` quando todas as datas estão lá (`datasConfirmadas`). Se a leitura falhar, a escrita continua válida e `verificado: false`.
+- **Desmarcar:** relê e confere que a sessão não está mais marcada (`verificado`).
+- **Procedimentos:** só há o 2xx do SIASB; não há leitura dos procedimentos lançados.
+- **Ressincronização:** após resultado `ok` ou `unknown`, o `SiasbSyncer` roda na hora; se não terminar com `OK` ou lançar, a pessoa é marcada como devida (`markDue`, `nextRunAt = null`) para o cron. **Limitação:** se uma sincronização do cron já estiver em curso (`BUSY`), ao terminar ela regrava `nextRunAt` e apaga a marcação; a cópia só reflete a escrita na rodada seguinte do cron, e a sincronização em curso pode ter lido o estado anterior. Para o estado exato, `clinica_sessoes` com `aoVivo: true`.
+
+### Auditoria
+
+Tabela `siasb_write_audit` (migração `20261116220000_siasb_write_audit`): `user_id`, `kind` (`schedule`, `unschedule`, `procedure_add`, `procedure_remove`), `attendance_id`, `target_id` (id da sessão ou do procedimento), `result` (`ok`, `rejected`, `unknown`, `error`), `at`. **Sem texto livre**: nem nome, nem observação, nem mensagem do SIASB. Só se grava quando a chamada de escrita foi tentada (entrada inválida não gera linha); gravar é melhor esforço e nunca muda o resultado. Apagada com a pessoa (cascade). **Ainda não há expurgo de 90 dias** (spec 5.4): a tabela cresce até existir a retenção. O escritor não registra nada em log.
+
+### Lacunas conhecidas
+
+- **Formatos de resposta de escrita nunca confirmados ao vivo.** O corpo enviado e o que o SIASB devolve foram deduzidos, sem teste real. A primeira escrita real pode mostrar formatos diferentes; o roteiro está em `handoffs/siasb-escrita-teste-real.md` (fora do repositório).
+- **`procedimentoId` pode vir `null`** ao incluir (só se aceita `id`, `procedureId` ou `data.id` numéricos de 1 a 12 dígitos). Sem o id, **excluir** pela ferramenta não é possível: exclui-se pelo site.
+- **Excluir depende do id deduzido ao incluir.** A trava (só ids incluídos por esta ferramenta) evita excluir procedimento lançado por outro caminho, mas o id gravado na auditoria é o que o cliente deduziu da resposta de incluir (formato nunca confirmado ao vivo). Se o SIASB devolver ali outro número (não o do procedimento lançado), a exclusão pode mirar o id errado. Não há leitura dos lançados para conferir que é PREVISTO.
+- **Retenção da auditoria:** quando o expurgo de 90 dias existir, procedimentos incluídos há mais tempo deixam de poder ser excluídos por aqui (só pelo site).

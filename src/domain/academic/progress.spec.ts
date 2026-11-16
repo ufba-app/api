@@ -241,3 +241,54 @@ describe('crossCheckTranscript (conferência com o curso)', () => {
     expect(check.unknownRequired).not.toContain('OPT55');
   });
 });
+
+describe('buildProgress: última tentativa e "a refazer"', () => {
+  const curriculum: CurriculumInput = {
+    ...CURRICULUM,
+    components: [comp('AAA1'), comp('BBB2', { prerequisiteExpr: '( AAA1 )' }), comp('CCC3'), comp('DDD4'), comp('EEE5'), comp('FFF6')],
+  };
+  const build = (entries: TranscriptEntryInput[]) =>
+    buildProgress({ ...TRANSCRIPT, entries, pending: [], equivalences: [], hours: undefined, currentTerm: 3 }, curriculum);
+
+  it('reprovada: segue AVAILABLE, mas toRedo, e a tentativa diz semestre, nota e situação', () => {
+    const p = build([entry('CCC3', 'REP', { term: '2025.1', grade: 3.5 })]);
+    expect(find(p.required, 'CCC3')).toMatchObject({ state: 'AVAILABLE', toRedo: true, lastAttempt: { term: '2025.1', grade: 3.5, status: 'REP' } });
+  });
+
+  it('reprovada por falta e trancada também contam como a refazer; cancelada não', () => {
+    const p = build([entry('CCC3', 'REPF'), entry('DDD4', 'TRANC', { grade: null }), entry('EEE5', 'CANC', { grade: null })]);
+    expect(find(p.required, 'CCC3').toRedo).toBe(true);
+    expect(find(p.required, 'DDD4').toRedo).toBe(true);
+    expect(find(p.required, 'EEE5')).toMatchObject({ toRedo: false, lastAttempt: { status: 'CANC' } });
+  });
+
+  it('reprovada com pré-requisito em falta: BLOCKED e toRedo', () => {
+    const p = build([entry('BBB2', 'REP', { grade: 2 })]);
+    expect(find(p.required, 'BBB2')).toMatchObject({ state: 'BLOCKED', toRedo: true });
+  });
+
+  it('cursada de novo e aprovada: vale a aprovação (DONE), não é a refazer, e a tentativa é a aprovada', () => {
+    const p = build([entry('CCC3', 'REP', { term: '2024.1', grade: 3 }), entry('CCC3', 'APR', { term: '2024.2', grade: 7 })]);
+    expect(find(p.required, 'CCC3')).toMatchObject({ state: 'DONE', toRedo: false, lastAttempt: { term: '2024.2', grade: 7, status: 'APR' } });
+  });
+
+  it('aprovada e depois reprovada de novo (histórico estranho): continua aprovada', () => {
+    const p = build([entry('CCC3', 'APR', { term: '2024.1', grade: 7 }), entry('CCC3', 'REP', { term: '2025.1', grade: 2 })]);
+    expect(find(p.required, 'CCC3')).toMatchObject({ state: 'DONE', toRedo: false, lastAttempt: { status: 'APR' } });
+  });
+
+  it('reprovou e está cursando de novo: ENROLLED, não é a refazer', () => {
+    const p = build([entry('CCC3', 'REP', { term: '2025.1', grade: 3 }), entry('CCC3', 'MATR', { term: '2025.2', grade: null })]);
+    expect(find(p.required, 'CCC3')).toMatchObject({ state: 'ENROLLED', toRedo: false, lastAttempt: { term: '2025.2', status: 'MATR' } });
+  });
+
+  it('entre várias reprovações vale a mais recente; linha sem semestre ("--") dá term nulo', () => {
+    const p = build([entry('CCC3', 'REP', { term: '2024.2', grade: 4 }), entry('CCC3', 'REP', { term: '2025.1', grade: 5 }), entry('DDD4', 'DISP', { term: '--', grade: null })]);
+    expect(find(p.required, 'CCC3').lastAttempt).toMatchObject({ term: '2025.1', grade: 5 });
+    expect(find(p.required, 'DDD4')).toMatchObject({ state: 'DONE', lastAttempt: { term: null, status: 'DISP' } });
+  });
+
+  it('nunca cursado: lastAttempt nulo e toRedo falso', () => {
+    expect(find(build([]).required, 'FFF6')).toMatchObject({ lastAttempt: null, toRedo: false });
+  });
+});

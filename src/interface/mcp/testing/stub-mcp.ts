@@ -23,4 +23,13 @@ export class StubMcpUseCases implements McpUseCases {
   async baixarAnexo() {
     return { link: 'http://localhost/download/x' };
   }
+  async postarForum() {
+    return { postado: true };
+  }
+  async verTopico() {
+    return { mensagens: [] };
+  }
+  async listarAlunos() {
+    return { alunos: [] };
+  }
 }

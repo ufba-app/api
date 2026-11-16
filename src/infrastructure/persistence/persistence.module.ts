@@ -39,10 +39,12 @@ import { PrismaCatalogRepository } from './prisma-catalog.repository';
 import { PrismaAcademicRepository } from './prisma-academic.repository';
 import { AcademicRepository } from '../../application/ports/academic';
 import { PrismaCalendarLogRepository } from './prisma-calendar-log.repository';
-import { PrismaUserPermissionRepository } from './prisma-user-permission.repository';
-import { UserPermissionRepository } from '../../application/ports/permissions';
+import { PrismaClientPermissionRepository } from './prisma-client-permission.repository';
+import { ClientPermissionRepository } from '../../application/ports/permissions';
 import { SiasbCopyRepository } from '../../application/ports/siasb-copy';
 import { PrismaSiasbCopyRepository } from './prisma-siasb-copy.repository';
+import { SiasbWriteAuditRepository } from '../../application/ports/siasb-write-audit';
+import { PrismaSiasbWriteAuditRepository } from './prisma-siasb-write-audit.repository';
 import { CalendarLogRepository } from '../../application/ports/calendar';
 import { CatalogRepository } from '../../application/ports/catalog';
 import { AlertLogRepository, NotificationSettingRepository, PushDeviceRepository } from '../../application/ports/notifications';
@@ -65,8 +67,9 @@ import { PrismaService } from './prisma.service';
     { provide: CatalogRepository, useClass: PrismaCatalogRepository },
     { provide: AcademicRepository, useClass: PrismaAcademicRepository },
     { provide: CalendarLogRepository, useClass: PrismaCalendarLogRepository },
-    { provide: UserPermissionRepository, useClass: PrismaUserPermissionRepository },
+    { provide: ClientPermissionRepository, useClass: PrismaClientPermissionRepository },
     { provide: SiasbCopyRepository, useClass: PrismaSiasbCopyRepository },
+    { provide: SiasbWriteAuditRepository, useClass: PrismaSiasbWriteAuditRepository },
     { provide: PushDeviceRepository, useClass: PrismaPushDeviceRepository },
     { provide: NotificationSettingRepository, useClass: PrismaNotificationSettingRepository },
     { provide: AlertLogRepository, useClass: PrismaAlertLogRepository },
@@ -95,8 +98,9 @@ import { PrismaService } from './prisma.service';
     CatalogRepository,
     AcademicRepository,
     CalendarLogRepository,
-    UserPermissionRepository,
+    ClientPermissionRepository,
     SiasbCopyRepository,
+    SiasbWriteAuditRepository,
     PushDeviceRepository,
     NotificationSettingRepository,
     AlertLogRepository,

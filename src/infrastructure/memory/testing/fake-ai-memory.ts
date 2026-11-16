@@ -209,7 +209,27 @@ export class FakeAiMemory {
           description: `fake ${name}`,
           inputSchema: {
             type: 'object',
-            properties: name === 'memory_status' ? {} : { workspace: { type: 'string' }, project: { type: 'string' }, path: { type: 'string' } },
+            properties:
+              name === 'memory_status'
+                ? {}
+                : {
+                    workspace: { type: 'string' },
+                    project: { type: 'string' },
+                    path: { type: 'string' },
+                    // Como o ai-memory real: propriedades sem  (a loja do Claude recusa), para o proxy normalizar.
+                    // Option<enum> do Rust (schemars): anyOf/oneOf com null e/ou $ref, SEM type no nível da propriedade
+                    // (é o que a loja recusou em memory_feedback.signal e memory_message_send.nature).
+                    signal: { anyOf: [{ enum: ['abort', 'timeout'] }, { type: 'null' }], description: 'sem type' },
+                    nature: { oneOf: [{ $ref: '#/$defs/Nature' }, { type: 'null' }] },
+                    nature2: { anyOf: [{ $ref: '#/$defs/Nature' }, { type: 'null' }] },
+                    nature3: { allOf: [{ $ref: '#/$defs/Nature' }] },
+                    nature4: { $ref: '#/$defs/Nature' },
+                    nature5: { enum: ['a', null] },
+                    tags: { type: 'array', items: { enum: ['a', 'b'] } },
+                    extra: { anyOf: [{ enum: ['x'] }, { type: 'number' }] },
+                    filtro: { properties: { de: { description: 'sem type' } } },
+                  },
+            $defs: { Nature: { type: 'string', enum: ['info', 'question'] } },
           },
           annotations: { readOnlyHint: name === 'memory_install_self_routing' },
         })),
@@ -219,6 +239,18 @@ export class FakeAiMemory {
       const name = msg.params?.name as string;
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       this.mcpCalls.push({ username: user.username, name, args });
+      // Como o ai-memory real: recusa de papel vem como ERRO JSON-RPC (-32603), não como resultado.
+      if (args.project === 'readonly') {
+        return this.reply(res, 200, {
+          jsonrpc: '2.0',
+          id: msg.id,
+          error: { code: -32603, message: 'not authorized for ufba-app/readonly: you have read access and this needs write' },
+        });
+      }
+      if (args.project === 'noaccess') {
+        return this.reply(res, 200, { jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'not authorized for ufba-app/noaccess' } });
+      }
+      if (args.project === 'boom') return this.reply(res, 500, { error: 'internal secret detail' });
       if (args.project === 'forbidden') {
         return result({
           isError: true,

@@ -16,15 +16,17 @@ Toda ferramenta de leitura aceita `fonte` (`moodle`, padrão, `classroom` ou `si
 |---|---|---|---|---|
 | `listar_contas()` | Contas conectadas por fonte (`status: reconectar` quando o acesso foi recusado) | 0 (só banco) | 0 (só banco) | 0 (só banco; o SIGAA só aparece com token OAuth que traz a chave do cliente) |
 | `listar_cursos(todas?)` | Matérias em andamento (`todas: true` inclui passadas/futuras) | 1 | 1 | 1 (portal do discente; só o semestre atual, `todas` é ignorado) |
-| `prazos()` | Próximos prazos das matérias atuais. Ponto de partida para "o que tenho para hoje" | 1 (calendário) | 1 + 1 por matéria ativa, até 15 (a API não tem calendário agregado) | 1 + 2 por turma, até 8 turmas (portal + entrar na turma + avaliações); só avaliações de hoje em diante |
+| `prazos()` | Próximos prazos das matérias atuais. Ponto de partida para "o que tenho para hoje" | 1 (calendário) | 1 + 1 por matéria ativa, até 15 (a API não tem calendário agregado) | 1 + 2 + 3×(N−1), até 8 turmas (portal; 1ª turma: entrar + avaliações; as demais: portal fresco + entrar + avaliações; no máximo 24); só avaliações de hoje em diante |
 | `ver_curso(cursoId)` | Tarefas (descrição + prazo), materiais, avisos, provas e fóruns de **uma** matéria | 2 | 3 | 5 (portal, entrar na turma, notícias, avaliações, tópicos de aula) |
-| `ver_forum(forumId)` | Discussões de **um** fórum do Moodle (inclui o de avisos) | 1 | não existe | ainda sem suporte |
+| `ver_forum(forumId)` | A lista de **tópicos** de um fórum do Moodle (inclui o de avisos), com a mensagem inicial e o `id` de cada um | 1 | não existe | ainda sem suporte |
+| `listar_alunos(cursoId)` | Nomes dos **alunos** de uma matéria (papel `student`), em ordem alfabética, com o total. Só o nome: sem e-mail, id ou contato. Professores e monitores ficam de fora. No Classroom exige o escopo `classroom.rosters.readonly`: quem conectou antes precisa reconectar | 1 | 1 por página de 50 alunos (até 10 páginas) | ainda sem suporte |
+| `ver_topico(discussaoId)` | Todas as **mensagens de um tópico**, com as respostas, em ordem (`postId` e `respostaA`). O `discussaoId` vem de `ver_forum` | 1 | não existe | ainda sem suporte |
 | `ver_aviso(avisoId)` | Texto completo de **um** aviso/notícia (`id` de um item `tipo: aviso` de `ver_curso`) | não existe | não existe | 4 (portal, entrar na turma, lista de notícias, clique "Visualizar"; POST direto em `mostrar.jsf` volta sem a notícia) |
 | `baixar_anexo(ref \| anexos[])` | Links de download temporários (uso único, ~10 min) + comandos `curl` prontos. O arquivo é buscado quando o link é usado | 0 (+1 por download) | 0 (+3 por download: confere o anexo no post, metadados e conteúdo do Drive) | ainda sem suporte |
 
 No Classroom, a renovação do access token (cache em memória) é uma chamada extra no máximo a cada hora. No SIGAA, o login (4 requisições) só acontece quando não há sessão guardada para aquela **pessoa** (vale para qualquer cliente), ela passou de 20 min sem uso ou o SIGAA a expirou; as consultas da mesma pessoa rodam uma por vez (fila em processo e trava no banco) e cada consulta recomeça pelo portal (o ViewState nunca é guardado). Os tetos são protegidos por teste (`test/mcp-integration.spec.ts` com o `MoodleLive` real; `classroom-live.spec.ts`; `sigaa-live.spec.ts`).
 
-**Risco não validado em `prazos` do SIGAA:** para caber em 1 + 2×8, o portal é lido uma vez só. A partir da 2ª turma, o postback reaproveita o `ViewState` da última página da sessão, e não o do form do portal. Isso ainda não foi validado contra o SIGAA real. Se o SIGAA devolver o portal em vez da turma, `prazos` falha com `UNAVAILABLE` ("página inesperada"), nunca com lista parcial ou vazia. Alternativas se isso acontecer: reler o portal antes de cada turma (1 + 3×8) ou mandar o `ViewState` do próprio form do portal.
+**`prazos` do SIGAA — leitura real de 16/11/2026:** a versão que lia o portal UMA vez e reaproveitava o `ViewState` da última página nas turmas seguintes **falhou** no SIGAA real (a entrada voltava sem o menu da turma, `form#formMenu`). A sequência agora é a do app antigo (conferida contra o SIGAA real): **antes de cada entrada o portal é relido** (GET fresco, com ViewState e tokens novos; a turma é achada nele pelo nome) e só a 1ª turma aproveita o portal já lido. Se a 1ª entrada ainda volta sem o menu (sessão retomada que o SIGAA não aceita), lança-se `SigaaSessionExpiredError` e o `SessoesSigaa` faz **um login novo e uma nova tentativa**, como o app antigo, que sempre logava. O bounce deixa no log só a **impressão digital** da página (tamanho, título curto, marcas portal/login/menu/expirada), nunca o corpo, o ViewState nem o token. Se ainda falhar, `prazos` falha com `UNAVAILABLE` ("página inesperada"), nunca com lista parcial ou vazia; o calendário do Painel mantém as aulas e marca `sigaa: failed`.
 
 No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto vem de `ver_aviso`), avaliações como `tipo: prova` (prazo com a data e a hora do SIGAA, fuso da Bahia, UTC-3) e tópicos de aula como `tipo: material`. O `cursoId` é o nome da turma normalizado (ex.: `sistemas-operacionais`), como vem de `listar_cursos`.
 
@@ -32,15 +34,34 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 **Download:** `GET /download/:id`. O id (aleatório, uso único, ~10 min) é a própria credencial, sem Bearer, para funcionar com `curl`/navegador na máquina da pessoa. Os links ficam só em memória (morrem ao reiniciar; não valem entre instâncias).
 
+**Chat web (sem terminal):** para clientes de chat web (`isWebChatClient`), `baixar_anexo` não devolve `comoBaixar` (curl): devolve `link` + `comoLer`, e o Claude abre o link com a ferramenta de leitura de URL (nada de conteúdo passa pelo MCP). Esse link vale **10 min e 3 acessos** (a ferramenta de URL pode repetir a requisição), é `inline`, leva o nome do arquivo no fim (`/download/<id>/aula.pdf`, só para inferir o tipo) e responde `HEAD` sem gastar acesso. Toda resposta de download traz `Cache-Control: no-store`, `X-Robots-Tag: noindex` e `Referrer-Policy: no-referrer`. Terminal/editor/cliente desconhecido seguem com link de uso único e `curl`. **Não verificado:** se o claude.ai web consegue abrir o link e ler o arquivo (PDF, DOCX, planilha); depende da ferramenta de URL dele (teste real com o Andre).
+
 **Segredos não passam por ferramentas.** Tokens do Moodle e do Google e a senha do SIGAA entram só pela tela de autorização; nenhuma ferramenta aceita senha ou token.
 
 **Removido (04/11/2026):** `sincronizar`, `listar_itens`, `agenda`, `mudancas`, `perfil`, `historico`, `insights`, `importar_historico`, `ler_anexo` e as rotas REST equivalentes, junto com o motor de sincronização e o histórico. As tabelas do banco continuam no esquema, sem uso.
 
+### Escrita: `postar_forum` (fórum do Moodle)
+
+A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome da pessoa, em **nova discussão** (`forumId`, o de `ver_curso`) ou em **resposta** (`postId`, o de `ver_forum`), com `titulo` e `mensagem` (texto puro, escapado e enviado como um parágrafo por linha). Chama `mod_forum_add_discussion` ou `mod_forum_add_discussion_post`: 1 chamada ao Moodle, nada é gravado no serviço.
+
+- **Só existe com a permissão `moodle.forum_write`** (ligada ao app na tela de autorizar, em Apps autorizados). Sem ela a ferramenta nem aparece em `tools/list`. Risco alto: o web pede confirmação antes de ligar.
+- A permissão aparece na tela de autorizar mesmo sem o Moodle conectado, marcada como indisponível (`source_not_connected`), como já acontece com o SIASB.
+- Validação antes de tocar o AVA: exatamente um destino (`forumId` ou `postId`), título de 1 a 255 caracteres, mensagem de 1 a 10000.
+- Anotações: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: true`. A publicação não tem como ser desfeita pelo app e fica visível para a turma e o professor; a descrição da ferramenta manda o agente mostrar o texto e só publicar depois que a pessoa confirmar.
+- Só o Moodle. Classroom não tem fórum; SIGAA não tem escrita.
+- Ainda não testada contra o AVA real (depende do serviço de Web Service do AVA liberar essas duas funções para o token do app).
+
+### Metadados para a loja e uso sem dizer "UFBA"
+
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e as `clinica_*` de leitura são somente leitura; as de escrita (`postar_forum` e as 4 do SIASB, todas atrás de permissão) têm `readOnlyHint: false` (desmarcar sessão e excluir procedimento também `destructiveHint: true`); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
+- As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
+
 ## Ferramentas das clínicas (SIASB)
 
-As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
+As ferramentas `clinica_*` de leitura leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Quatro ferramentas de escrita existem, opt-in por permissão do app (seção abaixo). Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
 
-**Visibilidade:** as 7 só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
+**Visibilidade:** as 7 de leitura só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
 
 | Ferramenta | O que faz | Requisições: SIASB (máx.) |
 |---|---|---|
@@ -56,6 +77,23 @@ As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome 
 - **Horários** saem com offset da Bahia (`-03:00`, fixo). Datas sem hora valem a hora da Bahia.
 - **Privacidade:** só o primeiro nome do paciente; nunca o sobrenome nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
 - **Segredos:** nenhuma ferramenta aceita senha ou cookie; a conexão é feita no painel (`POST /connections/siasb`).
+
+### Ferramentas de escrita do SIASB
+
+Só aparecem para o app que a pessoa autorizou com a permissão (marcada na tela de autorizar, revogável em Apps autorizados; padrão negado) **e** que tem conexão SIASB. `siasb.schedule_write` libera `clinica_agendar_sessao` e `clinica_desmarcar_sessao`; `siasb.procedures_write` libera `clinica_incluir_procedimento` e `clinica_excluir_procedimento`. Todas têm `confirmado` (booleano, padrão `false`).
+
+| Ferramenta | Parâmetros | Regras |
+|---|---|---|
+| `clinica_agendar_sessao` | `atendimentoId`, `inicio` (ISO 8601 **com fuso**), `duracaoMin` (15 a 240), `quantidade` (1 a 20, padrão 1), `professorId?`, `localId?`, `grupoId?`, `observacao?`, `confirmado` | atendimento ativo; semanal, mesmo horário, tudo ou nada; início futuro e até 365 dias (a última sessão também); ids entre as opções do SIASB |
+| `clinica_desmarcar_sessao` | `sessaoId`, `motivo?`, `confirmado` | só sessão FUTURA marcada de atendimento ativo; **nunca registra falta** |
+| `clinica_incluir_procedimento` | `atendimentoId`, `procedimentoId` (do catálogo, de `clinica_contexto_agendamento`), `dente?`, `face?`, `observacao?`, `confirmado` | fica PREVISTO; **realizar não existe**, é no site |
+| `clinica_excluir_procedimento` | `atendimentoId`, `procedimentoId` (o devolvido por `clinica_incluir_procedimento`, não o do catálogo), `confirmado` | só exclui procedimento **incluído por esta ferramenta** (auditoria `procedure_add` ok da pessoa, no atendimento, com esse id); os demais, pelo site |
+
+**Duas etapas.** Sem `confirmado: true` a ferramenta não escreve: devolve `status: "resumo"` (`resumo`, `detalhes`). A descrição manda o Claude mostrar o resumo e esperar o OK explícito da pessoa antes de repetir com `confirmado: true`, que devolve `status: "feito"` (`resumo`, `detalhes`, com `verificado` e `datasConfirmadas` ao agendar, `verificado` ao desmarcar e `procedimentoId`, ou `null`, ao incluir). Ao agendar sem professor, local ou grupo: `status: "escolher"` com `faltando`, `opcoes` (professores, locais, grupos) e `instrucao` (a pessoa escolhe; o Claude chama de novo **sem** `confirmado` para receber o resumo e só então pede o OK). Horários em `detalhes` (`datas`, `datasConfirmadas`, `inicio`) vêm na hora da Bahia com `-03:00`, como nas leituras; o `inicio` recebido é arredondado para o minuto inteiro (segundos descartados).
+
+**Erros** (mensagens fixas): `entrada_invalida`, `siasb_write_rejected`, `siasb_write_unknown` ("O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo."; sem retry, a pessoa confere o site) e o de reconexão. Cada tentativa de escrita vai para a auditoria `siasb_write_audit` (sem texto livre; ainda sem expurgo de 90 dias).
+
+Rotas de escrita permitidas, verificação depois de gravar, ressincronização e lacunas conhecidas (formatos de resposta nunca confirmados ao vivo, `procedimentoId` nulo ou deduzido): `docs/SIASB.md`, seção 14.
 
 ## Autenticação
 

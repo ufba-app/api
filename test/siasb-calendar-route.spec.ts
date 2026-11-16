@@ -51,6 +51,7 @@ describe('GET /me/siasb/sessions', () => {
       'u1',
       { from: at(-400), to: at(400) },
       {
+        disciplines: [],
         attendances: [
           {
             id: 'a1',
@@ -58,6 +59,7 @@ describe('GET /me/siasb/sessions', () => {
             disciplineName: 'Clinica 1',
             treatmentType: 'PLANNING',
             concluded: false,
+            active: true,
             firstName: cipher.encrypt(NOME, 'siasb-attendance:u1:a1'),
           },
         ],
@@ -79,7 +81,7 @@ describe('GET /me/siasb/sessions', () => {
       controllers: [SiasbController],
       providers: [
         { provide: SiasbLink, useValue: link },
-        { provide: SiasbCopyReader, useValue: new SiasbCopyReader(copy, cipher) },
+        { provide: SiasbCopyReader, useValue: new SiasbCopyReader(copy, cipher, { holidays: async () => ({ known: false, dates: [] }) }) },
       ],
     })
       .overrideGuard(SessionGuard)

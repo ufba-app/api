@@ -1,3 +1,4 @@
+import type { PermissionsService } from '../permissions/permissions.service';
 import type { ClientDirectory } from '../oauth/client-directory';
 import { isLocalRedirect } from '../oauth/redirect-uri';
 import type { OAuthStore } from '../oauth/oauth-ports';
@@ -10,6 +11,7 @@ export class AuthorizedApps {
     private readonly store: OAuthStore,
     private readonly clients: ClientDirectory,
     private readonly cofre: CofreSigaa,
+    private readonly permissions: PermissionsService,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -23,6 +25,7 @@ export class AuthorizedApps {
       byClient.set(t.clientId, cur);
     }
     const apps: AuthorizedApp[] = [];
+    const granted = await this.permissions.grantedTo(p.userId);
     for (const [clientId, use] of byClient) {
       const client = await this.store.getClient(clientId);
       if (!client || client.redirectUris.length === 0) continue;
@@ -41,6 +44,7 @@ export class AuthorizedApps {
         authorizedAt: new Date(use.first).toISOString(),
         lastUsedAt: use.last ? new Date(use.last).toISOString() : null,
         sigaa: !!sigaa,
+        permissions: granted.get(clientId) ?? [],
       });
     }
     apps.sort((a, b) => (b.lastUsedAt ?? b.authorizedAt).localeCompare(a.lastUsedAt ?? a.authorizedAt));
@@ -53,5 +57,12 @@ export class AuthorizedApps {
     if (!has) throw new ApiError(404, 'not_found', 'Esse app não tem acesso.');
     await this.store.deleteTokensOfClient(p.userId, clientId);
     await this.cofre.apagar({ userId: p.userId, clientId });
+    await this.permissions.appRevoked(p.userId, clientId);
+  }
+
+  /** Retira UMA permissão de UM app, sem revogar o app. */
+  async revokePermission(p: WebPrincipal, clientId: string, key: string): Promise<void> {
+    if (clientId === WEB_CLIENT_ID) throw new ApiError(400, 'invalid_request', 'Pedido inválido.');
+    await this.permissions.revoke(p.userId, clientId, key);
   }
 }

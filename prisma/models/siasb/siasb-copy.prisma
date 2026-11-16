@@ -11,6 +11,8 @@ model SiasbSyncedAttendance {
   // TRIAGE | PLANNING | URGENCY | UNKNOWN
   treatmentType  String  @map("treatment_type")
   concluded      Boolean
+  // veio da consulta de atendimentos ativos do SIASB (a situação das disciplinas usa isto, não `concluded`)
+  active         Boolean @default(false)
 
   firstNameCiphertext String @map("first_name_ciphertext")
   firstNameIv         String @map("first_name_iv")
@@ -53,4 +55,38 @@ model SiasbSyncState {
   lockedUntil   DateTime? @map("locked_until")
 
   @@map("siasb_sync_state")
+}
+
+// Disciplinas clínicas do aluno no SIASB (inclusive as sem paciente), base dos avisos de prazo.
+// Substituídas por inteiro a cada sincronização; só o nome (não é segredo).
+model SiasbSyncedDiscipline {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String
+
+  name String
+
+  @@id([userId, id])
+  @@map("siasb_disciplines")
+}
+
+// Auditoria das escritas no SIASB feitas em nome do aluno (agendar, desmarcar, procedimentos).
+// Só metadados: nunca nome, observação, mensagem do SIASB nem qualquer texto livre. Apagada com a pessoa (cascade).
+// Sem expurgo ainda: a tabela cresce até existir a retenção de 90 dias (spec 5.4).
+model SiasbWriteAudit {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // schedule | unschedule | procedure_add | procedure_remove
+  kind         String
+  attendanceId String? @map("attendance_id")
+  // id da sessão ou do procedimento
+  targetId     String? @map("target_id")
+  // ok | rejected | unknown | error
+  result       String
+  at           DateTime
+
+  @@index([userId, at])
+  @@map("siasb_write_audit")
 }

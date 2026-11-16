@@ -14,6 +14,7 @@ Leia antes de mexer: `README.md`, `docs/ARQUITETURA.md`, `docs/WEB-API.md` (flux
 - **Maestri:** não apague nota nem feche portal sem pedido.
 - **Nomes:** identificadores de código e API em **inglês**; textos para a pessoa (UI e `message`) em **pt-BR**.
 - **Respostas:** diretas, recomendação primeiro, ressalvas agrupadas pela causa. Não varrer pastas fora do projeto.
+- **Permissões:** por APP, não por pessoa: marcadas na tela de autorizar (`POST /authorize/requests/{id}/approve { permissions }`), revogadas em Apps autorizados; o MCP lê as do `clientId` do token (`docs/WEB-API.md` §5.3).
 - **Vínculo:** para trocar o SIGAA ou o AVA ligados, a pessoa exclui a conta (`DELETE /me`) e entra de novo; não existe "trocar".
 - **Relatório:** ao terminar tarefa do orquestrador (`Claude Code - ME #3`), responda com `maestri ask "Claude Code - ME #3" "<resultado>"`.
 
@@ -54,7 +55,7 @@ WEB_ORIGIN=http://localhost:3001 AUTH_ORIGIN=http://localhost:3002 PUBLIC_URL=ht
   node --env-file=.env dist/src/main.js
 ```
 
-Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`, `ADMIN_EMAILS` (administradores: memória e alertas do calendário; sem alternativa), `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push; o André gera e configura, a privada nunca é impressa; sem as três o canal fica desligado e as rotas dão 503 `push_unavailable`; só na API e no `notify-cron`, `docs/NOTIFICACOES.md`), `ANTHROPIC_API_KEY` (leitura do histórico e do calendário pela IA, Haiku 5.5 fixo; sem ela a leitura não existe; o cron do calendário é um serviço à parte, `docs/CALENDARIO-CRON.md`). Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`. `WEB_ORIGIN` aceita lista separada por vírgula (a primeira é a principal, usada nos redirects para o painel; todas valem para CORS e CSRF); `AUTH_ORIGIN` é único; ambos são validados no boot (https em produção, sem barra final, sem curinga).
+Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`, `PUBLIC_URL`, `WEB_ORIGIN`, `AUTH_ORIGIN`, `HOST`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_DOMAIN`, `GOOGLE_CLASSROOM_CLIENT_ID`, `GOOGLE_CLASSROOM_CLIENT_SECRET`, `MOODLE_SITE_URL`, `MOODLE_URL_SCHEME`, `ADMIN_EMAILS` (administradores: memória e alertas do calendário; sem alternativa), `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push; o André gera e configura, a privada nunca é impressa; sem as três o canal fica desligado e as rotas dão 503 `push_unavailable`; só na API e no `notify-cron`, `docs/NOTIFICACOES.md`), `GOOGLE_DRIVE_API_KEY` (opcional: chave da API do Drive, só para listar pasta pública e ler metadados de arquivo público sem token da pessoa; nunca é impressa nem sai em erro; `docs/MOODLE.md`), `ANTHROPIC_API_KEY` (leitura do histórico e do calendário pela IA, Haiku 5.5 fixo; sem ela a leitura não existe; o cron do calendário é um serviço à parte, `docs/CALENDARIO-CRON.md`). Em produção o boot exige `WEB_ORIGIN` e `PUBLIC_URL`. `WEB_ORIGIN` aceita lista separada por vírgula (a primeira é a principal, usada nos redirects para o painel; todas valem para CORS e CSRF); `AUTH_ORIGIN` é único; ambos são validados no boot (https em produção, sem barra final, sem curinga).
 
 ## Camadas
 
@@ -90,7 +91,7 @@ Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`
 - **Classroom:** a volta do Google usa `PUBLIC_URL`; no Google Cloud os redirects são `https://api.ufba.app/oauth/callback/google` (app interno) e `/oauth/callback/classroom` (convidado).
 - **Logs do Prisma no Railway** aparecem com severidade "error" (é só stderr).
 - **Prazos do SIGAA** (`/sources/sigaa/deadlines`) nunca foram validados contra o SIGAA real.
-- **Frequência do SIGAA** (`/sources/sigaa/attendance`): `FrequenciaAluno/mapa.jsf` só abre pelo postback do item "Frequência" do `formMenu` da turma; GET direto dá "Comportamento Inesperado!". A página traz presenças em **aulas** (não horas); a falta é calculada. Lida com uma turma real; várias turmas (ViewState) não validadas.
+- **Frequência do SIGAA** (`/sources/sigaa/attendance`): `FrequenciaAluno/mapa.jsf` só abre pelo postback do item "Frequência" do `formMenu` da turma; GET direto dá "Comportamento Inesperado!". A página traz presenças em **aulas** (não horas); a falta é calculada. Entra nas turmas pela entrada validada dos prazos (`entrarNaEnesima`); o clique em "Frequência" foi visto no navegador com uma turma, e a rota nunca rodou no SIGAA real com várias.
 
 ## Memória do projeto
 

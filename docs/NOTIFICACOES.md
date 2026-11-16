@@ -14,15 +14,15 @@ Canal de avisos genérico: qualquer fonte avisa o aluno pelo mesmo caminho; o SI
 
 ```ts
 Notifier.send(userId, { key, subject, slotAt, title, body, tag, url? }):
-  Promise<'sent' | 'duplicate' | 'disabled' | 'no_device' | 'quiet' | 'unavailable' | 'failed'>
+  Promise<'sent' | 'duplicate' | 'disabled' | 'no_device' | 'unavailable' | 'failed'>
 Notifier.record(userId, key, subject, slotAt, { suppressed }): Promise<boolean>  // true = gravou, false = já existia
 Notifier.lastSentAt(userId, key, subject): Promise<Date | null>                  // ignora os suppressed
 Notifier.hasDevices(userId): Promise<boolean>
 ```
 
-`send` decide, nesta ordem: canal desligado (`unavailable`), ajuste da pessoa (`disabled`), silêncio (`quiet`), nenhum aparelho (`no_device`), instante já reivindicado (`duplicate`) e então envia. Nunca lança: erro vira `'failed'`.
+`send` decide, nesta ordem: canal desligado (`unavailable`), ajuste da pessoa (`disabled`), nenhum aparelho (`no_device`), instante já reivindicado (`duplicate`) e então envia. Nunca lança: erro vira `'failed'`.
 
-- **Silêncio 22h às 7h na Bahia** (UTC-3 fixo, intervalo `[22h, 7h)`): `quiet` não envia e **não registra**; o chamador tenta de novo depois.
+- **Sem silêncio no canal:** o `Notifier` é **neutro quanto a horário**: envia a qualquer hora, para servir a qualquer fonte e a avisos por gatilho (algo que acabou de acontecer). O silêncio das 22h às 7h é **regra do SIASB**: cada fonte que quiser respeitar um horário decide no próprio `AlertProvider` e simplesmente não chama `send` fora dele. A função pura `inQuietHours(at)` (`src/domain/notifications/quiet-hours.ts`, UTC-3 fixo, intervalo `[22h, 7h)`) está disponível para isso.
 - **Anti-duplicata atômica:** a chave única `(userId, key, subject, slotAt)` de `alert_log` é reivindicada **antes** de enviar, com um único `insert` com `skipDuplicates` (`count === 1` = quem gravou envia). Nunca "ler e depois escrever". Duas execuções simultâneas enviam uma vez só.
 - **No máximo uma vez:** se o envio não chegou a nenhum aparelho, o instante é devolvido (apagado do registro) e `send` responde `'failed'` (ou `'no_device'` se todos os aparelhos tinham morrido); uma nova tentativa pode reenviar. Se o processo cair entre a reivindicação e o envio, esse aviso se perde (preferimos perder a duplicar).
 - **Aparelho morto:** 404/410 do provedor remove o aparelho.
@@ -36,7 +36,7 @@ Notifier.hasDevices(userId): Promise<boolean>
 `node dist/src/notify-job.js`, a cada 15 minutos (`*/15 * * * *`), serviço próprio no Railway. Só lê o banco (nenhuma requisição às fontes) e envia pelo `Notifier`.
 
 - Cada fonte implementa **`AlertProvider`**: `{ key, usersToEvaluate(), evaluateUser(userId, now) → { sent, suppressed, skipped, failed } }`. `evaluateUser` nunca lança e só envia pelo `Notifier`.
-- Os provedores entram em **`ALERT_PROVIDERS`** (`src/mcp-wiring.ts`; hoje a lista é vazia: a fonte injeta o que precisa na fábrica e devolve o provedor).
+- Os provedores entram em **`ALERT_PROVIDERS`** (`src/mcp-wiring.ts`; a fonte injeta o que precisa na fábrica e devolve o provedor). O SIASB é o primeiro provedor (`key` `siasb`, interruptor `siasb.alerts`); as regras, os textos e os limites estão em `docs/SIASB.md`, seção 11.
 - O runner (`runNotifyJob`) percorre os provedores, isola o erro por provedor e por pessoa (conta como falha), loga **só contagens**, uma linha por provedor (`notify[siasb]: 12 pessoas, 3 enviados, 1 suprimidos, 8 pulados, 0 falhas`), e sai **0** se rodou (inclusive sem provedor ou com falhas por pessoa) ou **1** se não deu para listar as pessoas de **nenhum** dos provedores.
 - O `sync-job` (sincronização das fontes) é outro cron e é do Prontuário.
 
