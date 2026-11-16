@@ -51,9 +51,11 @@ export class DownloadController {
             ? 501
             : e instanceof SourceError && e.code === 'UNSUPPORTED_SCOPE'
               ? 400 // pedido inválido (ex.: arquivo que não é anexo do Classroom), não falha da fonte
-              : e instanceof SourceError
-                ? 502
-                : 500;
+              : e instanceof SourceError && e.code === 'NO_ACCESS'
+                ? 403 // sem acesso ao arquivo (ex.: Drive não compartilhado), não falha da fonte
+                : e instanceof SourceError
+                  ? 502
+                  : 500;
       const msg = e instanceof Error && status !== 500 ? e.message : 'Falha ao baixar o arquivo';
       res.status(status).json({ erro: e instanceof SourceError ? e.code : 'ERRO', mensagem: msg });
     }

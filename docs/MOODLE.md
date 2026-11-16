@@ -24,6 +24,17 @@ IDs externos: `cm<id>` (módulo), `assign<id>`, `disc<id>`, `gi<id>` (nota), `ev
 
 O banco guarda só metadados + `sourceUrl` (sem token). `MoodleAttachmentReader.read(ctx, sourceUrl)` baixa o arquivo sob demanda, acrescentando `token=` à URL. Ele recusa URL de outro host (o token só vai para o Moodle da conta) e remove `token=` que o Moodle eventualmente devolva nas URLs. O token nunca é logado nem aparece em mensagens de erro.
 
+## Arquivos do Drive linkados no conteúdo
+
+Professores postam links do Google Drive/Docs no Moodle (URL de módulo, HTML da descrição, rótulo, descrição de tarefa, mensagem de fórum). Na leitura ao vivo (`ver_curso`, `ver_forum`) eles viram **anexos com `ref`**, e o `baixar_anexo` (mesmo fluxo de link temporário de uso único) entrega o arquivo **como ele é**; nativos do Google são exportados: **Docs e Apresentações → PDF, Planilhas → XLSX**. Nada fica guardado, nada de conteúdo vai para log.
+
+- **Só o que apareceu no curso.** O `ref` é `gdrive1.<tipo>.<id>.<assinatura>`: HMAC (chave derivada da `SECRETS_KEY`) preso à pessoa. O agente não consegue fabricar o `ref` de um arquivo qualquer; ref adulterado, de outra pessoa ou URL é recusado antes de qualquer rede (`DriveRefs`, `src/infrastructure/sources/drive/`). Sem `SECRETS_KEY` o recurso fica desligado.
+- **Só `drive.google.com` e `docs.google.com`** (`domain/drive/drive-link.ts`); pastas e formulários não viram anexo; id validado (`[A-Za-z0-9_-]{10,128}`).
+- **Como baixa** (`GoogleDriveDownloader`): 1º o token da pessoa (contas do Classroom conectadas, a `@ufba.br` primeiro; Drive API v3, `drive.readonly`); se nenhuma abrir, o link público (sem login). Sem acesso a nenhum: 403 `NO_ACCESS` com a dica de conectar o Classroom. Falha de rede/5xx é 502 (não vira "sem acesso").
+- **Limites:** 25 MB (pelo `size` e pelo corpo lido), 30 s por requisição; no link público o redirect só é seguido dentro de hosts do Google (`drive.google.com`, `docs.google.com`, `drive.usercontent.google.com`, `*.googleusercontent.com`); redirect para o login do Google = arquivo privado.
+- O link original continua em `links` do item; o anexo é a forma de baixar.
+- **Não coberto:** pastas do Drive, formulários, desenhos; arquivos acima do teto (abrir pelo navegador).
+
 ## Como o token é obtido
 
 O token é obtido pelo login no navegador da pessoa e colado **só na tela de conexão** do /authorize (link de redirecionamento `moodlemobile://token=...`); nunca entra por ferramenta MCP. O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:

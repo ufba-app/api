@@ -60,6 +60,9 @@ import { UsuariosController } from './interface/rest/usuarios.controller';
 import { ClassroomGateway } from './infrastructure/sources/classroom/classroom.gateway';
 import { ClassroomLive } from './infrastructure/sources/classroom/classroom-live';
 import { GoogleAuth, GoogleHttp } from './infrastructure/sources/google/google-http';
+import { DriveDownloader } from './application/ports/drive-downloader';
+import { DriveRefs } from './infrastructure/sources/drive/drive-refs';
+import { DisabledDriveDownloader, GoogleDriveDownloader } from './infrastructure/sources/drive/google-drive-downloader';
 import { MoodleGateway } from './infrastructure/sources/moodle/moodle.gateway';
 import { MoodleLive } from './infrastructure/sources/moodle/moodle-live';
 import { createSigaaHttpClient } from './infrastructure/sources/sigaa/http-client';
@@ -122,7 +125,8 @@ export function buildLiveSources(
   sessoesSigaa: SessoesSigaa = buildSessoesSigaa(),
 ): LiveSources {
   const live = new LiveSources();
-  live.register(new MoodleLive());
+  // Sem SECRETS_KEY os `ref` do Drive não podem ser assinados: o recurso fica desligado.
+  live.register(new MoodleLive(fetch, env.SECRETS_KEY ? new DriveRefs(env.SECRETS_KEY) : undefined));
   live.register(new SigaaLive(sessoesSigaa));
   const c = classroomClientes(env);
   if (c) live.register(new ClassroomLive(c, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined }));
@@ -139,6 +143,16 @@ export function buildLiveSources(
     BearerGuard,
     ConsultaService,
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
+    {
+      // Arquivos do Drive linkados no Moodle: token da pessoa (Classroom) e, sem acesso, link público; só hosts do Google.
+      provide: DriveDownloader,
+      useFactory: (): DriveDownloader => {
+        const env = process.env;
+        if (!env.SECRETS_KEY) return new DisabledDriveDownloader();
+        // Sem Classroom configurado só vale o link público.
+        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined });
+      },
+    },
     {
       provide: SessoesSigaa,
       useFactory: (store: SigaaSessionStore, cipher: SecretCipher) => buildSessoesSigaa(store, cipher),

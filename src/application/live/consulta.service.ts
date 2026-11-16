@@ -1,5 +1,6 @@
 import { Secret } from '../shared/secret';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { DriveDownloader } from '../ports/drive-downloader';
 import type { AttachmentContent } from '../ports/attachment-reader';
 import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
@@ -57,6 +58,8 @@ export class ConsultaService {
     private readonly accounts: SourceAccountRepository,
     private readonly cipher: SecretCipher,
     private readonly cofre: CofreSigaa,
+    /** Arquivos do Drive linkados no Moodle; sem ele, esses `ref` nem existem. */
+    @Optional() private readonly drive?: DriveDownloader,
   ) {}
 
   /** Contas conectadas (com acesso guardado) nas fontes com leitura ao vivo. Só lê o banco: não chama fonte. */
@@ -99,7 +102,20 @@ export class ConsultaService {
 
   baixar(quem: Quem, provider: Provider, conta: string | undefined, ref: string): Promise<AttachmentContent> {
     if (provider === 'SIGAA') return Promise.reject(semDownloadSigaa());
+    if (provider === 'MOODLE' && this.drive?.owns(ref)) return this.baixarDoDrive(quem, conta, ref);
     return this.com(quem, provider, conta, (s, ctx) => s.baixar(ctx, ref));
+  }
+
+  /**
+   * Arquivo do Drive linkado no Moodle: confere a conta do Moodle de onde ele veio e abre com as contas do Google da pessoa
+   * (Classroom conectado, em memória), depois o link público. O `ref` assinado é a única entrada aceita.
+   */
+  private async baixarDoDrive(quem: Quem, conta: string | undefined, ref: string): Promise<AttachmentContent> {
+    await this.conta(quem, 'MOODLE', conta);
+    const google = (await this.accounts.findByUserAndProvider(quem.userId, 'CLASSROOM'))
+      .filter((a) => a.secret && a.status !== 'REAUTH_NEEDED')
+      .map((a) => ({ accountKey: a.accountKey, refreshToken: Secret.of(this.cipher.decrypt(a.secret!)) }));
+    return this.drive!.download(quem.userId, ref, google);
   }
 
   /** A conta da consulta: a pedida, ou a única conectada. Sem chamar a fonte. (Só fontes com token guardado.) */

@@ -124,7 +124,9 @@ export type SourceErrorCode =
   | 'REAUTH_NEEDED'
   | 'BLOCKED'
   | 'UNAVAILABLE'
-  | 'UNSUPPORTED_SCOPE';
+  | 'UNSUPPORTED_SCOPE'
+  /** A pessoa não tem acesso ao arquivo pedido (ex.: arquivo do Drive não compartilhado com ela). */
+  | 'NO_ACCESS';
 
 /** Erro de fonte com código estável (vai para `SyncRun.errorCode`). */
 export class SourceError extends Error {
