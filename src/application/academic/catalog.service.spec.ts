@@ -11,7 +11,7 @@ const PROGRAMS = [
 
 function montar() {
   let t = new Date('2026-11-15T12:00:00Z').getTime();
-  const repo = new InMemoryCatalog();
+  const repo = new InMemoryCatalog(() => new Date(t));
   const source = new FakeCatalogSource();
   source.programs = PROGRAMS;
   const svc = new CatalogService(repo, source, () => new Date(t));

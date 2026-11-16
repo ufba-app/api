@@ -12,6 +12,10 @@ export class InMemoryCatalog extends CatalogRepository {
   programs = new Map<string, CatalogProgram>();
   programsAt: Date | null = null;
   curricula = new Map<string, CatalogCurriculum>();
+  /** Relógio do fake: o teste que avança o tempo passa o mesmo relógio do serviço (senão a data real quebra o TTL). */
+  constructor(private readonly now: () => Date = () => new Date()) {
+    super();
+  }
   components = new Map<string, CatalogComponent[]>();
 
   async listPrograms() {
@@ -22,7 +26,7 @@ export class InMemoryCatalog extends CatalogRepository {
   }
   async savePrograms(programs: CatalogProgram[]) {
     for (const p of programs) this.programs.set(p.sigaaId, p);
-    this.programsAt = new Date();
+    this.programsAt = this.now();
   }
   async findCurriculum(programId: string) {
     return this.curricula.get(programId) ?? null;
