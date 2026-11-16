@@ -609,6 +609,17 @@ export const ROUTES: Route[] = [
     ok: [202, null],
   },
   {
+    id: "getMeCalendar",
+    method: "get",
+    path: "/me/calendar",
+    tag: "calendar",
+    auth: "session",
+    summary:
+      "Calendário do Painel: feriados e dias sem aula, entregas e provas do Moodle/Classroom e sessões do SIASB (só com acesso), por dia, prontos para desenhar; falha parcial em sources[]",
+    query: C.MeCalendarQuery,
+    ok: [200, C.MeCalendarResponse],
+  },
+  {
     id: "getPublishedCalendar",
     method: "get",
     path: "/calendar",

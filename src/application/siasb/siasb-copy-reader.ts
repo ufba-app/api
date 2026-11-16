@@ -72,6 +72,22 @@ export class SiasbCopyReader {
     };
   }
 
+  /**
+   * Agenda da clínica para o calendário do painel: só o necessário para desenhar (disciplina, local, horário, situação).
+   * NÃO decifra nada: nome de paciente, mesmo o primeiro, nunca sai por aqui.
+   */
+  async agenda(
+    userId: string,
+    from: Date,
+    to: Date,
+  ): Promise<{ syncedAt: Date | null; stale: boolean; items: Array<{ id: string; disciplineName: string; locationName: string; startAt: Date; endAt: Date; statusLabel: string }> }> {
+    const [state, sessions] = await Promise.all([this.copy.state(userId), this.copy.sessions(userId, from, to)]);
+    return {
+      ...this.freshness(state, this.now()),
+      items: sessions.map((s) => ({ id: s.id, disciplineName: s.disciplineName, locationName: s.locationName, startAt: s.startAt, endAt: s.endAt, statusLabel: s.statusLabel })),
+    };
+  }
+
   /** Situação de cada disciplina a partir da cópia (mesma regra do leitor ao vivo; sessões de [agora − 60 d, agora + 45 d]). */
   async situation(
     userId: string,

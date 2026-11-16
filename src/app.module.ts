@@ -76,6 +76,7 @@ import { AcademicImports } from './application/academic/academic-imports';
 import { AcademicRepository, TranscriptSource } from './application/ports/academic';
 import { PdfTextExtractor, TRANSCRIPT_READER, TranscriptReader } from './application/ports/transcript';
 import { ConnectionStatus } from './application/web/connection-status';
+import { MeCalendar } from './application/web/me-calendar.service';
 import { AnthropicTranscriptReader } from './infrastructure/sources/sigaa/history/anthropic-transcript-reader';
 import { SessionTranscriptSource } from './infrastructure/sources/sigaa/history/session-transcript-source';
 import { PdfParseTextExtractor } from './infrastructure/sources/sigaa/history/pdf-text-extractor';
@@ -337,6 +338,16 @@ export function buildLiveSources(
       inject: [CalendarLogRepository, MemoryAdmins, CalendarWatcher],
     },
     { provide: PublishedCalendar, useFactory: (logs: CalendarLogRepository) => new PublishedCalendar(logs), inject: [CalendarLogRepository] },
+    {
+      provide: MeCalendar,
+      useFactory: (calendars: PublishedCalendar, consulta: ConsultaService, status: ConnectionStatus, reader: SiasbCopyReader) =>
+        new MeCalendar({
+          calendars,
+          consulta,
+          siasb: { status: (userId) => status.siasbOf(userId), agenda: (userId, from, to) => reader.agenda(userId, from, to) },
+        }),
+      inject: [PublishedCalendar, ConsultaService, ConnectionStatus, SiasbCopyReader],
+    },
     { provide: MemoryAccess, useFactory: () => new OpenMemoryAccess() },
     {
       provide: MemoryProxy,
@@ -455,6 +466,7 @@ export function buildLiveSources(
     TeamRoles,
     CalendarAlertService,
     PublishedCalendar,
+    MeCalendar,
     CalendarWatcher,
     AccountDeparture,
     DownloadLinks,
