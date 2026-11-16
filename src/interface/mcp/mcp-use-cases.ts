@@ -23,6 +23,22 @@ const FONTES: Partial<Record<Provider, Fonte>> = { MOODLE: 'moodle', CLASSROOM: 
 
 const provider = (f?: Fonte): Provider => PROVIDERS[f ?? 'moodle'];
 
+const PARTICULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+/**
+ * Nome de pessoa para exibir: a fonte pode mandar em maiúsculas (SIGAA) ou sem padrão (Moodle, Classroom). Cada palavra começa
+ * com maiúscula, exceto as partículas (de, da, do...) no meio do nome. Só mexe na caixa: não tira acento nem palavra.
+ */
+export function normalizarNome(nome: string): string {
+  return nome
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('pt-BR')
+    .split(' ')
+    .map((p, i) => (i > 0 && PARTICULAS.has(p) ? p : p.charAt(0).toLocaleUpperCase('pt-BR') + p.slice(1)))
+    .join(' ');
+}
+
 /** Acessos de um link de leitura no chat web: a ferramenta de URL pode repetir a requisição. */
 export const WEB_USOS = 3;
 export const COMO_LER_WEB =
@@ -70,7 +86,7 @@ export class McpUseCasesImpl implements McpUseCases {
     const participantes = await this.consulta.listarParticipantes(quem(p), provider(i.fonte), i.conta, i.cursoId);
     const alunos = participantes
       .filter((x) => x.papeis.includes('student'))
-      .map((x) => x.nome)
+      .map((x) => normalizarNome(x.nome))
       .sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return { cursoId: i.cursoId, total: alunos.length, alunos };
   }
