@@ -69,6 +69,19 @@ export interface DiscussaoViva {
   anexos: AnexoVivo[];
 }
 
+/** Frequência de UMA turma, em aulas (55 min). A fonte só informa presenças; a falta é `aulasRegistradas − presencas`. */
+export interface FrequenciaViva {
+  cursoId: string;
+  cursoNome: string;
+  presencas: number;
+  /** Aulas com frequência lançada pelo professor até agora. */
+  aulasRegistradas: number;
+  /** Aulas definidas pela carga horária do componente. */
+  aulasCH: number;
+  /** `false` quando a fonte avisa que a frequência ainda não foi lançada por completo. */
+  completa: boolean;
+}
+
 /** Um participante da matéria: só o nome e os papéis (ex.: `student`, `editingteacher`). Nada de e-mail ou id. */
 export interface ParticipanteVivo {
   nome: string;
@@ -132,6 +145,8 @@ export interface LiveSource {
   agendaSigaa?(ctx: SourceContext, opts?: { orcamentoMs?: number }): Promise<AgendaSigaa>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
+  /** Frequência de cada turma do semestre. Hoje só o SIGAA. */
+  frequencia?(ctx: SourceContext): Promise<FrequenciaViva[]>;
   /** Mensagens de UM tópico (inicial e respostas). Hoje só o Moodle: 1 chamada. */
   verTopico?(ctx: SourceContext, discussaoId: string): Promise<MensagemViva[]>;
   /** Participantes de UMA matéria, só nome e papéis (sem contato nem id). Hoje só o Moodle: 1 chamada. */

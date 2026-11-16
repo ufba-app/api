@@ -783,6 +783,16 @@ export const ROUTES: Route[] = [
     ok: [200, C.DeadlinesResponse],
   },
   {
+    id: "getAttendance",
+    method: "get",
+    path: "/sources/sigaa/attendance",
+    tag: "data",
+    auth: "data",
+    summary: "Frequência das turmas (SIGAA), em aulas",
+    query: C.AccountQuery,
+    ok: [200, C.AttendanceResponse],
+  },
+  {
     id: "getCourse",
     method: "get",
     path: "/sources/{source}/courses/{courseId}",
@@ -862,6 +872,9 @@ export function buildOpenApi(): Record<string, unknown> {
     ["Activity", C.Activity],
     ["Discussion", C.Discussion],
     ["Attachment", C.Attachment],
+    ["AttendanceStatus", C.AttendanceStatus],
+    ["AttendanceCourse", C.AttendanceCourse],
+    ["AttendanceSummary", C.AttendanceSummary],
   ];
   for (const [name, schema] of named) reg.register(name, schema);
 

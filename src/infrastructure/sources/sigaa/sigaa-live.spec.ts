@@ -8,7 +8,7 @@ import { MemorySigaaSessionStore } from './memory-session-store';
 import { SessoesSigaa } from './sessoes-sigaa';
 import { SigaaInvalidCredentialsError, SigaaLoginUnavailableError, type SigaaSession } from './session';
 import { Logger } from '@nestjs/common';
-import { MAX_TURMAS_PRAZOS, SigaaLive, impressaoDaPagina } from './sigaa-live';
+import { MAX_TURMAS_FREQUENCIA, MAX_TURMAS_PRAZOS, SigaaLive, impressaoDaPagina } from './sigaa-live';
 
 const fixture = (nome: string) => readFileSync(join(__dirname, 'turma-virtual', '__fixtures__', nome), 'utf-8');
 
@@ -406,6 +406,87 @@ describe('SigaaLive', () => {
     await expect(live.verForum(ctx, 'f')).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
     await expect(live.baixar(ctx, 'r')).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
     expect(reqs).toEqual([]);
+  });
+});
+
+describe('SigaaLive.frequencia', () => {
+  const MENU_ACTION = '/sigaa/ava/index.jsf';
+  const MENU_LINK = 'formMenu:j_id_jsp_1857845999_98';
+
+  /** Entrar na turma devolve o menu; o postback do menu devolve o mapa de frequência. */
+  const servindoFrequencia = (path: string) =>
+    path === PORTAL ? fixture('turma-menu.html') : fixture('frequencia-mapa.html');
+
+  it('1 turma: portal, entrar na turma e postback do item "Frequência" do menu', async () => {
+    const { live, reqs, posts } = montar({ get: { [PORTAL]: portalCom(1) }, postback: servindoFrequencia });
+    const lista = await live.frequencia(ctx);
+    expect(reqs).toEqual([`GET ${PORTAL}`, `POST ${PORTAL}`, `POST ${MENU_ACTION}`]);
+    expect(posts[1].path).toBe(MENU_ACTION);
+    expect(posts[1].fields).toEqual({ formMenu: 'formMenu', [MENU_LINK]: MENU_LINK });
+    expect(lista).toEqual([
+      { cursoId: 'turma-0', cursoNome: 'TURMA 0', presencas: 29, aulasRegistradas: 29, aulasCH: 32, completa: false },
+    ]);
+  });
+
+  it(`no máximo 1 + 2 + 3×(${MAX_TURMAS_FREQUENCIA} − 1) requisições com 12 turmas (portal fresco antes de cada turma, menos a 1ª)`, async () => {
+    const { live, reqs } = montar({ get: { [PORTAL]: portalCom(12) }, postback: servindoFrequencia });
+    const lista = await live.frequencia(ctx);
+    expect(MAX_TURMAS_FREQUENCIA).toBe(8);
+    expect(reqs).toHaveLength(1 + 2 + 3 * (MAX_TURMAS_FREQUENCIA - 1));
+    expect(lista).toHaveLength(8);
+  });
+
+  it('as turmas seguintes reentram pelo portal FRESCO: o token novo de cada leitura vai no postback de entrada', async () => {
+    let leituras = 0;
+    const { live, posts } = montar({
+      portal: () => portalCom(3).replace(/TOKEN(\d)/g, `R${++leituras}T$1`),
+      postback: servindoFrequencia,
+    });
+    await live.frequencia(ctx);
+    const entradas = posts.filter((p) => p.path === PORTAL).map((p) => p.fields.frontEndIdTurma);
+    expect(entradas).toEqual(['R1T0', 'R2T1', 'R3T2']);
+  });
+
+  it('portal sem turmas: lista vazia, só o GET do portal', async () => {
+    const { live, reqs } = montar({ get: { [PORTAL]: portalCom(0) }, postback: servindoFrequencia });
+    expect(await live.frequencia(ctx)).toEqual([]);
+    expect(reqs).toEqual([`GET ${PORTAL}`]);
+  });
+
+  it('menu da turma sem o link "Frequência": UNAVAILABLE, sem login novo (a entrada deu certo) e sem resultado parcial', async () => {
+    const { live, sessao } = montar({ get: { [PORTAL]: portalCom(1) } });
+    await expect(live.frequencia(ctx)).rejects.toMatchObject({ code: 'UNAVAILABLE' });
+    expect(sessao.login).toHaveBeenCalledTimes(1);
+  });
+
+  it('página de frequência não reconhecida (bounce para a home): UNAVAILABLE', async () => {
+    const { live } = montar({
+      get: { [PORTAL]: portalCom(1) },
+      postback: (path) => (path === PORTAL ? fixture('turma-menu.html') : '<html>home</html>'),
+    });
+    await expect(live.frequencia(ctx)).rejects.toMatchObject({ code: 'UNAVAILABLE' });
+  });
+
+  it('a 1ª entrada volta sem o menu da turma (sessão retomada recusada): login novo e uma nova tentativa', async () => {
+    let entradas = 0;
+    const { live, sessao } = montar({
+      get: { [PORTAL]: portalCom(2) },
+      postback: (path) =>
+        path === PORTAL
+          ? ++entradas === 1
+            ? portalCom(2) // bounce: a home do portal em vez da turma
+            : fixture('turma-menu.html')
+          : fixture('frequencia-mapa.html'),
+    });
+    const lista = await live.frequencia(ctx);
+    expect(sessao.login).toHaveBeenCalledTimes(2); // o login inicial e o refeito
+    expect(lista).toHaveLength(2);
+  });
+
+  it('se o bounce persiste depois do login novo: sem laço (2 logins no máximo) e UNAVAILABLE', async () => {
+    const { live, sessao } = montar({ get: { [PORTAL]: portalCom(2) }, postback: () => portalCom(2) });
+    await expect(live.frequencia(ctx)).rejects.toMatchObject({ code: 'UNAVAILABLE' });
+    expect(sessao.login).toHaveBeenCalledTimes(2);
   });
 });
 

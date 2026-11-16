@@ -6,6 +6,7 @@ import type {
   AtividadeViva,
   CursoVivo,
   DiscussaoViva,
+  FrequenciaViva,
   LiveSource,
   ParticipanteVivo,
   PrazoVivo,
@@ -25,6 +26,7 @@ import {
 import { assertPaginaDaTurmaVirtual } from './turma-virtual/ava-page';
 import { parseAvaliacoes, type Avaliacao } from './turma-virtual/avaliacoes';
 import { parsePostbackAcessarTurma } from './turma-virtual/entrar-turma';
+import { parseFrequencia, parsePostbackFrequencia } from './turma-virtual/frequencia';
 import { parseNoticiaDetalhe } from './turma-virtual/noticia-detalhe';
 import { parseNoticias, parsePostbackNoticia } from './turma-virtual/noticias';
 import { parseDiscentes, parsePostbackParticipantes } from './turma-virtual/participantes';
@@ -42,6 +44,9 @@ const TIMELINE_PATH = '/sigaa/ava/Relatorios/timeline.jsf';
 export const MAX_TURMAS_PRAZOS = 8;
 /** Orçamento de tempo da leitura dos prazos no calendário: depois dele não se entra em outra turma. */
 export const ORCAMENTO_PRAZOS_MS = 30_000;
+
+/** Teto de turmas que `frequencia` visita (3 requisições cada: portal fresco, entrar e o menu; a 1ª não relê o portal). */
+export const MAX_TURMAS_FREQUENCIA = 8;
 
 /** America/Bahia: UTC-3 o ano todo (sem horário de verão). */
 const FUSO = '-03:00';
@@ -300,6 +305,23 @@ export class SigaaLive implements LiveSource {
   }
 
   /**
+   * Entrada validada contra o SIGAA real, compartilhada por quem lê várias turmas (`lerPrazos`, `frequencia`): ANTES de cada
+   * entrada o portal é lido de novo (UM GET fresco, com o ViewState e os tokens novos), exceto na 1ª turma, que aproveita
+   * `portal`; a turma é achada nessa página fresca (mesmo token, senão o mesmo nome) e então se entra nela. Devolve o HTML
+   * da turma. Quem chama decide o que fazer quando lança `PaginaInesperada` (a entrada voltou sem o menu da turma).
+   */
+  private async entrarNaEnesima(s: SigaaSession, portal: string, turmas: TurmaVirtualToken[], n: number): Promise<string> {
+    const t = turmas[n];
+    const pagina = n === 0 ? portal : await s.get(PORTAL_PATH);
+    // Os tokens podem mudar a cada renderização do portal: acha a turma na página fresca (mesmo token, senão o mesmo nome).
+    const doPortal = parse(() => parseTurmaVirtualTokens(pagina));
+    const mesmoNome = doPortal.filter((x) => x.nome === t.nome);
+    const ordem = turmas.slice(0, n).filter((x) => x.nome === t.nome).length;
+    const atual = doPortal.find((x) => x.frontEndIdTurma === t.frontEndIdTurma) ?? mesmoNome[ordem] ?? mesmoNome[0] ?? t;
+    return entrarNaTurma(s, pagina, atual, `${n + 1}/${turmas.length}`);
+  }
+
+  /**
    * Entra em cada turma e lê as avaliações. A sequência é a do app antigo (conferida contra o SIGAA real): ANTES de cada entrada, o
    * portal é lido de novo (UM GET fresco, com o ViewState e os tokens novos) e a turma é achada nessa página pelo nome; só a 1ª
    * turma aproveita o portal já lido. Custo: 2 requisições na 1ª turma e 3 nas demais. (Antes o portal era lido uma vez e o ViewState da
@@ -329,13 +351,7 @@ export class SigaaLive implements LiveSource {
         break;
       }
       try {
-        const pagina = n === 0 ? portal : await s.get(PORTAL_PATH);
-        // Os tokens podem mudar a cada renderização do portal: acha a turma na página fresca (mesmo token, senão o mesmo nome).
-        const doPortal = parse(() => parseTurmaVirtualTokens(pagina));
-        const mesmoNome = doPortal.filter((x) => x.nome === t.nome);
-        const ordem = turmas.slice(0, n).filter((x) => x.nome === t.nome).length;
-        const atual = doPortal.find((x) => x.frontEndIdTurma === t.frontEndIdTurma) ?? mesmoNome[ordem] ?? mesmoNome[0] ?? t;
-        await entrarNaTurma(s, pagina, atual, `${n + 1}/${turmas.length}`);
+        await this.entrarNaEnesima(s, portal, turmas, n);
         const html = await s.get(AVALIACOES_PATH);
         const cursoId = idDaTurma(t);
         parse(() => parseAvaliacoes(html)).forEach((a, i) => {
@@ -377,6 +393,44 @@ export class SigaaLive implements LiveSource {
       const html = await s.postback(menu.action ?? PORTAL_PATH, menu.fields);
       const nomes = parse(() => parseDiscentes(html));
       return nomes.map((nome) => ({ nome, papeis: ['student'] }));
+    });
+  }
+
+  /**
+   * Mapa de frequência de cada turma (até `MAX_TURMAS_FREQUENCIA`): entra em cada turma pela entrada validada
+   * (`entrarNaEnesima`: portal fresco antes de cada uma, menos a 1ª) e clica em "Frequência" no menu da turma
+   * (`mapa.jsf` não abre por GET direto). Custo: 1 + 2 + 3×(turmas − 1) requisições, no máximo 24. Falha em qualquer turma
+   * derruba a leitura (nada de lista parcial). Se a 1ª entrada volta sem o menu da turma, e ainda há uma tentativa, lança
+   * `SigaaSessionExpiredError` para `SessoesSigaa` fazer um login novo e refazer a leitura (como `prazos`).
+   */
+  frequencia(ctx: SourceContext): Promise<FrequenciaViva[]> {
+    let tentativa = 0;
+    return this.usar(ctx, async (s) => {
+      tentativa++;
+      const portal = await s.get(PORTAL_PATH);
+      const turmas = parse(() => parseTurmaVirtualTokens(portal)).slice(0, MAX_TURMAS_FREQUENCIA);
+      const lista: FrequenciaViva[] = [];
+      for (const [n, t] of turmas.entries()) {
+        let turmaHtml: string;
+        try {
+          turmaHtml = await this.entrarNaEnesima(s, portal, turmas, n);
+        } catch (e) {
+          if (e instanceof PaginaInesperada && lista.length === 0 && tentativa === 1) throw new SigaaSessionExpiredError();
+          throw e;
+        }
+        const clique = parse(() => parsePostbackFrequencia(turmaHtml));
+        const html = await s.postback(clique.action, clique.fields);
+        const f = parse(() => parseFrequencia(html));
+        lista.push({
+          cursoId: idDaTurma(t),
+          cursoNome: t.nome,
+          presencas: f.presentClasses,
+          aulasRegistradas: f.recordedClasses,
+          aulasCH: f.workloadClasses,
+          completa: f.complete,
+        });
+      }
+      return lista;
     });
   }
 
@@ -426,7 +480,8 @@ export function impressaoDaPagina(html: string): string {
   });
 }
 
-async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken, rotulo = ''): Promise<void> {
+/** Devolve o HTML da página principal da turma (quem precisa do menu da turma lê dele). */
+async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtualToken, rotulo = ''): Promise<string> {
   const { fields } = parse(() => parsePostbackAcessarTurma(portal, turma.frontEndIdTurma));
   const html = await s.postback(PORTAL_PATH, fields);
   try {
@@ -435,6 +490,7 @@ async function entrarNaTurma(s: SigaaSession, portal: string, turma: TurmaVirtua
     log.warn(`Entrada na Turma Virtual recusada${rotulo ? ` (turma ${rotulo})` : ''}; página recebida: ${impressaoDaPagina(html)}`);
     throw e;
   }
+  return html;
 }
 
 function comPrazo(a: Avaliacao): { prazo?: Date } {

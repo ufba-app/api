@@ -207,7 +207,24 @@ export class SigaaSession {
       path,
       body: { ...fields, 'javax.faces.ViewState': this.viewState ?? '' },
     });
-    return response.body;
+    return (await this.followSigaaRedirect(response)).body;
+  }
+
+  /**
+   * Alguns cliques do menu da turma (ex.: "Frequência") respondem 302 para a página de destino, e o navegador a
+   * carrega sozinho. Segue UM redirect para dentro de `/sigaa/` com GET (capturando o ViewState da página nova);
+   * qualquer outro destino, ou um 200, volta como veio. `expirada.jsp` já virou erro em `authenticated`.
+   */
+  private async followSigaaRedirect(response: SigaaHttpResponse): Promise<SigaaHttpResponse> {
+    if (response.status !== 302 || !response.headers.location) return response;
+    let destino: URL;
+    try {
+      destino = new URL(response.headers.location, 'https://x.invalid');
+    } catch {
+      return response;
+    }
+    if (!destino.pathname.startsWith('/sigaa/')) return response;
+    return this.authenticated({ method: 'GET', path: `${destino.pathname}${destino.search}` });
   }
 
   /**

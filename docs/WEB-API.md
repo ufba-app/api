@@ -470,10 +470,35 @@ GET /sources/{source}/deadlines?account=             → { "deadlines": Deadline
 GET /sources/{source}/courses/{courseId}?account=    → { "courseId": "…", "activities": Activity[] }
 GET /sources/{source}/forums/{forumId}?account=      → { "forumId": "…", "discussions": Discussion[] }
 GET /sources/{source}/announcements/{id}?account=    → { "announcement": Discussion }   (hoje só sigaa)
+GET /sources/sigaa/attendance?account=               → { "courses": AttendanceCourse[], "summary": AttendanceSummary }   (só sigaa)
 GET /sources/{source}/attachment?account=&ref=&name= → o arquivo (download)
 ```
 
-Os tipos (`Course`, `Deadline`, `Activity`, `Discussion`, `Attachment`) estão no `openapi.json`.
+Os tipos (`Course`, `Deadline`, `Activity`, `Discussion`, `Attachment`, `AttendanceCourse`, `AttendanceSummary`) estão no
+`openapi.json`.
+
+### Frequência (SIGAA)
+
+`GET /sources/sigaa/attendance` lê o "Mapa de Frequências" de cada turma do semestre (até 8).
+
+- **Unidade: aulas** (55 min), nunca horas. O SIGAA só informa presenças; a API calcula
+  `absentClasses = max(recordedClasses − presentClasses, 0)`.
+- **Limite:** `allowedAbsentClasses = floor(25% × workloadClasses)` (aulas da carga horária);
+  `remainingAbsentClasses = allowed − absent`, **negativo** quando passou do limite (o painel mostra 0).
+- **`status`:** `failed` se `absent > allowed`; `at_risk` se restam 1/3 do limite ou menos (inclusive 0); senão `ok`.
+  Carga horária 0 (não informada) fica `ok`, com zeros.
+- **`complete: false`:** o SIGAA mostrou "A frequência ainda não foi lançada." Os números continuam saindo e o
+  `status` é calculado com o que há, mas as aulas ainda não lançadas podem virar falta: mostrar como estimativa.
+- **`summary`:** soma de `absentClasses` e `allowedAbsentClasses`; `atRiskCourses` conta `at_risk` e `failed`.
+- Sem turmas no portal: `{ courses: [], summary: { …zeros } }`.
+- Sem código da disciplina (o SIGAA não o traz nessa página): só `courseId` e `courseName`.
+- **Custo:** 1 + 2 + 3×(turmas − 1) requisições, no máximo 24 (até 8 turmas). Entra em cada turma pela mesma entrada dos
+  prazos (portal relido antes de cada turma, menos a 1ª; login novo se a 1ª entrada voltar sem o menu da turma, sem laço) e
+  clica em "Frequência" no menu.
+- `mapa.jsf` só abre pelo postback do menu da turma; GET direto dá "Comportamento Inesperado!". Se esse postback responder
+  302, a sessão segue um redirect para dentro de `/sigaa/`.
+- Falha em qualquer turma derruba a rota com `502 source_unavailable`, nunca com lista parcial. **Não validado contra o
+  SIGAA real com várias turmas**; o clique em "Frequência" foi observado no navegador com uma turma.
 
 - Datas em ISO-8601. Textos vêm como texto puro (renderizar como texto, nunca HTML).
 - Classroom: arquivos do Drive vêm em `openInBrowser` (a pessoa abre no Google); `attachment` só para anexos de

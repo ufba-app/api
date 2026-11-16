@@ -1,5 +1,5 @@
 import { Secret } from '../shared/secret';
-import type { LiveSource } from '../ports/live-source';
+import type { FrequenciaViva, LiveSource } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import type { SourceAccountRecord } from '../ports/repositories';
 import { SourceError, type Provider, type SourceContext } from '../ports/source-gateway';
@@ -114,9 +114,23 @@ describe('ConsultaService: uma conta por consulta', () => {
 
 const SENHA = 'senha-falsa-de-teste';
 const K = Buffer.alloc(32, 7);
+const FREQUENCIA: FrequenciaViva = {
+  cursoId: 't1',
+  cursoNome: 'Cálculo',
+  presencas: 21,
+  aulasRegistradas: 29,
+  aulasCH: 32,
+  completa: true,
+};
 
 async function buildSigaa(
-  opts: { comCredencial?: boolean; status?: 'OK' | 'REAUTH_NEEDED'; falha?: SourceError; sessaoViva?: boolean } = {},
+  opts: {
+    comCredencial?: boolean;
+    status?: 'OK' | 'REAUTH_NEEDED';
+    falha?: SourceError;
+    sessaoViva?: boolean;
+    semFrequencia?: boolean;
+  } = {},
 ) {
   const chamadas: SourceContext[] = [];
   const aberturas: string[] = [];
@@ -136,6 +150,7 @@ async function buildSigaa(
     verForum: async (ctx) => (await registrar(ctx), []),
     baixar: async (ctx) => (await registrar(ctx), {}) as never,
     verAviso: async (ctx, id) => (await registrar(ctx), { id, titulo: 'Prova remarcada', anexos: [] }),
+    ...(opts.semFrequencia ? {} : { frequencia: async (ctx: SourceContext) => (await registrar(ctx), [FREQUENCIA]) }),
   };
   const live = new LiveSources();
   live.register(source);
@@ -261,6 +276,26 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
   it('ver_aviso no SIGAA usa a fonte', async () => {
     const { svc } = await buildSigaa();
     await expect(svc.verAviso(COM_CHAVE, 'SIGAA', undefined, 'av1')).resolves.toMatchObject({ id: 'av1' });
+  });
+
+  it('frequência no SIGAA usa a fonte, com a senha sob demanda aberta com a K do cliente', async () => {
+    const { svc, chamadas, aberturas } = await buildSigaa();
+    await expect(svc.frequencia(COM_CHAVE)).resolves.toEqual([FREQUENCIA]);
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].credentials).toMatchObject({ kind: 'password-on-demand', username: 'aluno' });
+    expect(aberturas).toEqual([SENHA]);
+  });
+
+  it('frequência sem chave no token (plt_): não conectado, sem chamar a fonte', async () => {
+    const { svc, chamadas } = await buildSigaa();
+    await expect(svc.frequencia(U1)).rejects.toThrow(NAO_CONECTADO);
+    expect(chamadas).toEqual([]);
+  });
+
+  it('frequência com fonte SIGAA sem `frequencia`: FonteSemLeituraError, sem chamar a fonte', async () => {
+    const { svc, chamadas } = await buildSigaa({ semFrequencia: true });
+    await expect(svc.frequencia(COM_CHAVE)).rejects.toBeInstanceOf(FonteSemLeituraError);
+    expect(chamadas).toEqual([]);
   });
 
   it('SIGAA não tem download nem conta de token nesta etapa', async () => {
