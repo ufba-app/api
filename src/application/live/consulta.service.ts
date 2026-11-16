@@ -3,12 +3,17 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
-import type { AtividadeViva, CursoVivo, DiscussaoViva, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
+import type { DriveFileInfo, DriveFolderEntry } from '../ports/drive-downloader';
+import type { AnexoVivo, AtividadeViva, CursoVivo, DiscussaoViva, LinkVivo, LiveSource, MensagemViva, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
 import { SourceError, type Provider, type SourceContext } from '../ports/source-gateway';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
+
+/** Pastas do Drive expandidas por consulta de curso/fórum, e anexos novos no total: tetos de custo e de tamanho da resposta. */
+export const MAX_PASTAS = 5;
+export const MAX_ANEXOS_DE_PASTAS = 200;
 
 const NOMES: Record<Provider, string> = {
   SIGAA: 'SIGAA',
@@ -86,12 +91,12 @@ export class ConsultaService {
     return this.com(quem, provider, conta, (s, ctx) => s.prazos(ctx));
   }
 
-  verCurso(quem: Quem, provider: Provider, conta: string | undefined, cursoId: string): Promise<AtividadeViva[]> {
-    return this.com(quem, provider, conta, (s, ctx) => s.verCurso(ctx, cursoId));
+  async verCurso(quem: Quem, provider: Provider, conta: string | undefined, cursoId: string): Promise<AtividadeViva[]> {
+    return this.expandirPastas(quem, provider, await this.com(quem, provider, conta, (s, ctx) => s.verCurso(ctx, cursoId)));
   }
 
-  verForum(quem: Quem, provider: Provider, conta: string | undefined, forumId: string): Promise<DiscussaoViva[]> {
-    return this.com(quem, provider, conta, (s, ctx) => s.verForum(ctx, forumId));
+  async verForum(quem: Quem, provider: Provider, conta: string | undefined, forumId: string): Promise<DiscussaoViva[]> {
+    return this.expandirPastas(quem, provider, await this.com(quem, provider, conta, (s, ctx) => s.verForum(ctx, forumId)));
   }
 
   /** Mensagens de UM tópico, com as respostas. Só fontes com `verTopico` (hoje, o Moodle). */
@@ -145,10 +150,77 @@ export class ConsultaService {
    */
   private async baixarDoDrive(quem: Quem, conta: string | undefined, ref: string): Promise<AttachmentContent> {
     await this.conta(quem, 'MOODLE', conta);
-    const google = (await this.accounts.findByUserAndProvider(quem.userId, 'CLASSROOM'))
+    return this.drive!.download(quem.userId, ref, await this.contasGoogle(quem.userId));
+  }
+
+  /** As contas do Google da pessoa (Classroom conectado, token só em memória) que podem abrir arquivos do Drive. */
+  private async contasGoogle(userId: string) {
+    return (await this.accounts.findByUserAndProvider(userId, 'CLASSROOM'))
       .filter((a) => a.secret && a.status !== 'REAUTH_NEEDED')
       .map((a) => ({ accountKey: a.accountKey, refreshToken: Secret.of(this.cipher.decrypt(a.secret!)) }));
-    return this.drive!.download(quem.userId, ref, google);
+  }
+
+  /**
+   * Antes de gerar o link de um arquivo do Drive: o que ele é (nome, tipo, tamanho) para avisar, sem baixar, que vídeo e arquivo
+   * grande não se baixam pelo serviço. `null` quando não é do Drive ou não há como saber (nada impede o link; o download confere de novo).
+   */
+  async driveInfo(quem: Quem, conta: string | undefined, ref: string): Promise<DriveFileInfo | null> {
+    if (!this.drive?.owns(ref) || this.drive.isFolder(ref)) return null;
+    try {
+      await this.conta(quem, 'MOODLE', conta);
+      return await this.drive.inspect(quem.userId, ref, await this.contasGoogle(quem.userId));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Pasta do Drive no conteúdo do Moodle (o `ref` assinado que o extrator pôs) vira um anexo por arquivo de dentro, só o primeiro
+   * nível: os `ref` dos filhos são assinados para esta pessoa (o da pasta, que veio do curso, autoriza os listados). Vídeo, arquivo
+   * grande e subpasta não viram anexo: vão em `abrirNoNavegador` com o tipo e o tamanho. Pasta que não deu para listar vira só o link
+   * para a pessoa abrir. Teto de pastas por chamada e de anexos novos; melhor esforço (nunca derruba a leitura do curso).
+   */
+  private async expandirPastas<T extends { anexos: AnexoVivo[]; abrirNoNavegador?: LinkVivo[] }>(quem: Quem, provider: Provider, items: T[]): Promise<T[]> {
+    const drive = this.drive;
+    if (provider !== 'MOODLE' || !drive) return items;
+    const refs = [...new Set(items.flatMap((i) => i.anexos).filter((a) => drive.isFolder(a.ref)).map((a) => a.ref))];
+    if (refs.length === 0) return items;
+    const google = await this.contasGoogle(quem.userId);
+    const listadas = new Map<string, DriveFolderEntry[] | null>();
+    for (const ref of refs.slice(0, MAX_PASTAS)) {
+      try {
+        listadas.set(ref, await drive.listFolder(quem.userId, ref, google));
+      } catch {
+        listadas.set(ref, null);
+      }
+    }
+    let restante = MAX_ANEXOS_DE_PASTAS;
+    return items.map((item) => {
+      if (!item.anexos.some((a) => drive.isFolder(a.ref))) return item;
+      const anexos: AnexoVivo[] = [];
+      const abrir: LinkVivo[] = [...(item.abrirNoNavegador ?? [])];
+      for (const a of item.anexos) {
+        if (!drive.isFolder(a.ref)) {
+          anexos.push(a);
+          continue;
+        }
+        const entries = listadas.get(a.ref) ?? null;
+        if (!entries) {
+          const url = drive.viewUrl(quem.userId, a.ref);
+          if (url) abrir.push({ nome: `${a.nome} (não consegui listar os arquivos)`, url });
+          continue;
+        }
+        for (const e of entries) {
+          if (e.ref && restante > 0) {
+            restante--;
+            anexos.push({ nome: e.name, mimeType: e.mimeType, ...(e.sizeBytes !== null ? { tamanhoBytes: e.sizeBytes } : {}), ref: e.ref });
+          } else {
+            abrir.push({ nome: e.label, url: e.viewUrl });
+          }
+        }
+      }
+      return { ...item, anexos, ...(abrir.length ? { abrirNoNavegador: abrir } : {}) };
+    });
   }
 
   /** A conta da consulta: a pedida, ou a única conectada. Sem chamar a fonte. (Só fontes com token guardado.) */

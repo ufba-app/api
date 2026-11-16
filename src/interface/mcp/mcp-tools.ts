@@ -130,7 +130,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       description:
         'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
         'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`; links do Google Drive/Docs postados pelo professor também ' +
-        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login). Classroom: arquivos em `abrirNoNavegador` ' +
+        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login); pasta do Drive vira um anexo por arquivo de dentro (vídeo, arquivo grande e subpasta ficam em `abrirNoNavegador`). Classroom: arquivos em `abrirNoNavegador` ' +
         '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
         '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
@@ -178,7 +178,8 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
         '(até 20). No Classroom, só arquivos anexados nas matérias são entregues. Arquivos do Drive linkados no Moodle ' +
         'também (a `ref` que começa com `gdrive1.`; só os que apareceram no curso): use SEMPRE a `ref`, nunca o link do Drive ' +
         'direto (ele pede login); o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +
-        'de conectar o Google Classroom.',
+        'de conectar o Google Classroom. Vídeo e arquivo acima de 25 MB do Drive NÃO são baixados: o resultado traz `aviso` ' +
+        '(tipo e tamanho) e `abrirNoNavegador` (link para a pessoa abrir), sem link de download.',
       inputSchema: {
         fonte: FONTE,
         conta: CONTA,

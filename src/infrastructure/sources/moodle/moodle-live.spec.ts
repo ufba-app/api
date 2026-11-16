@@ -159,7 +159,8 @@ describe('MoodleLive: arquivos do Drive linkados no curso', () => {
     const por = Object.fromEntries(a.map((x) => [x.titulo, x]));
     expect(a.map((x) => x.titulo)).toEqual(['Material da aula', 'Lista', 'Texto solto', 'Link externo']); // rótulo sem arquivo continua ignorado
     expect(por['Material da aula'].anexos).toEqual([expect.objectContaining({ nome: 'Apresentação do Google', mimeType: 'application/pdf' })]);
-    expect(por['Lista'].anexos).toEqual([expect.objectContaining({ nome: 'Lista 1' })]); // a pasta não vira anexo
+    // A pasta vira um anexo com ref de PASTA (o ConsultaService a expande em um anexo por arquivo).
+    expect(por['Lista'].anexos.map((x) => [x.nome, x.ref.split('.')[1]])).toEqual([['Lista 1', 'file'], ['fotos', 'folder']]);
     expect(por['Texto solto'].anexos).toEqual([expect.objectContaining({ nome: 'Planilha do Google', mimeType: expect.stringContaining('spreadsheetml') })]);
     expect(por['Link externo'].anexos).toEqual([]);
     // O ref é opaco, assinado e preso à pessoa; não carrega a URL.

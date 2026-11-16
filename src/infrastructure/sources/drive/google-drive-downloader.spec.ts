@@ -2,7 +2,7 @@ import { Secret } from '../../../application/shared/secret';
 import { SourceError } from '../../../application/ports/source-gateway';
 import { GoogleApiError, type GoogleHttp } from '../google/google-http';
 import { DriveRefs } from './drive-refs';
-import { GoogleDriveDownloader, MAX_DRIVE_BYTES, SEM_ACESSO, googleHost } from './google-drive-downloader';
+import { GoogleDriveDownloader, MAX_DRIVE_BYTES, MAX_FOLDER_ITEMS, SEM_ACESSO, blockMessage, googleHost, humanSize } from './google-drive-downloader';
 
 const KEY = Buffer.alloc(32, 7).toString('base64');
 const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
@@ -32,8 +32,8 @@ function fakeHttp(handler: (c: Call) => Response | GoogleApiError) {
 const json = (o: unknown) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
 const conta = (accountKey: string) => ({ accountKey, refreshToken: Secret.of(SEGREDO) });
 
-function build(opts: { ufba?: GoogleHttp; convidado?: GoogleHttp; fetchFn?: typeof fetch } = {}) {
-  return new GoogleDriveDownloader(refs, { ufba: opts.ufba, convidado: opts.convidado }, { dominio: 'ufba.br', fetchFn: opts.fetchFn });
+function build(opts: { ufba?: GoogleHttp; convidado?: GoogleHttp; fetchFn?: typeof fetch; apiKey?: string } = {}) {
+  return new GoogleDriveDownloader(refs, { ufba: opts.ufba, convidado: opts.convidado }, { dominio: 'ufba.br', fetchFn: opts.fetchFn, apiKey: opts.apiKey });
 }
 const noNet = (async () => {
   throw new Error('rede proibida neste teste');
@@ -218,4 +218,202 @@ describe('GoogleDriveDownloader: só aceita o ref que saiu do curso desta pessoa
 describe('googleHost', () => {
   it.each(['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'doc-0k.googleusercontent.com', 'DOCS.GOOGLE.COM'])('aceita %s', (h) => expect(googleHost(h)).toBe(true));
   it.each(['accounts.google.com', 'google.com', 'evil.example', 'googleusercontent.com.evil.example', 'xgoogleusercontent.com', 'drive.google.com.evil.example'])('recusa %s', (h) => expect(googleHost(h)).toBe(false));
+});
+
+const MB = 1024 * 1024;
+const FILE_ID = (n: number) => `${String(n).padStart(2, '0')}AbCdEfGhIjKlMnOpQrStUvWxYz0123`;
+
+describe('vídeo e arquivo grande: NÃO baixa, diz o que é e dá o link para abrir no navegador', () => {
+  it('vídeo pequeno também é recusado pelos metadados, sem baixar o corpo', async () => {
+    const { http, calls } = fakeHttp(() => json({ name: 'Aula 01.mp4', mimeType: 'video/mp4', size: String(10 * MB) }));
+    const e = await build({ ufba: http, fetchFn: noNet }).download(U, refs.sign(U, { kind: 'file', id: ID }), [conta('a@ufba.br')]).catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(e.message).toBe(`"Aula 01.mp4" é um vídeo (10 MB): abra no navegador: https://drive.google.com/file/d/${ID}/view`);
+    expect(calls).toHaveLength(1); // só os metadados
+  });
+
+  it('arquivo acima do teto: nome, tamanho, o limite e o link', async () => {
+    const { http, calls } = fakeHttp(() => json({ name: 'gravacao.zip', mimeType: 'application/zip', size: String(350 * MB) }));
+    const e = await build({ ufba: http }).download(U, refs.sign(U, { kind: 'file', id: ID }), [conta('a@ufba.br')]).catch((x) => x);
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(e.message).toBe(`"gravacao.zip" é grande demais (350 MB), o limite é 25 MB: abra no navegador: https://drive.google.com/file/d/${ID}/view`);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('o link para a pessoa de um nativo do Google é o de edição (docs.google.com), não o da API', async () => {
+    const { http } = fakeHttp(() => json({ name: 'Tudo', mimeType: 'application/vnd.google-apps.document' }));
+    // nativo sem size: baixa (exporta) normal; aqui só conferimos que não é bloqueado
+    const f = await build({ ufba: http, fetchFn: noNet }).download(U, refs.sign(U, { kind: 'doc', id: ID }), [conta('a@ufba.br')]).catch((x) => x);
+    expect(f).not.toBeInstanceOf(SourceError);
+  });
+
+  it('link público que responde vídeo: recusa pelo content-type, sem ler o corpo', async () => {
+    let cancelado = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        c.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelado = true;
+      },
+    });
+    const fetchFn = (async () => new Response(stream, { status: 200, headers: { 'content-type': 'video/mp4', 'content-length': String(400 * MB), 'content-disposition': 'attachment; filename="aula.mp4"' } })) as unknown as typeof fetch;
+    const e = await build({ fetchFn }).download(U, refs.sign(U, { kind: 'file', id: ID }), []).catch((x) => x);
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(e.message).toMatch(/"aula.mp4" é um vídeo \(400 MB\)/);
+    expect(e.message).toContain(`https://drive.google.com/file/d/${ID}/view`);
+    expect(cancelado).toBe(true); // o corpo foi descartado, não lido até o fim
+  });
+
+  it('público grande demais: a mensagem agora traz o tamanho e o link', async () => {
+    const fetchFn = (async () => new Response('x', { status: 200, headers: { 'content-type': 'application/zip', 'content-length': String(90 * MB) } })) as unknown as typeof fetch;
+    const e = await build({ fetchFn }).download(U, refs.sign(U, { kind: 'file', id: ID }), []).catch((x) => x);
+    expect(e.message).toMatch(/\(90 MB\), o limite é 25 MB: abra no navegador: https:\/\/drive\.google\.com\/file\/d\//);
+  });
+
+  it('humanSize e blockMessage', () => {
+    expect(humanSize(350 * MB)).toBe('350 MB');
+    expect(humanSize(800 * 1024)).toBe('800 KB');
+    expect(humanSize(1.5 * 1024 * MB)).toBe('1,5 GB');
+    expect(blockMessage('x.mp4', 'video', null, 'https://u')).toBe('"x.mp4" é um vídeo: abra no navegador: https://u');
+  });
+});
+
+describe('inspect: metadados antes de gerar o link', () => {
+  it('com o token: nome, tipo, tamanho, bloqueio e link; folder e ref inválido não passam', async () => {
+    const { http } = fakeHttp(() => json({ name: 'Aula 01.mp4', mimeType: 'video/mp4', size: String(350 * MB) }));
+    const d = build({ ufba: http });
+    const info = await d.inspect(U, refs.sign(U, { kind: 'file', id: ID }), [conta('a@ufba.br')]);
+    expect(info).toMatchObject({ name: 'Aula 01.mp4', mimeType: 'video/mp4', sizeBytes: 350 * MB, blocked: 'video', viewUrl: `https://drive.google.com/file/d/${ID}/view` });
+    expect(info!.message).toMatch(/vídeo \(350 MB\)/);
+    expect(await d.inspect(U, refs.sign(U, { kind: 'folder', id: ID }), [conta('a@ufba.br')])).toBeNull();
+    await expect(d.inspect(U, 'gdrive1.file.x.y', [])).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
+  });
+
+  it('arquivo comum pequeno: blocked null', async () => {
+    const { http } = fakeHttp(() => json({ name: 'a.pdf', mimeType: 'application/pdf', size: '1000' }));
+    expect((await build({ ufba: http }).inspect(U, refs.sign(U, { kind: 'file', id: ID }), [conta('a@ufba.br')]))!.blocked).toBeNull();
+  });
+
+  it('sem token e sem chave pública: null (não sabe); com a chave pública: usa a API oficial, e a chave nunca aparece em saída', async () => {
+    expect(await build({ fetchFn: noNet }).inspect(U, refs.sign(U, { kind: 'file', id: ID }), [])).toBeNull();
+    const vistos: string[] = [];
+    const fetchFn = (async (u: URL) => {
+      vistos.push(String(u));
+      return new Response(JSON.stringify({ name: 'v.mp4', mimeType: 'video/mp4', size: String(99 * MB) }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const info = await build({ fetchFn, apiKey: 'CHAVE-CANARIO' }).inspect(U, refs.sign(U, { kind: 'file', id: ID }), []);
+    expect(info!.blocked).toBe('video');
+    expect(vistos[0]).toMatch(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\//);
+    expect(JSON.stringify(info)).not.toContain('CHAVE-CANARIO');
+  });
+
+  it('403 do token cai na chave pública; falha da chave também dá null, sem lançar nem vazar a chave', async () => {
+    const { http } = fakeHttp(() => new GoogleApiError(403, 'Google API 403'));
+    const fetchFn = (async () => {
+      throw new Error('falhou https://www.googleapis.com/x?key=CHAVE-CANARIO');
+    }) as unknown as typeof fetch;
+    expect(await build({ ufba: http, fetchFn, apiKey: 'CHAVE-CANARIO' }).inspect(U, refs.sign(U, { kind: 'file', id: ID }), [conta('a@ufba.br')])).toBeNull();
+  });
+});
+
+describe('listFolder: o primeiro nível de uma pasta do Drive', () => {
+  const pasta = () => refs.sign(U, { kind: 'folder', id: ID });
+  const listagem = (...files: object[]) => json({ files });
+
+  it('um item por arquivo: nome, tipo, tamanho e ref ASSINADO para esta pessoa; a consulta é só "filhos da pasta"', async () => {
+    const { http, calls } = fakeHttp(() =>
+      listagem(
+        { id: FILE_ID(1), name: 'Aula 1.pdf', mimeType: 'application/pdf', size: '2048' },
+        { id: FILE_ID(2), name: 'Notas', mimeType: 'application/vnd.google-apps.spreadsheet' },
+        { id: FILE_ID(3), name: 'Slides', mimeType: 'application/vnd.google-apps.presentation' },
+      ),
+    );
+    const entries = (await build({ ufba: http }).listFolder(U, pasta(), [conta('a@ufba.br')]))!;
+    expect(entries.map((e) => [e.name, e.mimeType, e.sizeBytes, e.isFolder])).toEqual([
+      ['Aula 1.pdf', 'application/pdf', 2048, false],
+      ['Notas', 'application/vnd.google-apps.spreadsheet', null, false],
+      ['Slides', 'application/vnd.google-apps.presentation', null, false],
+    ]);
+    // Os filhos nascem assinados: valem para esta pessoa, não para outra, e o tipo do ref vem do mimeType.
+    expect(entries.map((e) => e.ref!.split('.')[1])).toEqual(['file', 'sheet', 'slides']);
+    for (const e of entries) {
+      expect(refs.verify(U, e.ref!)).not.toBeNull();
+      expect(refs.verify('outra', e.ref!)).toBeNull();
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://www.googleapis.com/drive/v3/files');
+    expect(calls[0].params.q).toBe(`'${ID}' in parents and trashed = false`);
+    expect(calls[0].params.pageSize).toBe(String(MAX_FOLDER_ITEMS));
+  });
+
+  it('vídeo, arquivo grande e subpasta NÃO ganham ref: ficam com rótulo, tipo e link para abrir no navegador', async () => {
+    const { http } = fakeHttp(() =>
+      listagem(
+        { id: FILE_ID(1), name: 'Aula 01.mp4', mimeType: 'video/mp4', size: String(350 * MB) },
+        { id: FILE_ID(2), name: 'turma.zip', mimeType: 'application/zip', size: String(90 * MB) },
+        { id: FILE_ID(3), name: 'Material extra', mimeType: 'application/vnd.google-apps.folder' },
+        { id: FILE_ID(4), name: 'ok.pdf', mimeType: 'application/pdf', size: '10' },
+      ),
+    );
+    const e = (await build({ ufba: http }).listFolder(U, pasta(), [conta('a@ufba.br')]))!;
+    expect(e.map((x) => x.ref !== null)).toEqual([false, false, false, true]);
+    expect(e.map((x) => x.label)).toEqual(['Aula 01.mp4 (vídeo, 350 MB)', 'turma.zip (grande demais, 90 MB)', 'Material extra (subpasta)', 'ok.pdf']);
+    expect(e[0].viewUrl).toBe(`https://drive.google.com/file/d/${FILE_ID(1)}/view`);
+    expect(e[2]).toMatchObject({ isFolder: true, viewUrl: `https://drive.google.com/drive/folders/${FILE_ID(3)}` });
+  });
+
+  it('teto de itens; id estranho no meio da listagem é descartado', async () => {
+    const many = Array.from({ length: MAX_FOLDER_ITEMS + 30 }, (_, i) => ({ id: FILE_ID(i % 90), name: `f${i}`, mimeType: 'application/pdf', size: '1' }));
+    const { http } = fakeHttp(() => listagem(...many, { id: "x'; drop", name: 'mau', mimeType: 'application/pdf' }));
+    const e = (await build({ ufba: http }).listFolder(U, pasta(), [conta('a@ufba.br')]))!;
+    expect(e).toHaveLength(MAX_FOLDER_ITEMS);
+    expect(e.some((x) => x.name === 'mau')).toBe(false);
+  });
+
+  it('a conta @ufba.br primeiro; sem acesso nela, a de convidado; sem nenhuma e sem chave: null', async () => {
+    const ordem: string[] = [];
+    const ufba = fakeHttp(() => {
+      ordem.push('ufba');
+      return new GoogleApiError(404, 'Google API 404');
+    });
+    const convidado = fakeHttp(() => {
+      ordem.push('convidado');
+      return listagem({ id: FILE_ID(1), name: 'a.pdf', mimeType: 'application/pdf' });
+    });
+    const e = await build({ ufba: ufba.http, convidado: convidado.http }).listFolder(U, pasta(), [conta('eu@gmail.com'), conta('eu@ufba.br')]);
+    expect(e).toHaveLength(1);
+    expect(ordem).toEqual(['ufba', 'convidado']);
+    expect(await build({ fetchFn: noNet }).listFolder(U, pasta(), [])).toBeNull();
+  });
+
+  it('pasta pública com a chave do servidor: lista pela API oficial; a chave nunca sai', async () => {
+    const vistos: string[] = [];
+    const fetchFn = (async (u: URL) => {
+      vistos.push(String(u));
+      return new Response(JSON.stringify({ files: [{ id: FILE_ID(1), name: 'p.pdf', mimeType: 'application/pdf', size: '5' }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const e = await build({ fetchFn, apiKey: 'CHAVE-CANARIO' }).listFolder(U, pasta(), []);
+    expect(e![0].name).toBe('p.pdf');
+    expect(vistos[0]).toContain('key=CHAVE-CANARIO'); // vai só na requisição ao Google
+    expect(JSON.stringify(e)).not.toContain('CHAVE-CANARIO');
+  });
+
+  it('ref de arquivo (não pasta) devolve null; ref forjado é recusado; baixar uma PASTA explica e dá o link', async () => {
+    const d = build({});
+    expect(await d.listFolder(U, refs.sign(U, { kind: 'file', id: ID }), [])).toBeNull();
+    await expect(d.listFolder(U, 'gdrive1.folder.x.y', [])).rejects.toMatchObject({ code: 'UNSUPPORTED_SCOPE' });
+    const e = await d.download(U, pasta(), []).catch((x) => x);
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(e.message).toContain(`https://drive.google.com/drive/folders/${ID}`);
+  });
+
+  it('isFolder e viewUrl', () => {
+    const d = build({});
+    expect(d.isFolder(pasta())).toBe(true);
+    expect(d.isFolder(refs.sign(U, { kind: 'file', id: ID }))).toBe(false);
+    expect(d.viewUrl(U, pasta())).toBe(`https://drive.google.com/drive/folders/${ID}`);
+    expect(d.viewUrl('outra', pasta())).toBeNull();
+  });
 });
