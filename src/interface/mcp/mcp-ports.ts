@@ -22,7 +22,7 @@ export const MCP_CLINICA = Symbol('MCP_CLINICA');
 
 /**
  * Clínicas do SIASB (`clinica_*`). Opcional: sem ele o /mcp não oferece essas ferramentas. A leitura é AO VIVO com a
- * conexão da pessoa, exceto `copySessions` (cópia da última sincronização); nada é gravado no SIASB.
+ * conexão da pessoa, exceto `copySessions` (cópia da última sincronização); a leitura não grava nada no SIASB (a escrita é a `McpClinicaWrite`, opt-in por permissão).
  */
 export interface McpClinica {
   /** A pessoa tem conexão SIASB em qualquer estado (conectada ou a reconectar). */

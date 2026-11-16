@@ -51,15 +51,15 @@ A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome
 
 ### Metadados para a loja e uso sem dizer "UFBA"
 
-- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e `clinica_*` são somente leitura, exceto `postar_forum` (escrita atrás de permissão, ver acima); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e as `clinica_*` de leitura são somente leitura; as de escrita (`postar_forum` e as 4 do SIASB, todas atrás de permissão) têm `readOnlyHint: false` (desmarcar sessão e excluir procedimento também `destructiveHint: true`); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
 - O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
 - As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
 
 ## Ferramentas das clínicas (SIASB)
 
-As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
+As ferramentas `clinica_*` de leitura leem o **SIASB** (clínicas-escola) ao vivo, em nome da pessoa, e **não gravam nada**. Quatro ferramentas de escrita existem, opt-in por permissão do app (seção abaixo). Não usam `fonte` nem `conta`: o SIASB tem uma conexão por pessoa e não passa pela `LiveSource`. Detalhes, rotas permitidas e privacidade em `docs/SIASB.md`.
 
-**Visibilidade:** as 7 só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
+**Visibilidade:** as 7 de leitura só aparecem na lista de ferramentas da pessoa que tem conexão SIASB **em qualquer estado** (conectada ou a reconectar). Sem conexão, não existem. A decisão é por requisição; se falhar ao resolver, vale "não mostrar". Conexão perdida (401 do SIASB, conta marcada) responde "Sua conexão com o SIASB expirou. Entre de novo no painel."
 
 | Ferramenta | O que faz | Requisições: SIASB (máx.) |
 |---|---|---|
@@ -75,6 +75,23 @@ As ferramentas `clinica_*` leem o **SIASB** (clínicas-escola) ao vivo, em nome 
 - **Horários** saem com offset da Bahia (`-03:00`, fixo). Datas sem hora valem a hora da Bahia.
 - **Privacidade:** só o primeiro nome do paciente; nunca o sobrenome nem prontuário; a lista de pacientes sem responsável nunca é lida por `clinica_vagas`.
 - **Segredos:** nenhuma ferramenta aceita senha ou cookie; a conexão é feita no painel (`POST /connections/siasb`).
+
+### Ferramentas de escrita do SIASB
+
+Só aparecem para o app que a pessoa autorizou com a permissão (marcada na tela de autorizar, revogável em Apps autorizados; padrão negado) **e** que tem conexão SIASB. `siasb.schedule_write` libera `clinica_agendar_sessao` e `clinica_desmarcar_sessao`; `siasb.procedures_write` libera `clinica_incluir_procedimento` e `clinica_excluir_procedimento`. Todas têm `confirmado` (booleano, padrão `false`).
+
+| Ferramenta | Parâmetros | Regras |
+|---|---|---|
+| `clinica_agendar_sessao` | `atendimentoId`, `inicio` (ISO 8601 **com fuso**), `duracaoMin` (15 a 240), `quantidade` (1 a 20, padrão 1), `professorId?`, `localId?`, `grupoId?`, `observacao?`, `confirmado` | atendimento ativo; semanal, mesmo horário, tudo ou nada; início futuro e até 365 dias (a última sessão também); ids entre as opções do SIASB |
+| `clinica_desmarcar_sessao` | `sessaoId`, `motivo?`, `confirmado` | só sessão FUTURA marcada de atendimento ativo; **nunca registra falta** |
+| `clinica_incluir_procedimento` | `atendimentoId`, `procedimentoId` (do catálogo, de `clinica_contexto_agendamento`), `dente?`, `face?`, `observacao?`, `confirmado` | fica PREVISTO; **realizar não existe**, é no site |
+| `clinica_excluir_procedimento` | `atendimentoId`, `procedimentoId` (o **lançado**, não o do catálogo), `confirmado` | não confere que é PREVISTO; precisa do id (do resultado de incluir ou do site) |
+
+**Duas etapas.** Sem `confirmado: true` a ferramenta não escreve: devolve `status: "resumo"` (`resumo`, `detalhes`). A descrição manda o Claude mostrar o resumo e esperar o OK explícito da pessoa antes de repetir com `confirmado: true`, que devolve `status: "feito"` (`resumo`, `detalhes`, com `verificado` e `datasConfirmadas` ao agendar, `verificado` ao desmarcar e `procedimentoId`, ou `null`, ao incluir). Ao agendar sem professor, local ou grupo: `status: "escolher"` com `faltando` e `opcoes` (professores, locais, grupos), para a pessoa escolher.
+
+**Erros** (mensagens fixas): `entrada_invalida`, `siasb_write_rejected`, `siasb_write_unknown` ("O SIASB não confirmou a operação. Confira no site do SIASB antes de tentar de novo."; sem retry, a pessoa confere o site) e o de reconexão. Cada tentativa de escrita vai para a auditoria `siasb_write_audit` (sem texto livre; ainda sem expurgo de 90 dias).
+
+Rotas de escrita permitidas, verificação depois de gravar, ressincronização e lacunas conhecidas (formatos de resposta nunca confirmados ao vivo, `procedimentoId` nulo): `docs/SIASB.md`, seção 14.
 
 ## Autenticação
 
