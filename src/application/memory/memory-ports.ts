@@ -41,7 +41,7 @@ export interface MemoryProjectInfo {
   project: string;
 }
 
-export type MemoryErrorKind = 'unavailable' | 'conflict' | 'not_found' | 'forbidden' | 'rejected';
+export type MemoryErrorKind = 'unavailable' | 'conflict' | 'not_found' | 'forbidden' | 'rejected' | 'read_only' | 'no_access';
 
 /**
  * Erro do ai-memory SEM corpo da resposta (pode conter segredo ou conteúdo de trabalho): só o tipo e o status HTTP.

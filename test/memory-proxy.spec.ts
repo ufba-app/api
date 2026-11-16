@@ -168,7 +168,7 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     expect(good!.isError).toBeUndefined();
   });
 
-  it('erro do memory (sem permissão no projeto) volta como veio, legível', async () => {
+  it('erro do memory (sem permissão no projeto) vira mensagem pt-BR fixa, sem o texto do servidor', async () => {
     const r = await proxy.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'forbidden' });
     // 'forbidden' não está registrado: o proxy barra antes e nem pergunta ao memory.
     expect(r!.isError).toBe(true);
@@ -177,7 +177,31 @@ describe('proxy de memória contra o fake do ai-memory', () => {
     const p2 = new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess(), computers);
     const r2 = await p2.call(UID, 'memory_query', { workspace: 'ufba-app', project: 'forbidden' });
     expect(r2!.isError).toBe(true);
-    expect(text(r2)).toContain('not authorized for ufba-app/forbidden');
+    expect(text(r2)).toContain('Você não tem acesso ao projeto');
+    expect(text(r2)).not.toContain('operator');
+  });
+
+  describe('recusa de permissão do memory (erro JSON-RPC -32603) em mensagem clara', () => {
+    const reg = new SeededProjectRegistry([['ufba-app', 'readonly'], ['ufba-app', 'noaccess'], ['ufba-app', 'boom']]);
+    const p = () => new MemoryProxy(admin, users, new MemoryMcpClient({ baseUrl: url }), reg, new OpenMemoryAccess(), computers);
+
+    it('só leitura: pede o papel de mantenedor, cita o projeto e não vaza o texto interno', async () => {
+      const r = await p().call(UID, 'memory_write_page', { workspace: 'ufba-app', project: 'readonly', path: 'a.md' });
+      expect(r!.isError).toBe(true);
+      expect(text(r)).toBe('Você só tem leitura no projeto "ufba-app/readonly". Para gravar, peça o papel de mantenedor a um administrador.');
+      expect(text(r)).not.toMatch(/-32603|not authorized|needs write/);
+    });
+
+    it('sem acesso nenhum: mensagem de acesso, não de indisponibilidade', async () => {
+      const r = await p().call(UID, 'memory_query', { workspace: 'ufba-app', project: 'noaccess' });
+      expect(text(r)).toBe('Você não tem acesso ao projeto "ufba-app/noaccess". Peça acesso a um administrador.');
+    });
+
+    it('falha de servidor (5xx) continua sendo "indisponível", sem detalhe', async () => {
+      const r = await p().call(UID, 'memory_query', { workspace: 'ufba-app', project: 'boom' });
+      expect(text(r)).toBe('A memória está indisponível no momento. Tente de novo em instantes.');
+      expect(text(r)).not.toContain('secret');
+    });
   });
 
   it('limites: 1 MB por chamada e 30 por minuto por pessoa', async () => {
