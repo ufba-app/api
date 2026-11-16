@@ -347,6 +347,28 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
     });
   });
 
+  describe('connectedUsers', () => {
+    it('inclui conta OK e REAUTH_NEEDED; exclui quem não tem conta SIASB e quem só tem outra fonte; sem repetir', async () => {
+      const ok = await makeUser();
+      await makeAccount(ok);
+      const reauth = await makeUser();
+      await makeAccount(reauth, 'REAUTH_NEEDED');
+      const none = await makeUser();
+      const other = await makeUser();
+      await prisma.sourceAccount.create({
+        data: { userId: other, provider: 'MOODLE', accountKey: 'moodle', status: 'OK' },
+      });
+
+      const ids = await repo.connectedUsers();
+      expect(ids).toContain(ok);
+      expect(ids).toContain(reauth);
+      expect(ids).not.toContain(none);
+      expect(ids).not.toContain(other);
+      expect(ids.filter((id) => id === ok)).toHaveLength(1);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+
   describe('deleteAll e cascade', () => {
     async function fill(userId: string) {
       await makeAccount(userId);

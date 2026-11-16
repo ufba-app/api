@@ -54,6 +54,9 @@ import { SourceBindings } from './application/identity/source-bindings';
 import { HmacSubjectHasher } from './infrastructure/crypto/hmac-subject-hasher';
 import { CofreSigaa } from './application/sigaa/cofre-sigaa';
 import { SiasbLink } from './application/siasb/siasb-link';
+import { SiasbAlertProvider } from './application/siasb/siasb-alert-provider';
+import { SiasbAlerts } from './application/siasb/siasb-alerts';
+import { SiasbCopyRepository } from './application/ports/siasb-copy';
 import { AesSecretCipher } from './infrastructure/crypto/aes-secret-cipher';
 import { ClassroomLink } from './infrastructure/sources/classroom/classroom-link';
 import { GoogleOAuthLink } from './infrastructure/sources/google/google-oauth-link';
@@ -212,7 +215,18 @@ export const mcpProviders: Provider[] = [
     inject: [PushSender, NotificationSettings, PushDevices, AlertLogRepository],
   },
   // Fontes de avisos do `notify-cron`: cada fonte entra aqui (injete o que ela precisa e devolva o `AlertProvider`).
-  { provide: ALERT_PROVIDERS, useFactory: (): AlertProvider[] => [], inject: [] },
+  {
+    provide: SiasbAlerts,
+    useFactory: (reader: SiasbCopyReader, copy: SiasbCopyRepository, notifier: Notifier, accounts: SourceAccountRepository) =>
+      new SiasbAlerts(reader, copy, notifier, accounts),
+    inject: [SiasbCopyReader, SiasbCopyRepository, Notifier, SourceAccountRepository],
+  },
+  {
+    provide: SiasbAlertProvider,
+    useFactory: (copy: SiasbCopyRepository, alerts: SiasbAlerts) => new SiasbAlertProvider(copy, alerts),
+    inject: [SiasbCopyRepository, SiasbAlerts],
+  },
+  { provide: ALERT_PROVIDERS, useFactory: (siasb: SiasbAlertProvider): AlertProvider[] => [siasb], inject: [SiasbAlertProvider] },
   {
     provide: AuthorizationRequests,
     useFactory: (oauth: OAuthService, clients: ClientDirectory, cofre: CofreSigaa, status: ConnectionStatus) =>

@@ -294,4 +294,15 @@ describe('PrismaSiasbCopyRepository', () => {
       status: 'OK',
     });
   });
+
+  it("connectedUsers: ids distintos de contas SIASB em qualquer estado", async () => {
+    const { repo, prisma } = setup();
+    prisma.sourceAccount.findMany.mockResolvedValue([{ userId: "a" }, { userId: "b" }]);
+    expect(await repo.connectedUsers()).toEqual(["a", "b"]);
+    expect(prisma.sourceAccount.findMany).toHaveBeenCalledWith({
+      where: { provider: "SIASB" },
+      select: { userId: true },
+      distinct: ["userId"],
+    });
+  });
 });

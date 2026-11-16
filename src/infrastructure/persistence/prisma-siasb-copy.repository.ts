@@ -173,6 +173,15 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     });
   }
 
+  async connectedUsers(): Promise<string[]> {
+    const rows = await this.prisma.sourceAccount.findMany({
+      where: { provider: 'SIASB' },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    return rows.map((r) => r.userId);
+  }
+
   async dueUsers(now: Date, limit: number): Promise<string[]> {
     // poucas contas SIASB: filtra e ordena em memória em vez de um SQL com junção e NULLS FIRST
     const accounts = await this.prisma.sourceAccount.findMany({

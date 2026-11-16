@@ -78,4 +78,6 @@ export abstract class SiasbCopyRepository {
    * agenda primeiro). Sem agenda cobre a reconexão depois de `RECONNECT_REQUIRED` (que grava `nextRunAt = null`).
    */
   abstract dueUsers(now: Date, limit: number): Promise<string[]>;
+  /** Ids (distintos) de quem tem conta SIASB em QUALQUER estado (`OK` ou `REAUTH_NEEDED`): o aviso de reconexão vencida continua. */
+  abstract connectedUsers(): Promise<string[]>;
 }

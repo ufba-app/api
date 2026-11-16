@@ -119,6 +119,10 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     if (s) s.lockedUntil = null;
   }
 
+  async connectedUsers(): Promise<string[]> {
+    return [...this.accounts.keys()];
+  }
+
   async dueUsers(now: Date, limit: number): Promise<string[]> {
     const due: { userId: string; at: number }[] = [];
     for (const [userId, status] of this.accounts) {

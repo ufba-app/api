@@ -221,4 +221,11 @@ describe('InMemorySiasbCopy', () => {
       nextRunAt: null,
     });
   });
+
+  it("connectedUsers: contas em qualquer estado, sem repetir, e quem não tem conta fica de fora", async () => {
+    repo.accounts.set("u-reauth", "REAUTH_NEEDED");
+    await repo.claim(U, d("2026-11-15T12:00:00Z"), 1000);
+    expect((await repo.connectedUsers()).sort()).toEqual([U, "u-reauth"].sort());
+    expect(await repo.connectedUsers()).not.toContain("ninguem");
+  });
 });
