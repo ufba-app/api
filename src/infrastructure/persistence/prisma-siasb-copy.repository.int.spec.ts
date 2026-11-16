@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { SyncedAttendance, SyncedSession } from '../../application/ports/siasb-copy';
+import type { SyncedAttendance, SyncedDiscipline, SyncedSession } from '../../application/ports/siasb-copy';
 import { PrismaSiasbCopyRepository } from './prisma-siasb-copy.repository';
 import { PrismaService } from './prisma.service';
 
@@ -15,6 +15,10 @@ const NOW = new Date('2026-06-15T12:00:00.000Z');
 const WINDOW = { from: new Date(NOW.getTime() - 10 * DAY), to: new Date(NOW.getTime() + 10 * DAY) };
 const WIDE = { from: new Date(NOW.getTime() - 400 * DAY), to: new Date(NOW.getTime() + 400 * DAY) };
 
+function discipline(id: string, name = `Disciplina ${id}`): SyncedDiscipline {
+  return { id, name };
+}
+
 function attendance(id: string): SyncedAttendance {
   return {
     id,
@@ -22,6 +26,7 @@ function attendance(id: string): SyncedAttendance {
     disciplineName: 'Disciplina sintética',
     treatmentType: 'TRIAGE',
     concluded: false,
+    active: true,
     firstName: { ciphertext: 'ct', iv: 'iv', authTag: 'tag' },
   };
 }
@@ -63,6 +68,7 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
 
   async function counts(userId: string) {
     return {
+      disciplines: await prisma.siasbSyncedDiscipline.count({ where: { userId } }),
       attendances: await prisma.siasbSyncedAttendance.count({ where: { userId } }),
       sessions: await prisma.siasbSyncedSession.count({ where: { userId } }),
       state: await prisma.siasbSyncState.count({ where: { userId } }),
@@ -84,6 +90,30 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
   });
 
   describe('replaceWindow', () => {
+    it('persiste e devolve o flag active (independente de concluded) e a disciplina sem atendimento', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+      const base = attendance('a1');
+      expect(
+        await repo.replaceWindow(userId, WINDOW, {
+          disciplines: [{ id: 'D1', name: 'Disciplina sintética' }, { id: 'D2', name: 'Outra' }],
+          attendances: [
+            { ...base, id: 'a1', active: true, concluded: false },
+            { ...base, id: 'a2', active: false, concluded: false },
+            { ...base, id: 'a3', active: false, concluded: true },
+          ],
+          sessions: [],
+        }),
+      ).toBe(true);
+      const rows = (await repo.attendances(userId)).sort((x, y) => x.id.localeCompare(y.id));
+      expect(rows.map((a) => [a.id, a.active, a.concluded])).toEqual([
+        ['a1', true, false],
+        ['a2', false, false],
+        ['a3', false, true],
+      ]);
+      expect((await repo.disciplines(userId)).map((d) => d.id)).toEqual(['D1', 'D2']);
+    });
+
     it('grava, depois substitui as sessões da janela, mantém a de fora e troca todos os atendimentos', async () => {
       const userId = await makeUser();
       await makeAccount(userId);
@@ -92,24 +122,64 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
       const inB = session('s-in-b', new Date(NOW.getTime() + 2 * DAY));
 
       expect(
-        await repo.replaceWindow(userId, WINDOW, { attendances: [attendance('a1'), attendance('a2')], sessions: [outside, inA] }),
+        await repo.replaceWindow(userId, WINDOW, { disciplines: [], attendances: [attendance('a1'), attendance('a2')], sessions: [outside, inA] }),
       ).toBe(true);
       expect((await repo.attendances(userId)).map((a) => a.id).sort()).toEqual(['a1', 'a2']);
       expect((await repo.sessions(userId, WIDE.from, WIDE.to)).map((s) => s.id)).toEqual(['s-outside', 's-in-a']);
 
-      expect(await repo.replaceWindow(userId, WINDOW, { attendances: [attendance('a3')], sessions: [inB] })).toBe(true);
+      expect(await repo.replaceWindow(userId, WINDOW, { disciplines: [], attendances: [attendance('a3')], sessions: [inB] })).toBe(true);
       expect((await repo.attendances(userId)).map((a) => a.id)).toEqual(['a3']);
       expect((await repo.sessions(userId, WIDE.from, WIDE.to)).map((s) => s.id)).toEqual(['s-outside', 's-in-b']);
+    });
+
+    it('grava as disciplinas (inclusive sem atendimento) e a próxima gravação as substitui todas', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+
+      expect(
+        await repo.replaceWindow(userId, WINDOW, {
+          disciplines: [discipline('D2', 'Zeta'), discipline('D1', 'Alfa'), discipline('D3', 'Meio')],
+          attendances: [attendance('a1')],
+          sessions: [],
+        }),
+      ).toBe(true);
+      expect(await repo.disciplines(userId)).toEqual([
+        { id: 'D1', name: 'Alfa' },
+        { id: 'D3', name: 'Meio' },
+        { id: 'D2', name: 'Zeta' },
+      ]);
+
+      expect(
+        await repo.replaceWindow(userId, WINDOW, { disciplines: [discipline('D3', 'Meio')], attendances: [], sessions: [] }),
+      ).toBe(true);
+      expect(await repo.disciplines(userId)).toEqual([{ id: 'D3', name: 'Meio' }]);
+    });
+
+    it('disciplina duplicada estoura e a transação desfaz tudo (as disciplinas que havia ficam)', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+      await repo.replaceWindow(userId, WINDOW, { disciplines: [discipline('keep')], attendances: [], sessions: [] });
+
+      await expect(
+        repo.replaceWindow(userId, WINDOW, {
+          disciplines: [discipline('dup'), discipline('dup')],
+          attendances: [],
+          sessions: [],
+        }),
+      ).rejects.toBeDefined();
+
+      expect((await repo.disciplines(userId)).map((d) => d.id)).toEqual(['keep']);
     });
 
     it('sem conta SIASB devolve false e não grava nada', async () => {
       const userId = await makeUser();
       const ok = await repo.replaceWindow(userId, WINDOW, {
+        disciplines: [discipline('D1')],
         attendances: [attendance('a1')],
         sessions: [session('s1', NOW)],
       });
       expect(ok).toBe(false);
-      expect(await counts(userId)).toEqual({ attendances: 0, sessions: 0, state: 0 });
+      expect(await counts(userId)).toEqual({ disciplines: 0, attendances: 0, sessions: 0, state: 0 });
     });
 
     it('espera uma transação que apaga a conta (FOR SHARE), depois devolve false e não deixa nada', async () => {
@@ -136,7 +206,7 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
 
       let settled = false;
       const writer = repo
-        .replaceWindow(userId, WINDOW, { attendances: [attendance('a1')], sessions: [session('s1', NOW)] })
+        .replaceWindow(userId, WINDOW, { disciplines: [discipline('D1')], attendances: [attendance('a1')], sessions: [session('s1', NOW)] })
         .finally(() => {
           settled = true;
         });
@@ -146,16 +216,17 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
       release();
       const [, result] = await Promise.all([deleter, writer]);
       expect(result).toBe(false);
-      expect(await counts(userId)).toEqual({ attendances: 0, sessions: 0, state: 0 });
+      expect(await counts(userId)).toEqual({ disciplines: 0, attendances: 0, sessions: 0, state: 0 });
     });
 
     it('ids repetidos na mesma chamada estouram e a transação desfaz tudo (o que havia fica)', async () => {
       const userId = await makeUser();
       await makeAccount(userId);
-      await repo.replaceWindow(userId, WINDOW, { attendances: [attendance('keep')], sessions: [session('s-keep', NOW)] });
+      await repo.replaceWindow(userId, WINDOW, { disciplines: [], attendances: [attendance('keep')], sessions: [session('s-keep', NOW)] });
 
       await expect(
         repo.replaceWindow(userId, WINDOW, {
+          disciplines: [],
           attendances: [attendance('dup'), attendance('dup')],
           sessions: [session('s-new', NOW)],
         }),
@@ -230,6 +301,26 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
     });
   });
 
+  describe('resetState', () => {
+    it('zera result, nextRunAt e lastAttemptAt e mantém lastSuccessAt; fica devida; sem linha não cria nada', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+      await repo.claim(userId, NOW, 60_000);
+      const ok = new Date(NOW.getTime() + 1000);
+      await repo.recordAttempt(userId, { result: 'OK', at: ok, nextRunAt: new Date(NOW.getTime() + 60 * DAY) });
+      const failAt = new Date(NOW.getTime() + 2000);
+      await repo.recordAttempt(userId, { result: 'RECONNECT_REQUIRED', at: failAt, nextRunAt: null });
+      await repo.resetState(userId);
+      expect(await repo.state(userId)).toEqual({ lastAttemptAt: null, lastSuccessAt: ok, result: null, nextRunAt: null });
+      expect(await repo.dueUsers(NOW, 100_000)).toContain(userId);
+
+      const noRow = await makeUser();
+      await makeAccount(noRow);
+      await repo.resetState(noRow);
+      expect((await counts(noRow)).state).toBe(0);
+    });
+  });
+
   describe('dueUsers', () => {
     const BIG = 100_000;
 
@@ -276,11 +367,37 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
     });
   });
 
+  describe('connectedUsers', () => {
+    it('inclui conta OK e REAUTH_NEEDED; exclui quem não tem conta SIASB e quem só tem outra fonte; sem repetir', async () => {
+      const ok = await makeUser();
+      await makeAccount(ok);
+      const reauth = await makeUser();
+      await makeAccount(reauth, 'REAUTH_NEEDED');
+      const none = await makeUser();
+      const other = await makeUser();
+      await prisma.sourceAccount.create({
+        data: { userId: other, provider: 'MOODLE', accountKey: 'moodle', status: 'OK' },
+      });
+
+      const ids = await repo.connectedUsers();
+      expect(ids).toContain(ok);
+      expect(ids).toContain(reauth);
+      expect(ids).not.toContain(none);
+      expect(ids).not.toContain(other);
+      expect(ids.filter((id) => id === ok)).toHaveLength(1);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+
   describe('deleteAll e cascade', () => {
     async function fill(userId: string) {
       await makeAccount(userId);
       await repo.claim(userId, NOW, 60_000);
-      await repo.replaceWindow(userId, WINDOW, { attendances: [attendance('a1')], sessions: [session('s1', NOW)] });
+      await repo.replaceWindow(userId, WINDOW, {
+        disciplines: [discipline('D1')],
+        attendances: [attendance('a1')],
+        sessions: [session('s1', NOW)],
+      });
     }
 
     it('deleteAll apaga cópia e estado da pessoa e preserva a de outra', async () => {
@@ -288,22 +405,22 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
       const b = await makeUser();
       await fill(a);
       await fill(b);
-      expect(await counts(a)).toEqual({ attendances: 1, sessions: 1, state: 1 });
+      expect(await counts(a)).toEqual({ disciplines: 1, attendances: 1, sessions: 1, state: 1 });
 
       await repo.deleteAll(a);
 
-      expect(await counts(a)).toEqual({ attendances: 0, sessions: 0, state: 0 });
-      expect(await counts(b)).toEqual({ attendances: 1, sessions: 1, state: 1 });
+      expect(await counts(a)).toEqual({ disciplines: 0, attendances: 0, sessions: 0, state: 0 });
+      expect(await counts(b)).toEqual({ disciplines: 1, attendances: 1, sessions: 1, state: 1 });
     });
 
     it('apagar o usuário remove a cópia por cascade', async () => {
       const userId = await makeUser();
       await fill(userId);
-      expect(await counts(userId)).toEqual({ attendances: 1, sessions: 1, state: 1 });
+      expect(await counts(userId)).toEqual({ disciplines: 1, attendances: 1, sessions: 1, state: 1 });
 
       await prisma.user.delete({ where: { id: userId } });
 
-      expect(await counts(userId)).toEqual({ attendances: 0, sessions: 0, state: 0 });
+      expect(await counts(userId)).toEqual({ disciplines: 0, attendances: 0, sessions: 0, state: 0 });
     });
   });
 });

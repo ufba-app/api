@@ -11,6 +11,8 @@ model SiasbSyncedAttendance {
   // TRIAGE | PLANNING | URGENCY | UNKNOWN
   treatmentType  String  @map("treatment_type")
   concluded      Boolean
+  // veio da consulta de atendimentos ativos do SIASB (a situação das disciplinas usa isto, não `concluded`)
+  active         Boolean @default(false)
 
   firstNameCiphertext String @map("first_name_ciphertext")
   firstNameIv         String @map("first_name_iv")
@@ -53,4 +55,17 @@ model SiasbSyncState {
   lockedUntil   DateTime? @map("locked_until")
 
   @@map("siasb_sync_state")
+}
+
+// Disciplinas clínicas do aluno no SIASB (inclusive as sem paciente), base dos avisos de prazo.
+// Substituídas por inteiro a cada sincronização; só o nome (não é segredo).
+model SiasbSyncedDiscipline {
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String
+
+  name String
+
+  @@id([userId, id])
+  @@map("siasb_disciplines")
 }

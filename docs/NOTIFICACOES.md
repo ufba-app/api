@@ -36,7 +36,7 @@ Notifier.hasDevices(userId): Promise<boolean>
 `node dist/src/notify-job.js`, a cada 15 minutos (`*/15 * * * *`), serviço próprio no Railway. Só lê o banco (nenhuma requisição às fontes) e envia pelo `Notifier`.
 
 - Cada fonte implementa **`AlertProvider`**: `{ key, usersToEvaluate(), evaluateUser(userId, now) → { sent, suppressed, skipped, failed } }`. `evaluateUser` nunca lança e só envia pelo `Notifier`.
-- Os provedores entram em **`ALERT_PROVIDERS`** (`src/mcp-wiring.ts`; hoje a lista é vazia: a fonte injeta o que precisa na fábrica e devolve o provedor).
+- Os provedores entram em **`ALERT_PROVIDERS`** (`src/mcp-wiring.ts`; a fonte injeta o que precisa na fábrica e devolve o provedor). O SIASB é o primeiro provedor (`key` `siasb`, interruptor `siasb.alerts`); as regras, os textos e os limites estão em `docs/SIASB.md`, seção 11.
 - O runner (`runNotifyJob`) percorre os provedores, isola o erro por provedor e por pessoa (conta como falha), loga **só contagens**, uma linha por provedor (`notify[siasb]: 12 pessoas, 3 enviados, 1 suprimidos, 8 pulados, 0 falhas`), e sai **0** se rodou (inclusive sem provedor ou com falhas por pessoa) ou **1** se não deu para listar as pessoas de **nenhum** dos provedores.
 - O `sync-job` (sincronização das fontes) é outro cron e é do Prontuário.
 

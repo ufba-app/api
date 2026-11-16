@@ -503,6 +503,34 @@ describe('SiasbReader.snapshot', () => {
     expect(snap.sessions.map((s) => [s.id, s.statusLabel])).toEqual([['s1', 'Primeira']]);
   });
 
+  it('marca active: true para a lista ativa e false para a inativa; nas duas listas vence o ativo', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [{ id: '2', name: 'Clínica 2' } as ClinicalDiscipline];
+    siasb.atts = [att('a1', '2', false)];
+    siasb.inactiveAtts = [att('a1', '2', true), att('a8', '2', false), att('a9', '2', true)];
+    const snap = await reader.snapshot('u1');
+    expect(snap.attendances.map((a) => [a.id, a.active, a.concluded])).toEqual([
+      ['a1', true, false],
+      ['a8', false, false],
+      ['a9', false, true],
+    ]);
+  });
+
+  it('devolve as disciplinas (inclusive sem atendimento) e deduplica por id mantendo a primeira', async () => {
+    const { siasb, reader } = setup();
+    siasb.discs = [
+      { id: '2', name: 'Clínica 2' } as ClinicalDiscipline,
+      { id: '3', name: 'Clínica 3' } as ClinicalDiscipline,
+      { id: '2', name: 'Repetida' } as ClinicalDiscipline,
+    ];
+    siasb.atts = [att('a1', '2')];
+    const snap = await reader.snapshot('u1');
+    expect(snap.disciplines).toEqual([
+      { id: '2', name: 'Clínica 2' },
+      { id: '3', name: 'Clínica 3' },
+    ]);
+  });
+
   it('atendimento de disciplina desconhecida fica com disciplineName vazio', async () => {
     const { siasb, reader } = setup();
     siasb.discs = [];

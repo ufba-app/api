@@ -49,6 +49,10 @@ const NOME = 'Zeferina';
 
 const snap = (firstName = NOME) => ({
   window: WINDOW,
+  disciplines: [
+    { id: 'd1', name: 'Clinica 1' },
+    { id: 'd2', name: 'Clinica 2' },
+  ],
   attendances: [
     {
       id: 'a1',
@@ -57,6 +61,7 @@ const snap = (firstName = NOME) => ({
       firstName,
       treatmentType: 'PLANNING' as const,
       concluded: false,
+      active: true,
     },
   ],
   sessions: [
@@ -102,6 +107,35 @@ describe('SiasbSyncer', () => {
     });
     // trava liberada
     expect(await copy.claim(USER, NOW, SYNC_LEASE_MS)).toBe('claimed');
+  });
+
+  it('grava a origem ativo/inativo do atendimento sem cifrar', async () => {
+    const base = snap();
+    const { copy, syncer } = setup(() => ({
+      ...base,
+      attendances: [
+        base.attendances[0],
+        { ...base.attendances[0], id: 'a2', active: false, concluded: false },
+      ],
+    }));
+    expect(await syncer.syncUser(USER)).toBe('OK');
+    const rows = await copy.attendances(USER);
+    expect(rows.map((a) => [a.id, a.active])).toEqual([
+      ['a1', true],
+      ['a2', false],
+    ]);
+  });
+
+  it('grava as disciplinas do snapshot; sincronização seguinte com uma a menos a remove', async () => {
+    const { reader, copy, syncer } = setup(() => snap());
+    expect(await syncer.syncUser(USER)).toBe('OK');
+    expect(await copy.disciplines(USER)).toEqual([
+      { id: 'd1', name: 'Clinica 1' },
+      { id: 'd2', name: 'Clinica 2' },
+    ]);
+    reader.snapshot.mockResolvedValueOnce({ ...snap(), disciplines: [{ id: 'd2', name: 'Clinica 2' }] });
+    expect(await syncer.syncUser(USER)).toBe('OK');
+    expect(await copy.disciplines(USER)).toEqual([{ id: 'd2', name: 'Clinica 2' }]);
   });
 
   it('firstName vazio é cifrado e não quebra', async () => {

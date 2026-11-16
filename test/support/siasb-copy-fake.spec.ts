@@ -9,6 +9,7 @@ const att = (id: string): SyncedAttendance => ({
   disciplineName: 'Disciplina Teste',
   treatmentType: 'TRIAGE',
   concluded: false,
+  active: true,
   firstName: { ciphertext: 'Y2lwaGVy', iv: 'aXY=', authTag: 'dGFn' },
 });
 const ses = (id: string, startAt: string): SyncedSession => ({
@@ -35,6 +36,7 @@ describe('InMemorySiasbCopy', () => {
 
   it('replaceWindow: sessões fora da janela sobrevivem; as de dentro ausentes do novo conjunto somem', async () => {
     await repo.replaceWindow(U, W, {
+      disciplines: [],
       attendances: [att('a1')],
       sessions: [
         ses('old', '2026-11-01T10:00:00Z'),
@@ -43,6 +45,7 @@ describe('InMemorySiasbCopy', () => {
       ],
     });
     await repo.replaceWindow(U, W, {
+      disciplines: [],
       attendances: [att('a2')],
       sessions: [ses('keep', '2026-11-13T11:00:00Z'), ses('new', '2026-11-15T10:00:00Z')],
     });
@@ -54,6 +57,7 @@ describe('InMemorySiasbCopy', () => {
 
   it('sessions: filtra pela janela e ordena por startAt', async () => {
     await repo.replaceWindow(U, W, {
+      disciplines: [],
       attendances: [],
       sessions: [ses('b', '2026-11-15T10:00:00Z'), ses('a', '2026-11-11T10:00:00Z')],
     });
@@ -65,6 +69,7 @@ describe('InMemorySiasbCopy', () => {
     repo.accounts.delete(U);
     await expect(
       repo.replaceWindow(U, W, {
+        disciplines: [],
         attendances: [att('a1')],
         sessions: [ses('s', '2026-11-12T10:00:00Z')],
       }),
@@ -74,15 +79,50 @@ describe('InMemorySiasbCopy', () => {
   });
 
   it('replaceWindow: id duplicado lança, como a PK do Postgres, e nada é gravado', async () => {
-    await expect(repo.replaceWindow(U, W, { attendances: [att('a1'), att('a1')], sessions: [] })).rejects.toThrow();
+    await expect(repo.replaceWindow(U, W, { disciplines: [], attendances: [att('a1'), att('a1')], sessions: [] })).rejects.toThrow();
     await expect(
       repo.replaceWindow(U, W, {
+        disciplines: [],
         attendances: [],
         sessions: [ses('s', '2026-11-12T10:00:00Z'), ses('s', '2026-11-13T10:00:00Z')],
       }),
     ).rejects.toThrow();
     expect(await repo.attendances(U)).toEqual([]);
     expect(await repo.sessions(U, W.from, W.to)).toEqual([]);
+  });
+
+  it('disciplines: substitui todas a cada gravação, ordenadas por nome; sem conta não grava', async () => {
+    await repo.replaceWindow(U, W, {
+      disciplines: [
+        { id: 'd2', name: 'Zeta' },
+        { id: 'd1', name: 'Alfa' },
+      ],
+      attendances: [],
+      sessions: [],
+    });
+    expect(await repo.disciplines(U)).toEqual([
+      { id: 'd1', name: 'Alfa' },
+      { id: 'd2', name: 'Zeta' },
+    ]);
+    await repo.replaceWindow(U, W, { disciplines: [{ id: 'd2', name: 'Zeta' }], attendances: [], sessions: [] });
+    expect(await repo.disciplines(U)).toEqual([{ id: 'd2', name: 'Zeta' }]);
+    repo.accounts.delete(U);
+    await repo.replaceWindow(U, W, { disciplines: [{ id: 'd9', name: 'Nova' }], attendances: [], sessions: [] });
+    expect(await repo.disciplines(U)).toEqual([{ id: 'd2', name: 'Zeta' }]);
+  });
+
+  it('disciplines: id duplicado lança e nada é gravado', async () => {
+    await expect(
+      repo.replaceWindow(U, W, {
+        disciplines: [
+          { id: 'd1', name: 'A' },
+          { id: 'd1', name: 'B' },
+        ],
+        attendances: [],
+        sessions: [],
+      }),
+    ).rejects.toThrow();
+    expect(await repo.disciplines(U)).toEqual([]);
   });
 
   it('claim: busy enquanto a trava vale; claimed depois do prazo ou do release', async () => {
@@ -151,6 +191,7 @@ describe('InMemorySiasbCopy', () => {
 
   it('deleteAll apaga cópia e estado', async () => {
     await repo.replaceWindow(U, W, {
+      disciplines: [{ id: 'd1', name: 'Alfa' }],
       attendances: [att('a1')],
       sessions: [ses('s', '2026-11-12T10:00:00Z')],
     });
@@ -158,8 +199,23 @@ describe('InMemorySiasbCopy', () => {
     await repo.recordAttempt(U, { result: 'OK', at: W.from, nextRunAt: null });
     await repo.deleteAll(U);
     expect(await repo.attendances(U)).toEqual([]);
+    expect(await repo.disciplines(U)).toEqual([]);
     expect(await repo.sessions(U, W.from, W.to)).toEqual([]);
     expect(await repo.state(U)).toBeNull();
+  });
+
+  it('resetState: zera result, nextRunAt e lastAttemptAt, mantém lastSuccessAt e a trava; sem linha não cria', async () => {
+    const t1 = d('2026-11-15T10:00:00Z');
+    const t2 = d('2026-11-15T11:00:00Z');
+    repo.accounts.set(U, 'OK');
+    await repo.claim(U, t1, 600_000);
+    await repo.recordAttempt(U, { result: 'OK', at: t1, nextRunAt: t2 });
+    await repo.recordAttempt(U, { result: 'RECONNECT_REQUIRED', at: t2, nextRunAt: null });
+    await repo.resetState(U);
+    expect(await repo.state(U)).toEqual({ lastAttemptAt: null, lastSuccessAt: t1, result: null, nextRunAt: null });
+    expect(await repo.claim(U, new Date(t1.getTime() + 60_000), 600_000)).toBe('busy');
+    await repo.resetState('ghost');
+    expect(await repo.state('ghost')).toBeNull();
   });
 
   it('recordAttempt: OK grava lastSuccessAt; falha não o apaga', async () => {
@@ -178,5 +234,12 @@ describe('InMemorySiasbCopy', () => {
       result: 'UNAVAILABLE',
       nextRunAt: null,
     });
+  });
+
+  it("connectedUsers: contas em qualquer estado, sem repetir, e quem não tem conta fica de fora", async () => {
+    repo.accounts.set("u-reauth", "REAUTH_NEEDED");
+    await repo.claim(U, d("2026-11-15T12:00:00Z"), 1000);
+    expect((await repo.connectedUsers()).sort()).toEqual([U, "u-reauth"].sort());
+    expect(await repo.connectedUsers()).not.toContain("ninguem");
   });
 });

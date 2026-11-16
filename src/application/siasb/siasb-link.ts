@@ -108,6 +108,13 @@ export class SiasbLink {
       // null limpa o fim antigo: reconectar sem expiração nova não pode herdar a anterior.
       expiresAt: session.expiresAt,
     });
+    // Reconectar zera o sinal de quebra da cópia: sem isso, até a próxima sincronização o aviso de reconexão ainda
+    // usaria a âncora antiga (RECONNECT_REQUIRED) e um "venceu" sairia depois da volta. Nunca derruba a conexão.
+    try {
+      await this.copy.resetState(userId);
+    } catch {
+      /* a conexão já está feita; no pior caso o aviso espera a próxima sincronização */
+    }
   }
 
   async disconnect(userId: string): Promise<void> {

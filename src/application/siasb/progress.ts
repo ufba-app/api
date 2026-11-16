@@ -33,7 +33,7 @@ export interface Progress {
 }
 
 const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
-const isCancelled = (s: ClinicalSession) => normalize(s.statusLabel).startsWith('cancel');
+export const isCancelled = (s: ClinicalSession) => normalize(s.statusLabel).startsWith('cancel');
 const isAttended = (s: ClinicalSession) => normalize(s.statusLabel) === 'atendido';
 
 export function computeProgress(i: {

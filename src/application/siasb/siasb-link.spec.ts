@@ -275,6 +275,32 @@ describe('SiasbLink.connect', () => {
     expect(cipher.seen.join()).not.toContain(SENHA);
   });
 
+  it('reconectar zera o sinal de quebra do estado da cópia (result e nextRunAt nulos; lastSuccessAt fica)', async () => {
+    const { link, copy } = setup();
+    const t0 = new Date('2026-11-15T10:00:00Z');
+    copy.accounts.set('u1', 'OK');
+    copy.seedState('u1');
+    await copy.recordAttempt('u1', { result: 'OK', at: t0, nextRunAt: null });
+    await copy.recordAttempt('u1', { result: 'RECONNECT_REQUIRED', at: new Date(t0.getTime() + 60_000), nextRunAt: null });
+    await link.connect('u1', pwd());
+    expect(await copy.state('u1')).toEqual({ lastAttemptAt: null, lastSuccessAt: t0, result: null, nextRunAt: null });
+  });
+
+  it('reconectar sem linha de estado não cria uma', async () => {
+    const { link, copy } = setup();
+    await link.connect('u1', pwd());
+    expect(await copy.state('u1')).toBeNull();
+  });
+
+  it('falha no reset do estado nunca derruba a conexão (sem vazar a mensagem)', async () => {
+    const { link, copy, accounts } = setup();
+    copy.resetState = async () => {
+      throw new Error('boom ' + SENHA);
+    };
+    await expect(link.connect('u1', pwd())).resolves.toBeUndefined();
+    expect(accounts.rows).toHaveLength(1);
+  });
+
   it('reconectar sem expiração nova limpa a antiga (envia null, não undefined)', async () => {
     const { link, siasb, accounts } = setup();
     siasb.expiresAt = null;
@@ -389,6 +415,7 @@ describe('SiasbLink.status e disconnect', () => {
     disciplineName: 'Clínica',
     treatmentType: 'PLANNING' as const,
     concluded: false,
+    active: true,
     firstName: enc,
   };
 
@@ -417,7 +444,7 @@ describe('SiasbLink.status e disconnect', () => {
     copy.accounts.set('u2', 'OK');
     const at = new Date('2026-11-15T10:00:00Z');
     for (const u of ['u1', 'u2']) {
-      await copy.replaceWindow(u, { from: at, to: at }, { attendances: [att], sessions: [] });
+      await copy.replaceWindow(u, { from: at, to: at }, { disciplines: [], attendances: [att], sessions: [] });
       copy.seedState(u);
       await copy.recordAttempt(u, { result: 'OK', at, nextRunAt: null });
     }

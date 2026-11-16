@@ -1,11 +1,19 @@
-import { computeStates, isMarked, type ClinicalState } from '../../domain/siasb/clinical-state';
-import { deduceSlots, nextSlotStart } from '../../domain/siasb/clinic-slots';
-import { estimateBookingDeadline } from '../../domain/siasb/deadline';
+import { deduceSlots } from '../../domain/siasb/clinic-slots';
 import type { ClinicalAttendance, ClinicalSession, Procedure } from '../../domain/siasb/types';
 import type { AcademicCalendar } from '../ports/academic-calendar';
 import type { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import type { SecretCipher } from '../ports/secret-cipher';
 import { SiasbError, type SiasbSession, type SiasbSource } from '../ports/siasb-source';
+import {
+  computeSituation,
+  countsForSlots,
+  deadlineFor,
+  historyWindow,
+  nextUsableSlot,
+  normalize,
+  usableSlots,
+  type DisciplineSituation,
+} from './situation';
 import { decodeSession, encodeSession } from './session-codec';
 import { computeProgress, PROGRESS_DEFAULT_DAYS, type Progress } from './progress';
 import {
@@ -17,19 +25,8 @@ import {
   SYNC_LOOKBACK_DAYS,
 } from './session-period';
 
-const HISTORY_DAYS = 60;
-
 export { InvalidPeriodError };
-
-export interface DisciplineSituation {
-  disciplineId: string;
-  disciplineName: string;
-  state: ClinicalState;
-  nextSlot: Date | null;
-  deadline: Date | null;
-  estimated: true;
-  holidaysConsidered: boolean;
-}
+export type { DisciplineSituation };
 
 export interface BookingDeadline {
   deadline: Date;
@@ -83,16 +80,11 @@ export class SiasbReadError extends Error {
   }
 }
 
-const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
-
 function medianOf(values: number[]): number {
   const v = [...values].sort((a, b) => a - b);
   const mid = Math.floor(v.length / 2);
   return v.length % 2 ? v[mid] : Math.round((v[mid - 1] + v[mid]) / 2);
 }
-
-/** Sessões que indicam horário fixo da clínica: marcadas ou já atendidas (cancelada/não agendada não conta). */
-const countsForSlots = (s: ClinicalSession) => isMarked(s.statusLabel) || normalize(s.statusLabel) === 'atendido';
 
 /**
  * Leitura clínica do SIASB com a sessão guardada da pessoa. Cada método abre o jar, consulta ao vivo e, se o SIASB
@@ -112,25 +104,11 @@ export class SiasbReader {
     const { disciplines, attendances, sessions } = await this.withSession(userId, async (session) => {
       const disciplines = await this.siasb.disciplines(session);
       const attendances = await this.siasb.attendances(session, 'active');
-      const sessions = await this.siasb.sessions(session, ...this.historyWindow(now));
+      const sessions = await this.siasb.sessions(session, ...historyWindow(now));
       return { disciplines, attendances, sessions };
     });
-    const states = computeStates({ disciplines, activeAttendances: attendances, sessions, now });
-    const slots = deduceSlots(sessions.filter(countsForSlots));
     const holidays = await this.calendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
-    return disciplines.map((disc) => {
-      const state = states.find((s) => s.disciplineId === disc.id)?.state ?? 'NO_PATIENT';
-      const nextSlot = this.nextUsableSlot(slots, disc.id, now, holidays);
-      return {
-        disciplineId: disc.id,
-        disciplineName: disc.name,
-        state,
-        nextSlot,
-        deadline: nextSlot ? this.deadlineFor(nextSlot, holidays) : null,
-        estimated: true as const,
-        holidaysConsidered: holidays.known,
-      };
-    });
+    return computeSituation({ disciplines, activeAttendances: attendances, sessions, now, holidays });
   }
 
   async sessions(userId: string, range?: { from: Date; to: Date }): Promise<ClinicalSession[]> {
@@ -154,16 +132,16 @@ export class SiasbReader {
         new Date(Math.min(now.getTime(), start.getTime())),
         new Date(Math.max(now.getTime(), start.getTime())),
       );
-      return { deadline: this.deadlineFor(start, holidays), estimated: true, holidaysConsidered: holidays.known };
+      return { deadline: deadlineFor(start, holidays), estimated: true, holidaysConsidered: holidays.known };
     }
     const sessions = await this.withSession(userId, (session) =>
-      this.siasb.sessions(session, ...this.historyWindow(now)),
+      this.siasb.sessions(session, ...historyWindow(now)),
     );
     const slots = deduceSlots(sessions.filter(countsForSlots));
     const holidays = await this.calendar.holidays(now, new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS));
-    const next = this.nextUsableSlot(slots, input.disciplineId, now, holidays);
+    const next = nextUsableSlot(slots, input.disciplineId, now, holidays);
     if (!next) throw new SiasbReadError('siasb_no_slot');
-    return { deadline: this.deadlineFor(next, holidays), estimated: true, holidaysConsidered: holidays.known };
+    return { deadline: deadlineFor(next, holidays), estimated: true, holidaysConsidered: holidays.known };
   }
 
   async patients(userId: string): Promise<PatientsByDiscipline[]> {
@@ -199,7 +177,7 @@ export class SiasbReader {
       const attendance = (await this.siasb.attendances(session, 'active')).find((a) => a.id === attendanceId);
       if (!attendance) throw new SiasbReadError('siasb_attendance_not_found');
       const disciplines = await this.siasb.disciplines(session);
-      const sessions = await this.siasb.sessions(session, ...this.historyWindow(now));
+      const sessions = await this.siasb.sessions(session, ...historyWindow(now));
       const catalog = await this.siasb.procedures(session, attendance.id);
       return { attendance, disciplines, sessions, catalog };
     });
@@ -215,9 +193,9 @@ export class SiasbReader {
       procedures: matching.slice(0, PROCEDURES_LIMIT),
       totalProcedures: matching.length,
       moreProcedures: matching.length > PROCEDURES_LIMIT,
-      nextSlots: this.usableSlots(slots, attendance.disciplineId, now, holidays, SLOTS_SHOWN).map((start) => ({
+      nextSlots: usableSlots(slots, attendance.disciplineId, now, holidays, SLOTS_SHOWN).map((start) => ({
         start,
-        deadline: this.deadlineFor(start, holidays),
+        deadline: deadlineFor(start, holidays),
       })),
       holidaysConsidered: holidays.known,
     };
@@ -248,7 +226,8 @@ export class SiasbReader {
    */
   async snapshot(userId: string): Promise<{
     window: { from: Date; to: Date };
-    attendances: (ClinicalAttendance & { disciplineName: string })[];
+    disciplines: { id: string; name: string }[];
+    attendances: (ClinicalAttendance & { disciplineName: string; active: boolean })[];
     sessions: ClinicalSession[];
   }> {
     const now = this.now();
@@ -269,49 +248,19 @@ export class SiasbReader {
       const seen = new Set<string>();
       return list.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
     };
-    const attendances = firstById([...active, ...inactive]).map((a) => ({
+    const attendances = firstById([
+      ...active.map((a) => ({ ...a, active: true })),
+      ...inactive.map((a) => ({ ...a, active: false })),
+    ]).map((a) => ({
       ...a,
       disciplineName: names.get(a.disciplineId) ?? '',
     }));
-    return { window, attendances, sessions: firstById(sessions) };
-  }
-
-  /** Próximo horário da disciplina cujo prazo estimado ainda não passou; senão, o da semana seguinte. */
-  private nextUsableSlot(
-    slots: ReturnType<typeof deduceSlots>,
-    disciplineId: string,
-    now: Date,
-    holidays: { known: boolean; dates: string[] },
-  ): Date | null {
-    return this.usableSlots(slots, disciplineId, now, holidays, 1)[0] ?? null;
-  }
-
-  /** Até `max` próximos horários da disciplina com prazo estimado ainda por vir. */
-  private usableSlots(
-    slots: ReturnType<typeof deduceSlots>,
-    disciplineId: string,
-    now: Date,
-    holidays: { known: boolean; dates: string[] },
-    max: number,
-  ): Date[] {
-    const found: Date[] = [];
-    let cursor = now;
-    for (let i = 0; i < 5 + max && found.length < max; i++) {
-      const slot = nextSlotStart(slots, disciplineId, cursor);
-      if (!slot) break;
-      if (this.deadlineFor(slot, holidays).getTime() > now.getTime()) found.push(slot);
-      cursor = slot;
-    }
-    return found;
-  }
-
-  /** Sem calendário oficial, 1 dia útil de margem: o erro cai para o lado de chegar cedo. */
-  private deadlineFor(start: Date, holidays: { known: boolean; dates: string[] }): Date {
-    return estimateBookingDeadline(start, holidays.dates, holidays.known ? 0 : 1);
-  }
-
-  private historyWindow(now: Date): [Date, Date] {
-    return [new Date(now.getTime() - HISTORY_DAYS * DAY_MS), new Date(now.getTime() + MAX_AHEAD_DAYS * DAY_MS)];
+    return {
+      window,
+      disciplines: firstById(disciplines).map((d) => ({ id: d.id, name: d.name })),
+      attendances,
+      sessions: firstById(sessions),
+    };
   }
 
   private async requireAccount(userId: string): Promise<SourceAccountRecord> {
