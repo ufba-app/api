@@ -79,6 +79,11 @@ export abstract class SiasbCopyRepository {
    */
   abstract resetState(userId: string): Promise<void>;
   /**
+   * Marca a pessoa como devida na próxima passada do cron (`nextRunAt = null`, a mesma regra de `dueUsers`) depois de uma
+   * escrita no SIASB. Não toca `result`, `lastSuccessAt` nem a trava. Sem linha de estado, não faz nada (nunca cria).
+   */
+  abstract markDue(userId: string): Promise<void>;
+  /**
    * Conta SIASB `OK` e (sem estado, ou sem agenda, ou `nextRunAt <= now`), por `nextRunAt` crescente (sem estado e sem
    * agenda primeiro). Sem agenda cobre a reconexão depois de `RECONNECT_REQUIRED` (que grava `nextRunAt = null`).
    */

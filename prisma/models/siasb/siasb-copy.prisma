@@ -69,3 +69,24 @@ model SiasbSyncedDiscipline {
   @@id([userId, id])
   @@map("siasb_disciplines")
 }
+
+// Auditoria das escritas no SIASB feitas em nome do aluno (agendar, desmarcar, procedimentos).
+// Só metadados: nunca nome, observação, mensagem do SIASB nem qualquer texto livre. Apagada com a pessoa (cascade).
+// Sem expurgo ainda: a tabela cresce até existir a retenção de 90 dias (spec 5.4).
+model SiasbWriteAudit {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // schedule | unschedule | procedure_add | procedure_remove
+  kind         String
+  attendanceId String? @map("attendance_id")
+  // id da sessão ou do procedimento
+  targetId     String? @map("target_id")
+  // ok | rejected | unknown | error
+  result       String
+  at           DateTime
+
+  @@index([userId, at])
+  @@map("siasb_write_audit")
+}
