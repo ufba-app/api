@@ -148,7 +148,7 @@ Erros da conexão:
 
 Desde a fase 2A o SIASB tem uma exceção à leitura ao vivo: um **cron do Railway** (cron `sync-cron`, `docs/SYNC-CRON.md`) copia as sessões e os atendimentos de cada pessoa conectada para as tabelas `siasb_*`. O painel e a ferramenta `clinica_sessoes` leem dessa cópia, sem ir ao SIASB a cada pedido. A senha continua sem ser guardada; o job usa o jar de cookies da conexão.
 
-**O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por atendimento, disciplina, tipo de tratamento, se foi concluído e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
+**O que a cópia guarda** (`prisma/models/siasb/siasb-copy.prisma`): por sessão, disciplina, professor, local, horário, horário reagendado e rótulo da situação; por disciplina (`siasb_disciplines`), id e nome; por atendimento, disciplina, tipo de tratamento, se foi concluído, se veio da consulta de atendimentos **ativos** (`siasb_attendances.active`) e o **primeiro nome** do paciente, **cifrado** com a `SECRETS_KEY` (AES-256-GCM, com o id da pessoa e do atendimento como dado associado). O estado (`siasb_sync_state`) guarda a última tentativa, o último sucesso, o resultado, a próxima execução e a trava.
 
 **O que NÃO guarda:** sobrenome, prontuário, texto de procedimento e qualquer dado clínico. Não passam do mapeador. A lista de pacientes sem responsável também não é copiada.
 
@@ -184,7 +184,8 @@ Avisa por disciplina, só nos estados **① sem paciente** e **② sem sessão m
 
 - o **último aviso** é 6 horas **acordado** antes do prazo (o silêncio das 22h às 7h da Bahia não conta nessas 6 horas);
 - os anteriores ficam de **36 em 36 horas**, contados para trás a partir do último; o que cairia no silêncio recua para as 21h; o penúltimo some se ficar a menos de 12 h do último; a cadeia não passa de 60 dias antes do prazo;
-- o **primeiro aviso** sai quando o estado é visto pela primeira vez (nenhum aviso anterior para aquele prazo: `lastSentAt` nulo), no instante da cadeia mais recente até agora;
+- o **primeiro aviso** sai quando o estado é visto pela primeira vez (nenhum aviso anterior para aquele horário: `lastSentAt` nulo), no instante da cadeia mais recente até agora; se a cadeia ainda não começou, o instante registrado é **agora truncado à hora** (um instante futuro da cadeia nunca é reivindicado antes da hora, para não bloquear o aviso das 6 h);
+- o **episódio** é o **horário da clínica** (`nextSlot`), não o dia do prazo: se o prazo estimado desloca um dia útil (por exemplo, o calendário publicado passa a cobrir o período), os instantes da cadeia deslocam e pode sair um aviso a mais, mas nunca um episódio novo;
 - **só o mais recente devido**: depois de uma queda ou do silêncio, se vários instantes ficaram para trás, sai um aviso só (o mais recente). Os mais antigos são gravados como suprimidos (`suppressed`) **somente depois** de um envio de verdade (ou duplicata), para um envio que falhou não apagar o histórico.
 
 **① sem horário conhecido da clínica** (sem paciente e sem prazo): um aviso a cada 36 h desde o último enviado, sem citar prazo. O primeiro sai na hora; o que cair no silêncio vale as 7h seguintes.
@@ -194,13 +195,16 @@ Avisa por disciplina, só nos estados **① sem paciente** e **② sem sessão m
 - a disciplina ainda está em ① ou ②;
 - o horário anterior da clínica teve o prazo estimado vencido há no máximo 72 h (depois disso nunca sai um aviso velho);
 - a pessoa **não marcou nenhuma sessão válida** entre aquele prazo e agora (início ou remarcação dentro de [prazo, agora]; vale qualquer sessão da disciplina que não esteja cancelada nem "não agendada"; **"Falta paciente" conta como marcada**);
-- a pessoa **foi avisada naquele episódio** (há um aviso enviado para aquele prazo).
+- a pessoa **foi avisada naquele episódio** (há um aviso enviado para aquele horário da clínica);
+- a **cópia foi sincronizada depois do prazo** (uma marcação de última hora ainda não teria aparecido); enquanto isso, nem o "perdido" nem o primeiro aviso do horário seguinte saem.
 
-**Reconexão** (por pessoa, não por disciplina). Avisa que o acesso ao SIASB vence **7, 3 e 1 dia antes**, no **instante do vencimento** e depois **a cada 36 h** desde ele. Também vale depois de vencido (por isso o provedor lê contas SIASB em qualquer estado). Só o mais recente devido sai; os anteriores viram suprimidos depois de um envio, e só se já houve um aviso de reconexão antes.
+Na rodada em que o "perdido" sai, o primeiro aviso do horário seguinte **só é anotado** (já enviado, `suppressed` falso), sem push: o texto do "perdido" já anuncia a próxima chance. Todos os avisos de uma disciplina usam a mesma `tag`, então o novo substitui o anterior no aparelho.
+
+**Reconexão** (por pessoa, não por disciplina). Avisa que o acesso ao SIASB vence **7, 3 e 1 dia antes**, no **instante do vencimento** e depois **a cada 36 h** desde ele. Também vale depois de vencido (por isso o provedor lê contas SIASB em qualquer estado). Só o mais recente devido sai; os anteriores viram suprimidos depois de um envio, e só se já houve um aviso de reconexão antes. Se o acesso já **quebrou** (última tentativa da cópia `RECONNECT_REQUIRED` ou conta em `REAUTH_NEEDED`), vale como vencido desde a **última tentativa da cópia** (`min(vencimento, lastAttemptAt)`, estável nesse estado), e o aviso de "venceu" segue a cadência de 36 h; sem linha de estado não há âncora e vale o vencimento declarado.
 
 ### Silêncio, confiança na cópia e quem roda
 
-- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É decidido pelo serviço de avisos do SIASB (`SiasbAlerts.evaluateUser`), não pelo `Notifier`: dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio.
+- **Silêncio 22h-7h (Bahia, UTC-3 fixo).** É decidido **primeiro** pelo serviço de avisos do SIASB (`SiasbAlerts.evaluateUser`): dentro do silêncio **nada é enviado nem registrado**; o que está devido continua devido e sai na rodada de 15 minutos seguinte ao fim do silêncio. O `Notifier` genérico ainda tem a sua própria barreira (`quiet`), com a mesma função e as mesmas fronteiras; a do SIASB roda antes, então a do `Notifier` não chega a ser exercida por esses avisos.
 - **A cópia só é confiável** se `syncedAt` não é nulo, a última tentativa **não** é `RECONNECT_REQUIRED` e o último sucesso tem **no máximo 24 h**. Fora disso, os avisos de prazo esperam (o de reconexão não depende da cópia). A migração que acrescentou `siasb_attendances.active` zera `last_success_at` e `next_run_at`: depois dela os avisos de prazo esperam a próxima sincronização (até cerca de 30 minutos).
 - **Quem roda.** O `notify-cron` (a cada 15 minutos) percorre a lista `ALERT_PROVIDERS` (`src/mcp-wiring.ts`); o `SiasbAlertProvider` (`key` `siasb`) lista as pessoas com conta SIASB em qualquer estado e chama `SiasbAlerts.evaluateUser`. Sem aparelho cadastrado a pessoa é pulada. Nunca lança: erro vira falha contada, sem registrar mensagem.
 - **Controle:** o interruptor genérico `siasb.alerts` ("Avisos do SIASB", **ligado** por padrão; `GET`/`PUT /me/notification-settings`).
@@ -220,13 +224,15 @@ Datas na Bahia, `sexta, 20/11, às 10h` (ou `às 10h30`); o dia da semana do "cl
 
 ### Privacidade
 
-Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O **único dado do SIASB** nos textos é o **nome da disciplina** e os **horários estimados**. Os `subject` (parte da chave anti-duplicata) são `disc:<disciplineId>:<AAAA-MM-DD>` (dia do prazo na Bahia; separa um episódio do seguinte), `disc:<disciplineId>:unscheduled` e `connection`. A `tag` é `siasb-<subject>`.
+Nenhum título, texto, `tag` ou `subject` leva nome ou iniciais de paciente. O **único dado do SIASB** nos textos é o **nome da disciplina** e os **horários estimados**. Os `subject` (parte da chave anti-duplicata) são `disc:<disciplineId>:<instante do horário da clínica em ISO UTC>` (separa um episódio do seguinte), `disc:<disciplineId>:unscheduled` e `connection`. A `tag` é `siasb-disc:<disciplineId>` para todo aviso de uma disciplina (o novo substitui o anterior) e `siasb-connection` para a reconexão.
 
 ### Limites conhecidos
 
 - O prazo é **estimado** (horas úteis, feriados quando há calendário; sem calendário entra 1 dia útil de margem). Pode errar para mais ou para menos; os textos dizem "estimado".
 - Uma sessão de **outro horário semanal da mesma disciplina** depois do prazo perdido conta como marcada e **suprime** o "prazo perdido": o erro cai para o lado de avisar menos.
-- Se o prazo estimado muda **de dia**, começa um **novo episódio** (outro `subject`) e pode sair um novo primeiro aviso.
+- Se o prazo estimado desloca (por exemplo, `known` do calendário muda), o episódio continua o mesmo (o `subject` é o horário da clínica), mas os instantes da cadeia deslocam e pode sair **um aviso a mais**.
+- Uma **sessão cancelada pela clínica** dentro de [prazo, agora] **não conta** como marcada: a pessoa pode receber "prazo perdido" mesmo tendo marcado a tempo.
+- O silêncio é decidido por **duas** camadas: o serviço de avisos do SIASB (primeiro) e o `Notifier` genérico (que ainda tem a sua barreira `quiet`); usam a mesma função e as mesmas fronteiras.
 - Os avisos só chegam a quem tem **aparelho registrado** pelo canal genérico (`/me/push-devices`); sem aparelho, nada é enviado.
 - Não existe ainda rota que mostre ao painel a situação e o prazo por disciplina (`SiasbCopyReader.situation` é interno); a faixa fixa de "prazo aberto" depende dessa rota (ver `handoffs/siasb-avisos-telas.md`, fora do repositório).
 
