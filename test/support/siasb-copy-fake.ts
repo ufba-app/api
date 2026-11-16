@@ -119,6 +119,14 @@ export class InMemorySiasbCopy extends SiasbCopyRepository {
     if (s) s.lockedUntil = null;
   }
 
+  async resetState(userId: string): Promise<void> {
+    const s = this.states.get(userId);
+    if (!s) return;
+    s.result = null;
+    s.nextRunAt = null;
+    s.lastAttemptAt = null;
+  }
+
   async connectedUsers(): Promise<string[]> {
     return [...this.accounts.keys()];
   }

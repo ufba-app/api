@@ -204,6 +204,20 @@ describe('InMemorySiasbCopy', () => {
     expect(await repo.state(U)).toBeNull();
   });
 
+  it('resetState: zera result, nextRunAt e lastAttemptAt, mantém lastSuccessAt e a trava; sem linha não cria', async () => {
+    const t1 = d('2026-11-15T10:00:00Z');
+    const t2 = d('2026-11-15T11:00:00Z');
+    repo.accounts.set(U, 'OK');
+    await repo.claim(U, t1, 600_000);
+    await repo.recordAttempt(U, { result: 'OK', at: t1, nextRunAt: t2 });
+    await repo.recordAttempt(U, { result: 'RECONNECT_REQUIRED', at: t2, nextRunAt: null });
+    await repo.resetState(U);
+    expect(await repo.state(U)).toEqual({ lastAttemptAt: null, lastSuccessAt: t1, result: null, nextRunAt: null });
+    expect(await repo.claim(U, new Date(t1.getTime() + 60_000), 600_000)).toBe('busy');
+    await repo.resetState('ghost');
+    expect(await repo.state('ghost')).toBeNull();
+  });
+
   it('recordAttempt: OK grava lastSuccessAt; falha não o apaga', async () => {
     const t1 = d('2026-11-15T10:00:00Z');
     const t2 = d('2026-11-15T11:00:00Z');

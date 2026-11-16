@@ -74,6 +74,11 @@ export abstract class SiasbCopyRepository {
   abstract claim(userId: string, now: Date, leaseMs: number): Promise<ClaimResult>;
   abstract release(userId: string): Promise<void>;
   /**
+   * Zera o sinal de quebra do estado (`result`, `nextRunAt`, `lastAttemptAt` = null) depois de reconectar; não toca
+   * `lastSuccessAt`, a trava nem a cópia. Sem linha de estado, não faz nada (nunca cria).
+   */
+  abstract resetState(userId: string): Promise<void>;
+  /**
    * Conta SIASB `OK` e (sem estado, ou sem agenda, ou `nextRunAt <= now`), por `nextRunAt` crescente (sem estado e sem
    * agenda primeiro). Sem agenda cobre a reconexão depois de `RECONNECT_REQUIRED` (que grava `nextRunAt = null`).
    */

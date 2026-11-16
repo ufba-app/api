@@ -301,6 +301,26 @@ maybe('PrismaSiasbCopyRepository (Postgres real)', () => {
     });
   });
 
+  describe('resetState', () => {
+    it('zera result, nextRunAt e lastAttemptAt e mantém lastSuccessAt; fica devida; sem linha não cria nada', async () => {
+      const userId = await makeUser();
+      await makeAccount(userId);
+      await repo.claim(userId, NOW, 60_000);
+      const ok = new Date(NOW.getTime() + 1000);
+      await repo.recordAttempt(userId, { result: 'OK', at: ok, nextRunAt: new Date(NOW.getTime() + 60 * DAY) });
+      const failAt = new Date(NOW.getTime() + 2000);
+      await repo.recordAttempt(userId, { result: 'RECONNECT_REQUIRED', at: failAt, nextRunAt: null });
+      await repo.resetState(userId);
+      expect(await repo.state(userId)).toEqual({ lastAttemptAt: null, lastSuccessAt: ok, result: null, nextRunAt: null });
+      expect(await repo.dueUsers(NOW, 100_000)).toContain(userId);
+
+      const noRow = await makeUser();
+      await makeAccount(noRow);
+      await repo.resetState(noRow);
+      expect((await counts(noRow)).state).toBe(0);
+    });
+  });
+
   describe('dueUsers', () => {
     const BIG = 100_000;
 

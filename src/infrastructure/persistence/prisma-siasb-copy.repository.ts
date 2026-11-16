@@ -173,6 +173,13 @@ export class PrismaSiasbCopyRepository extends SiasbCopyRepository {
     });
   }
 
+  async resetState(userId: string): Promise<void> {
+    await this.prisma.siasbSyncState.updateMany({
+      where: { userId },
+      data: { result: null, nextRunAt: null, lastAttemptAt: null },
+    });
+  }
+
   async connectedUsers(): Promise<string[]> {
     const rows = await this.prisma.sourceAccount.findMany({
       where: { provider: 'SIASB' },
