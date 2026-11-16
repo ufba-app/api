@@ -16,6 +16,16 @@ export class PublishedCalendar {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Todos os calendários publicados (o mais recente de cada semestre), para quem precisa de mais de um (ex.: o calendário do painel). */
+  async all(): Promise<PublishedCalendarView[]> {
+    return (await this.logs.listPublished())
+      .filter((r) => r.contract && r.term)
+      .map((r) => {
+        const { verification: _verification, ...contract } = r.contract!;
+        return { ...contract, sourceUrl: r.sourceUrl, publishedAt: r.createdAt };
+      });
+  }
+
   async get(term?: string): Promise<PublishedCalendarView> {
     const published = (await this.logs.listPublished()).filter((r) => r.contract && r.term);
     const wanted =

@@ -33,6 +33,8 @@ import {
 import { CofreSigaa } from '../src/application/sigaa/cofre-sigaa';
 import { SiasbCopyRepository } from '../src/application/ports/siasb-copy';
 import { InMemorySiasbCopy } from './support/siasb-copy-fake';
+import { CalendarLogRepository } from '../src/application/ports/calendar';
+import { InMemoryCalendarLogs } from './support/calendar-fake';
 import { SiasbSyncer, type SyncOutcome } from '../src/application/siasb/siasb-syncer';
 import { SiasbError, SiasbSession, SiasbSource, type SiasbCourse } from '../src/application/ports/siasb-source';
 import { StudentRegistrations } from '../src/application/ports/repositories';
@@ -104,6 +106,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
   const sigaaValidations: string[] = [];
   // SIASB falso: matrícula por pessoa e o que o "SIASB" responde (cada teste ajusta).
   const registrations = new Map<string, string>();
+  const calendarLogs = new InMemoryCalendarLogs();
   const siasbCourses: SiasbCourse[] = [{ id: 7, name: 'Odontologia', abbreviation: 'ODO', isDefault: true }];
   const siasbState: { failure: SiasbError | null; username: string; expiresAt: Date | null; courseCalls: number } = {
     failure: null,
@@ -233,6 +236,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
       .useValue(moodle)
       .overrideProvider(SiasbSource)
       .useValue(siasbSource)
+      .overrideProvider(CalendarLogRepository)
+      .useValue(calendarLogs)
       .overrideProvider(SiasbCopyRepository)
       .useValue(new InMemorySiasbCopy())
       .overrideProvider(SiasbSyncer)
@@ -2003,5 +2008,62 @@ describe('API do app web (docs/WEB-API.md)', () => {
     expect(saida.join('\n')).not.toContain(SENHA);
     expect(saida.join('\n')).not.toContain(SENHA_SIASB);
     expect(JSON.stringify(accounts)).not.toContain(SENHA_SIASB);
+  });
+
+  describe('GET /me/calendar (calendário do Painel)', () => {
+    it('exige sessão; é no-store', async () => {
+      expect((await get('/me/calendar?from=2026-11-01&to=2026-11-30')).status).toBe(401);
+      const cookie = await signIn('cal1');
+      const r = await get('/me/calendar?from=2026-11-01&to=2026-11-30', cookie);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('sem fontes e sem calendário publicado: 200 com term null, days [] e sources []', async () => {
+      calendarLogs.rows.length = 0;
+      const cookie = await signIn('cal2');
+      expect(await (await get('/me/calendar?from=2026-11-01&to=2026-11-30', cookie)).json()).toEqual({ from: '2026-11-01', to: '2026-11-30', term: null, days: [], sources: [] });
+    });
+
+    it.each(['', '?from=2026-11-01', '?from=2026-11-30&to=2026-11-01', '?from=2026-11-01&to=2027-02-01', '?from=ontem&to=hoje', '?from=2026-02-30&to=2026-03-02'])('intervalo inválido (%s): 400 invalid_request', async (qs) => {
+      const cookie = await signIn('cal3');
+      const r = await get(`/me/calendar${qs}`, cookie);
+      expect(r.status).toBe(400);
+      expect(((await r.json()) as any).error).toBe('invalid_request');
+    });
+
+    it('sem fontes mas com calendário publicado: 200 só com feriados (intervalos expandidos) e o semestre', async () => {
+      const at = new Date('2026-08-01T00:00:00Z');
+      calendarLogs.rows.push({
+        id: '00000000-0000-4000-8000-0000000000aa', createdAt: at, updatedAt: at, sourceUrl: 'https://supac.test/c.pdf', sourceSha256: 'x', term: '2026.2', status: 'PUBLISHED',
+        verified: true, warnings: [], model: null, inputTokens: null, outputTokens: null, seen: true, seenBy: null, seenAt: null,
+        contract: {
+          document: { term: '2026.2', publishedOn: null },
+          keyDates: { termStart: '2026-08-17', progress25: '2026-09-17', progress50: '2026-10-17', progress75: '2026-11-17', termEnd: '2026-12-19', internship: null },
+          events: [], teachingDays: { byMonth: [], total: 0 }, otherEvents: [],
+          nonTeachingDays: [
+            { name: 'Consciência Negra', when: { type: 'on', date: '2026-11-20' }, weekday: 'fri', dateChanged: false },
+            { name: 'Recesso', when: { type: 'between', start: '2026-11-30', end: '2026-12-01' }, weekday: null, dateChanged: false },
+          ],
+        } as never,
+      } as never);
+      const cookie = await signIn('cal5');
+      const body = (await (await get('/me/calendar?from=2026-11-16&to=2026-12-02', cookie)).json()) as any;
+      expect(body.term).toBe('2026.2');
+      expect(body.sources).toEqual([]);
+      expect(body.days).toEqual([
+        { date: '2026-11-20', nonTeaching: { name: 'Consciência Negra' }, items: [] },
+        { date: '2026-11-30', nonTeaching: { name: 'Recesso' }, items: [] },
+        { date: '2026-12-01', nonTeaching: { name: 'Recesso' }, items: [] },
+      ]);
+      calendarLogs.rows.length = 0;
+    });
+
+    it('quem não tem SIASB não vê nada dele', async () => {
+      const cookie = await signIn('cal4');
+      const body = (await (await get('/me/calendar?from=2026-11-01&to=2026-11-30', cookie)).json()) as any;
+      expect(body.sources.map((x: any) => x.source)).not.toContain('siasb');
+      expect(JSON.stringify(body)).not.toMatch(/session/);
+    });
   });
 });

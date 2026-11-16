@@ -632,6 +632,50 @@ const CalendarUndetermined = z.object({
 
 export const CalendarQuery = z.object({ term: z.string().regex(/^\d{4}\.[12]$/).optional() });
 
+// ---- calendário do Painel: tudo pronto para desenhar ----
+
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const CalendarSource = z.enum(["sigaa", "moodle", "classroom", "siasb"]);
+
+/** Intervalo visível, inclusivo, em dias de Salvador (America/Bahia). Inválido ou com mais de 62 dias: 400 `invalid_request`. */
+export const MeCalendarQuery = z.object({ from: IsoDay, to: IsoDay });
+
+export const MeCalendarItem = z.object({
+  /** Estável (a tela usa como chave). */
+  id: z.string(),
+  /** A API CLASSIFICA: o web não adivinha pelo texto do tipo. `session` = sessão da clínica marcada no SIASB. */
+  kind: z.enum(["class", "deadline", "exam", "session"]),
+  source: CalendarSource,
+  /** Entrega/prova: o título na fonte. Sessão do SIASB: sempre "Sessão na clínica" (nunca dado de paciente). */
+  title: z.string(),
+  courseName: z.string().nullable(),
+  courseCode: z.string().nullable(),
+  /** ISO com o fuso de Salvador (-03:00). Aula, prova e sessão têm início; entrega não. */
+  startsAt: z.string().nullable(),
+  /** Fim da aula/sessão, ou o PRAZO da entrega. Prova: nulo quando a fonte só dá o início. */
+  endsAt: z.string().nullable(),
+  /** Sala ou ambiente ("Moodle", "Classroom", local da sessão). */
+  place: z.string().nullable(),
+});
+
+export const MeCalendarResponse = z.object({
+  from: IsoDay,
+  to: IsoDay,
+  /** Semestre que mais cobre o intervalo ("2026.2"); nulo sem calendário publicado (a rota segue, sem feriados). */
+  term: z.string().nullable(),
+  /** Só os dias que têm algo (item ou dia sem aula), em ordem. */
+  days: z.array(
+    z.object({
+      date: IsoDay,
+      /** Feriado ou dia sem aula, já resolvido (intervalos expandidos). Entregas, provas e sessões continuam nesse dia. */
+      nonTeaching: z.object({ name: z.string() }).nullable(),
+      items: z.array(MeCalendarItem),
+    }),
+  ),
+  /** Uma entrada por fonte consultada; falha parcial não derruba a rota. Sem fontes conectadas: []. */
+  sources: z.array(z.object({ source: CalendarSource, status: z.enum(["ok", "failed", "reconnect_required"]) })),
+});
+
 /**
  * O calendário acadêmico publicado de um semestre (contrato fiel ao PDF da SUPAC, sem a conferência interna). Toda data é
  * ISO; textos como impressos. `when` é uma união: dia, intervalo, "até", "a partir de" ou sem data.

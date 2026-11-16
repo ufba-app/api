@@ -341,6 +341,25 @@ Só quem está em `ADMIN_EMAILS` (a mesma lista da memória): os outros recebem 
 `GET /calendar[?term=2026.2]` → 200, qualquer pessoa com sessão (`no-store`). Sem `term`: o semestre vigente (o que contém hoje; entre dois semestres, o próximo a começar; passados todos, o mais recente). Reedição do mesmo semestre: vale a mais recente. 404 `not_found` se não há calendário publicado; `term` inválido é 400.
 O corpo é o contrato fiel ao PDF, sem a conferência interna: `{ contractVersion: "1", sourceUrl, publishedAt, document: { term, publishedOn }, keyDates: { termStart, progress25, progress50, progress75, termEnd, internship }, events[], teachingDays: { byMonth[], total }, nonTeachingDays[], otherEvents[] }`. Toda data é ISO (`YYYY-MM-DD`); `when` é uma união por `type` (`on`, `between`, `until`, `from`, `undetermined`). A projeção em intervalos de dia ainda não existe.
 
+## 5.2.1 Calendário do Painel (`GET /me/calendar`)
+
+`GET /me/calendar?from=AAAA-MM-DD&to=AAAA-MM-DD` → 200 `MeCalendarResponse` (`no-store`, sessão normal). Compila tudo pronto para desenhar; o web **não** monta isso a partir de várias rotas. `from` e `to` (inclusivos, dias de Salvador, America/Bahia): ausentes, inválidos, invertidos ou com mais de **62 dias** = 400 `invalid_request`.
+
+```
+{ from, to, term: "2026.2" | null,
+  days: [{ date, nonTeaching: { name } | null, items: Item[] }],     // só dias com algo, em ordem
+  sources: [{ source: "sigaa"|"moodle"|"classroom"|"siasb", status: "ok"|"failed"|"reconnect_required" }] }
+Item = { id, kind: "class"|"deadline"|"exam"|"session", source, title, courseName|null, courseCode|null,
+         startsAt|null, endsAt|null, place|null }                    // ISO com -03:00
+```
+
+- **Feriados e dias sem aula:** do calendário acadêmico publicado (`nonTeachingDays`, intervalos expandidos e recortados no intervalo; de todos os calendários publicados, então um mês entre semestres também vem). `term` = o semestre que mais cobre o intervalo (empate: o mais novo); sem calendário: `null` e a rota segue.
+- **Entregas e provas (Moodle e Classroom):** ao vivo, uma consulta por conta, em paralelo, teto de 12 s por conta. A API classifica: módulo `prova`/quiz ou título com prova/exame/teste/avaliação = `exam` (`startsAt` = o horário que a fonte dá, `endsAt` nulo); o resto = `deadline` (`startsAt` nulo, `endsAt` = o PRAZO). O dia de um item é o dia em Salvador. Entregas e provas **continuam aparecendo em feriado**. Limite da fonte: o Moodle só informa os próximos eventos (calendário "upcoming"), então meses distantes saem vazios.
+- **Sessões do SIASB (`kind: "session"`):** só para quem tem o SIASB **conectado** (sem acesso ou sem conexão: nenhum item e o `siasb` nem entra em `sources`). Vêm da cópia sincronizada (nunca fala com o SIASB), só as **marcadas** (não as canceladas nem atendidas), com `title` fixo "Sessão na clínica", disciplina em `courseName` e o local em `place`. **Nenhum dado de paciente** (a leitura nem decifra nome). **Não são excluídas em feriado.** Cópia desatualizada: `siasb: failed` e as sessões guardadas continuam; conexão a refazer: `reconnect_required`.
+- **Falha parcial não derruba a rota:** vira `sources[].status` (token recusado ou conta a reconectar = `reconnect_required`, que ganha de `failed` na mesma fonte). Sem fontes conectadas: 200 só com feriados e `sources: []`.
+- **Aulas (`class`):** o formato já prevê, mas só entram quando as turmas do SIGAA com dia e horário existirem (fatia 1 de `minhas_materias`); nos dias com `nonTeaching` elas não aparecerão. Hoje a rota não devolve `class` nem `sigaa` em `sources`.
+- **Cache** em memória por pessoa e intervalo, 3 min; resultado com falha parcial não é guardado.
+
 ## 5.3 Permissões por app (o que a pessoa libera para UM app fazer)
 
 Permissões **por app** (cliente OAuth), marcadas **na tela de autorizar** e revogadas em **Apps autorizados**; **só a pessoa, pela sessão do painel**, concede e revoga (nenhuma ferramenta MCP altera permissões). Genéricas: valem para qualquer fonte; o SIASB é o primeiro uso. Texto de tela (título e descrição) vem da API; o web não escreve nada. Padrão **negado**.

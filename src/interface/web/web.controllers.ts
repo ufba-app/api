@@ -44,6 +44,7 @@ import {
   DeliverPairingBody,
   UnlockSigaaBody,
   SaveSigaaPasskeyBody,
+  MeCalendarQuery,
   SiasbCalendarQuery,
   SigaaPasskeySlotBody,
   parseInput,
@@ -51,6 +52,7 @@ import {
 import { ApiError, invalidRequest, sessionExpired, type WebPrincipal } from '../../application/web/web-api';
 import { WebSessionService } from '../../application/web/web-session.service';
 import { PermissionsService } from '../../application/permissions/permissions.service';
+import { MeCalendar } from '../../application/web/me-calendar.service';
 import { NotificationSettings } from '../../application/notifications/notification-settings.service';
 import { PushDevices } from '../../application/notifications/push-devices.service';
 import { z } from 'zod';
@@ -425,6 +427,25 @@ export class SiasbController {
         rescheduledStartAt: i.rescheduledStartAt ? i.rescheduledStartAt.toISOString() : null,
       })),
     };
+  }
+}
+
+/**
+ * Calendário do Painel: tudo pronto para desenhar num só lugar (o web não monta a partir de várias rotas). Falha de uma fonte
+ * não derruba a rota (vira `sources[].status`); sessões do SIASB só para quem tem acesso e sem dado de paciente.
+ */
+@Controller('me/calendar')
+@UseFilters(ApiErrorFilter)
+@UseGuards(SessionGuard)
+export class MeCalendarController {
+  constructor(private readonly calendar: MeCalendar) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async get(@Principal() p: WebPrincipal | null, @Query() q: unknown) {
+    const who = must(p);
+    const { from, to } = parseInput(MeCalendarQuery, q, invalidRequest);
+    return this.calendar.get({ userId: who.userId }, from, to);
   }
 }
 
