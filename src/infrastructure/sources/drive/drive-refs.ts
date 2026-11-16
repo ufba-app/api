@@ -4,7 +4,7 @@ import { deriveKey } from '../../crypto/keys';
 
 const PURPOSE = 'ufba-platform/drive-ref/v1';
 export const DRIVE_REF_PREFIX = 'gdrive1.';
-const KINDS: readonly DriveKind[] = ['file', 'doc', 'sheet', 'slides'];
+const KINDS: readonly DriveKind[] = ['file', 'doc', 'sheet', 'slides', 'folder'];
 
 /**
  * `ref` de um arquivo do Drive extraído do conteúdo do Moodle: `gdrive1.<tipo>.<id>.<assinatura>`. A assinatura (HMAC com

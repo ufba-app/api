@@ -1,9 +1,9 @@
 /**
  * Links do Google Drive/Docs que aparecem no conteúdo do Moodle (puro, sem rede). Só os hosts `drive.google.com` e
- * `docs.google.com`; pastas e formulários não viram anexo. O id é validado (só letras, números, `_` e `-`), porque ele
+ * `docs.google.com`; formulários não viram anexo (PASTAS viram: o servidor lista o primeiro nível). O id é validado (só letras, números, `_` e `-`), porque ele
  * entra em URLs que o servidor monta para falar com o Google.
  */
-export type DriveKind = 'file' | 'doc' | 'sheet' | 'slides';
+export type DriveKind = 'file' | 'doc' | 'sheet' | 'slides' | 'folder';
 
 export interface DriveLink {
   kind: DriveKind;
@@ -32,6 +32,14 @@ export function parseDriveLink(raw: string): DriveLink | null {
   if (!HOSTS.has(u.hostname.toLowerCase())) return null;
   const m = /^\/(document|spreadsheets|presentation|file)\/(?:u\/\d+\/)?d\/([^/?#]+)/.exec(u.pathname);
   if (m) return ID.test(m[2]) ? { kind: KIND_BY_SEGMENT[m[1]], id: m[2] } : null;
+  if (u.hostname.toLowerCase() === 'drive.google.com') {
+    const f = /^\/drive\/(?:u\/\d+\/)?folders\/([^/?#]+)/.exec(u.pathname);
+    if (f) return ID.test(f[1]) ? { kind: 'folder', id: f[1] } : null;
+    if (u.pathname === '/drive/folderview' || u.pathname === '/folderview') {
+      const id = u.searchParams.get('id') ?? '';
+      return ID.test(id) ? { kind: 'folder', id } : null;
+    }
+  }
   if (u.hostname.toLowerCase() === 'drive.google.com' && (u.pathname === '/open' || u.pathname === '/uc')) {
     const id = u.searchParams.get('id') ?? '';
     return ID.test(id) ? { kind: 'file', id } : null;
@@ -80,4 +88,22 @@ export const DRIVE_KIND_NAME: Record<DriveKind, string> = {
   doc: 'Documento do Google',
   sheet: 'Planilha do Google',
   slides: 'Apresentação do Google',
+  folder: 'Pasta do Drive',
 };
+
+/** Link para a PESSOA abrir no próprio navegador (nunca para o servidor ou o agente buscarem: pede login). */
+export function driveViewUrl(link: DriveLink): string {
+  const id = encodeURIComponent(link.id);
+  switch (link.kind) {
+    case 'doc':
+      return `https://docs.google.com/document/d/${id}/edit`;
+    case 'sheet':
+      return `https://docs.google.com/spreadsheets/d/${id}/edit`;
+    case 'slides':
+      return `https://docs.google.com/presentation/d/${id}/edit`;
+    case 'folder':
+      return `https://drive.google.com/drive/folders/${id}`;
+    default:
+      return `https://drive.google.com/file/d/${id}/view`;
+  }
+}

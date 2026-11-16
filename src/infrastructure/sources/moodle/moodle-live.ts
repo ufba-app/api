@@ -145,7 +145,13 @@ export class MoodleLive implements LiveSource {
     if (!this.drive) return [];
     return extractDriveLinks(html, urls).map((l) => ({
       nome: l.label ?? DRIVE_KIND_NAME[l.kind],
-      ...(l.kind === 'sheet' ? { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } : l.kind === 'file' ? {} : { mimeType: 'application/pdf' }),
+      ...(l.kind === 'sheet'
+        ? { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+        : l.kind === 'file'
+          ? {}
+          : l.kind === 'folder'
+            ? { mimeType: 'application/vnd.google-apps.folder' }
+            : { mimeType: 'application/pdf' }),
       ref: this.drive!.sign(userId, l),
     }));
   }

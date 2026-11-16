@@ -151,7 +151,7 @@ export function buildLiveSources(
         const env = process.env;
         if (!env.SECRETS_KEY) return new DisabledDriveDownloader();
         // Sem Classroom configurado só vale o link público.
-        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined });
+        return new GoogleDriveDownloader(new DriveRefs(env.SECRETS_KEY), classroomClientes(env) ?? {}, { dominio: env.GOOGLE_ALLOWED_DOMAIN || undefined, apiKey: env.GOOGLE_DRIVE_API_KEY || undefined });
       },
     },
     {

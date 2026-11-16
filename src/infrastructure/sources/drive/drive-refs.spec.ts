@@ -14,6 +14,13 @@ describe('DriveRefs: o ref prova que o link saiu do curso desta pessoa', () => {
     expect(refs.verify('u1', ref)).toEqual({ kind: 'doc', id: ID });
   });
 
+  it('o ref de PASTA assina e verifica como os outros', () => {
+    const ref = refs.sign('u1', { kind: 'folder', id: ID });
+    expect(ref.startsWith('gdrive1.folder.')).toBe(true);
+    expect(refs.verify('u1', ref)).toEqual({ kind: 'folder', id: ID });
+    expect(refs.verify('u2', ref)).toBeNull();
+  });
+
   it('é preso à pessoa: o ref de outra pessoa não vale', () => {
     expect(refs.verify('u2', refs.sign('u1', { kind: 'file', id: ID }))).toBeNull();
   });

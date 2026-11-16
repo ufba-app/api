@@ -10,6 +10,8 @@ import {
   ContaAmbiguaError,
   FonteNaoConectadaError,
   FonteSemLeituraError,
+  MAX_ANEXOS_DE_PASTAS,
+  MAX_PASTAS,
   type Quem,
 } from './consulta.service';
 
@@ -320,5 +322,107 @@ describe('ConsultaService.turmasComHorario', () => {
     const { svc } = build([conta('a@x')]);
     (svc as unknown as { sources: LiveSources }).sources.register({ provider: 'SIGAA', turmasComHorario: async () => [] } as never);
     await expect(svc.turmasComHorario(U1)).rejects.toBeInstanceOf(FonteNaoConectadaError);
+  });
+});
+
+describe('ConsultaService: pastas do Drive e conferência antes do link', () => {
+  const pastaRef = 'gdrive1.folder.PASTA.sig';
+  const mkDrive = (over: Record<string, unknown> = {}) => {
+    const listadas: string[] = [];
+    const drive = {
+      owns: (r: string) => r.startsWith('gdrive1.'),
+      isFolder: (r: string) => r.startsWith('gdrive1.folder.'),
+      viewUrl: (_u: string, r: string) => `https://drive.google.com/drive/folders/${r.split('.')[2]}`,
+      listFolder: async (_u: string, ref: string, contas: ReadonlyArray<{ accountKey: string }>) => {
+        listadas.push(`${ref}|${contas.map((c) => c.accountKey).join(',')}`);
+        return [
+          { name: 'Aula 1.pdf', mimeType: 'application/pdf', sizeBytes: 2048, ref: 'gdrive1.file.A.sig', isFolder: false, blocked: null, viewUrl: 'https://v/a', label: 'Aula 1.pdf', message: null },
+          { name: 'Aula 01.mp4', mimeType: 'video/mp4', sizeBytes: 350 * 1024 * 1024, ref: null, isFolder: false, blocked: 'video', viewUrl: 'https://v/v', label: 'Aula 01.mp4 (vídeo, 350 MB)', message: 'm' },
+          { name: 'Extras', mimeType: 'application/vnd.google-apps.folder', sizeBytes: null, ref: null, isFolder: true, blocked: null, viewUrl: 'https://v/f', label: 'Extras (subpasta)', message: null },
+        ];
+      },
+      inspect: async () => null,
+      ...over,
+    };
+    return { drive, listadas };
+  };
+  const moodleCom = (atividades: unknown[], drive: unknown) => {
+    const r = build([conta('ava:aluno', 'MOODLE'), conta('eu@ufba.br'), { ...conta('velho@x'), status: 'REAUTH_NEEDED' }], undefined, drive as never);
+    (r.svc as unknown as { sources: LiveSources }).sources.register({ provider: 'MOODLE', verCurso: async () => atividades, verForum: async () => atividades } as never);
+    return r.svc;
+  };
+  const item = (anexos: unknown[], extra: object = {}) => ({ id: '1', tipo: 'material', titulo: 'Slides', anexos, ...extra });
+
+  it('a pasta vira um anexo por arquivo baixável; vídeo e subpasta vão para abrirNoNavegador com o rótulo; as contas do Google vão em memória', async () => {
+    const { drive, listadas } = mkDrive();
+    const svc = moodleCom([item([{ nome: 'Slides / Arquivos', ref: pastaRef }, { nome: 'outro.pdf', ref: 'https://ava.test/a.pdf' }])], drive);
+    const [a] = await svc.verCurso(U1, 'MOODLE', undefined, '10');
+    // Os filhos entram no lugar da pasta, na ordem em que ela aparecia.
+    expect(a.anexos.map((x) => [x.nome, x.ref])).toEqual([['Aula 1.pdf', 'gdrive1.file.A.sig'], ['outro.pdf', 'https://ava.test/a.pdf']]);
+    expect(a.anexos[0]).toMatchObject({ mimeType: 'application/pdf', tamanhoBytes: 2048 });
+    expect(a.abrirNoNavegador).toEqual([{ nome: 'Aula 01.mp4 (vídeo, 350 MB)', url: 'https://v/v' }, { nome: 'Extras (subpasta)', url: 'https://v/f' }]);
+    // Só as contas do Google em ordem de cadastro e SEM a REAUTH_NEEDED; o ref da pasta é o que foi listado.
+    expect(listadas).toEqual([`${pastaRef}|eu@ufba.br`]);
+    expect(JSON.stringify(a)).not.toContain('rt-'); // nenhum token na resposta
+  });
+
+  it('o mesmo vale no ver_forum', async () => {
+    const { drive } = mkDrive();
+    const svc = moodleCom([{ id: '9', titulo: 'x', anexos: [{ nome: 'Pasta', ref: pastaRef }] }], drive);
+    const [d] = await svc.verForum(U1, 'MOODLE', undefined, '77');
+    expect(d.anexos.map((x) => x.nome)).toEqual(['Aula 1.pdf']);
+  });
+
+  it('pasta que não deu para listar (null ou erro) vira só o link para a pessoa abrir; ver_curso não cai', async () => {
+    for (const listFolder of [async () => null, async () => { throw new Error('boom'); }]) {
+      const { drive } = mkDrive({ listFolder });
+      const svc = moodleCom([item([{ nome: 'Slides', ref: pastaRef }])], drive);
+      const [a] = await svc.verCurso(U1, 'MOODLE', undefined, '10');
+      expect(a.anexos).toEqual([]);
+      expect(a.abrirNoNavegador).toEqual([{ nome: 'Slides (não consegui listar os arquivos)', url: 'https://drive.google.com/drive/folders/PASTA' }]);
+    }
+  });
+
+  it('teto de pastas expandidas por chamada: as demais viram link', async () => {
+    const { drive, listadas } = mkDrive();
+    const refs = Array.from({ length: MAX_PASTAS + 2 }, (_, i) => `gdrive1.folder.P${i}.sig`);
+    const svc = moodleCom([item(refs.map((r, i) => ({ nome: `Pasta ${i}`, ref: r })))], drive);
+    const [a] = await svc.verCurso(U1, 'MOODLE', undefined, '10');
+    expect(listadas).toHaveLength(MAX_PASTAS);
+    expect(a.abrirNoNavegador!.filter((l) => l.nome.endsWith('(não consegui listar os arquivos)'))).toHaveLength(2);
+  });
+
+  it('teto de anexos novos no total', async () => {
+    const muitos = Array.from({ length: 150 }, (_, i) => ({ name: `f${i}`, mimeType: 'application/pdf', sizeBytes: 1, ref: `gdrive1.file.F${i}.sig`, isFolder: false, blocked: null, viewUrl: `https://v/${i}`, label: `f${i}`, message: null }));
+    const { drive } = mkDrive({ listFolder: async () => muitos });
+    const svc = moodleCom([item([{ nome: 'A', ref: 'gdrive1.folder.A.sig' }, { nome: 'B', ref: 'gdrive1.folder.B.sig' }])], drive);
+    const [a] = await svc.verCurso(U1, 'MOODLE', undefined, '10');
+    expect(a.anexos).toHaveLength(MAX_ANEXOS_DE_PASTAS);
+    expect(a.abrirNoNavegador!.length).toBe(300 - MAX_ANEXOS_DE_PASTAS); // o excedente vira link
+  });
+
+  it('sem DriveDownloader, ou fonte que não é o Moodle: a lista segue como veio', async () => {
+    const anexos = [{ nome: 'Pasta', ref: pastaRef }];
+    const sem = moodleCom([item(anexos)], undefined);
+    expect((await sem.verCurso(U1, 'MOODLE', undefined, '10'))[0].anexos).toEqual(anexos);
+    const { drive, listadas } = mkDrive();
+    const cl = build([conta('a@x')], undefined, drive as never);
+    (cl.svc as unknown as { sources: LiveSources }).sources.register({ provider: 'CLASSROOM', verCurso: async () => [item(anexos)] } as never);
+    expect((await cl.svc.verCurso(U1, 'CLASSROOM', undefined, '1'))[0].anexos).toEqual(anexos);
+    expect(listadas).toEqual([]);
+  });
+
+  it('driveInfo: só para ref de arquivo do Drive; confere a conta do Moodle; erro vira null', async () => {
+    const info = { name: 'v.mp4', mimeType: 'video/mp4', sizeBytes: 5, viewUrl: 'u', blocked: 'video', message: 'm' };
+    const { drive } = mkDrive({ inspect: async () => info });
+    const r = build([conta('ava:aluno', 'MOODLE'), conta('eu@ufba.br')], undefined, drive as never);
+    expect(await r.svc.driveInfo(U1, undefined, 'gdrive1.file.A.sig')).toEqual(info);
+    expect(await r.svc.driveInfo(U1, undefined, pastaRef)).toBeNull(); // pasta não
+    expect(await r.svc.driveInfo(U1, undefined, 'https://ava.test/a.pdf')).toBeNull(); // não é do Drive
+    const semMoodle = build([conta('eu@ufba.br')], undefined, drive as never);
+    expect(await semMoodle.svc.driveInfo(U1, undefined, 'gdrive1.file.A.sig')).toBeNull(); // Moodle não conectado
+    const quebra = build([conta('ava:aluno', 'MOODLE')], undefined, mkDrive({ inspect: async () => { throw new Error('x'); } }).drive as never);
+    expect(await quebra.svc.driveInfo(U1, undefined, 'gdrive1.file.A.sig')).toBeNull();
+    expect(await build([conta('ava:aluno', 'MOODLE')]).svc.driveInfo(U1, undefined, 'gdrive1.file.A.sig')).toBeNull(); // sem DriveDownloader
   });
 });
