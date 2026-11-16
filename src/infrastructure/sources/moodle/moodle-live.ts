@@ -5,6 +5,8 @@ import type {
   CursoVivo,
   DiscussaoViva,
   LiveSource,
+  PostagemFeita,
+  PostagemForum,
   PrazoVivo,
   TipoAtividade,
 } from '../../../application/ports/live-source';
@@ -90,6 +92,16 @@ export function htmlToText(html?: string): string | undefined {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return text || undefined;
+}
+
+/** Texto digitado → HTML do Moodle: escapa tudo e faz um parágrafo por linha (linha vazia não vira parágrafo). */
+export function textoParaHtml(texto: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return texto
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .map((l) => `<p>${esc(l)}</p>`)
+    .join('');
 }
 
 function anexo(f: MoodleFile): AnexoVivo {
@@ -271,12 +283,41 @@ export class MoodleLive implements LiveSource {
       });
       return (res.discussions ?? []).map((d) => ({
         id: String(d.discussion ?? d.id),
+        postId: String(d.id),
         titulo: d.name,
         mensagem: htmlToText(d.message),
         autor: d.userfullname,
         publicadaEm: date(d.created),
         anexos: [...(Array.isArray(d.attachments) ? d.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, d.message)],
       }));
+    });
+  }
+
+  /**
+   * Publica no fórum: nova discussão (`mod_forum_add_discussion`, pelo `forumId`) ou resposta a uma mensagem
+   * (`mod_forum_add_discussion_post`, pelo `postId` de `verForum`). 1 chamada. O texto vai como HTML escapado, um parágrafo por linha.
+   */
+  postarForum(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita> {
+    return this.run(ctx, async (m) => {
+      const mensagem = textoParaHtml(post.mensagem);
+      if (post.postId !== undefined) {
+        const id = Number(post.postId);
+        if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'postId inválido');
+        const res = await this.client.call<{ postid?: number }>(m, 'mod_forum_add_discussion_post', {
+          postid: id,
+          subject: post.titulo,
+          message: mensagem,
+        });
+        return { postId: res.postid !== undefined ? String(res.postid) : undefined };
+      }
+      const id = Number(post.forumId);
+      if (!Number.isInteger(id)) throw new SourceError('UNSUPPORTED_SCOPE', 'forumId inválido');
+      const res = await this.client.call<{ discussionid?: number }>(m, 'mod_forum_add_discussion', {
+        forumid: id,
+        subject: post.titulo,
+        message: mensagem,
+      });
+      return { discussaoId: res.discussionid !== undefined ? String(res.discussionid) : undefined };
     });
   }
 

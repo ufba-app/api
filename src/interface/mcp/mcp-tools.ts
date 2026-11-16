@@ -188,6 +188,30 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     (args) => run(() => uc.baixarAnexo(p, args)),
   );
 
+  // Escrita: só existe para o app que a pessoa autorizou com a permissão `moodle.forum_write` (ver docs/MCP.md).
+  registerPermissionedTool(p, 'moodle.forum_write', () =>
+    server.registerTool(
+      'postar_forum',
+      {
+        title: 'Postar no fórum',
+        annotations: { title: 'Postar no fórum', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        description:
+          'Publica no fórum do Moodle (AVA) em nome da pessoa. Dois modos: nova discussão (passe `forumId`, o de `ver_curso`) ou ' +
+          'resposta (passe `postId`, o de `ver_forum`). Sempre `titulo` (no modo resposta, use "Re: " + o título da discussão) e `mensagem` (texto puro). ' +
+          'A publicação não pode ser desfeita por aqui e fica visível para a turma e o professor: mostre o texto à pessoa e só publique depois que ela confirmar. ' +
+          'Escreve na fonte (o AVA), na hora; não grava nada no serviço.',
+        inputSchema: {
+          conta: CONTA,
+          forumId: z.string().optional(),
+          postId: z.string().optional(),
+          titulo: z.string(),
+          mensagem: z.string(),
+        },
+      },
+      (args) => run(() => uc.postarForum(p, args)),
+    ),
+  );
+
   if (p.siasb && clinica) registerClinicaTools(server, clinica, p);
 
   if (withMemory) {

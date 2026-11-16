@@ -9,6 +9,7 @@ import type {
   ListarCursosInput,
   McpPrincipal,
   McpUseCases,
+  PostarForumInput,
   PrazosInput,
   VerAvisoInput,
   VerCursoInput,
@@ -65,6 +66,11 @@ export class McpUseCasesImpl implements McpUseCases {
 
   async verAviso(p: McpPrincipal, i: VerAvisoInput) {
     return { aviso: await this.consulta.verAviso(quem(p), provider(i.fonte), i.conta, i.avisoId) };
+  }
+
+  async postarForum(p: McpPrincipal, i: PostarForumInput) {
+    const feita = await this.consulta.postarForum(quem(p), i.conta, { forumId: i.forumId, postId: i.postId, titulo: i.titulo, mensagem: i.mensagem });
+    return { postado: true, ...feita };
   }
 
   async baixarAnexo(p: McpPrincipal, i: BaixarAnexoInput) {

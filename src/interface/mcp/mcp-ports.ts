@@ -100,6 +100,15 @@ export interface VerAvisoInput extends Alvo {
   avisoId: string;
 }
 
+/** Publicação no fórum do Moodle: `forumId` (nova discussão) ou `postId` (resposta), e sempre `titulo` e `mensagem`. */
+export interface PostarForumInput {
+  conta?: string;
+  forumId?: string;
+  postId?: string;
+  titulo: string;
+  mensagem: string;
+}
+
 export interface BaixarAnexoInput extends Alvo {
   /** Um anexo... */
   ref?: string;
@@ -119,4 +128,6 @@ export interface McpUseCases {
   verAviso(p: McpPrincipal, input: VerAvisoInput): Promise<unknown>;
   /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */
   baixarAnexo(p: McpPrincipal, input: BaixarAnexoInput): Promise<unknown>;
+  /** Publica no fórum do Moodle (escrita; só existe no MCP com a permissão `moodle.forum_write`). */
+  postarForum(p: McpPrincipal, input: PostarForumInput): Promise<unknown>;
 }

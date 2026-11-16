@@ -1026,12 +1026,12 @@ describe('API do app web (docs/WEB-API.md)', () => {
   });
 
   describe('permissões por fonte', () => {
-    it('quem não tem acesso ao SIASB recebe a lista de permissões vazia, com no-store', async () => {
+    it('quem não tem acesso ao SIASB não recebe permissões do SIASB, com no-store', async () => {
       const cookie = await signIn('perm1');
       const r = await get('/me/permissions', cookie);
       expect(r.status).toBe(200);
       expect(r.headers.get('cache-control')).toBe('no-store');
-      expect(((await r.json()) as any).items).toEqual([]);
+      expect(((await r.json()) as any).items.filter((i: any) => i.key.startsWith('siasb.'))).toEqual([]);
     });
 
     it('ligar pelo caminho legado: 400 (a permissão é dada ao autorizar o app) e nada é gravado', async () => {
@@ -1836,8 +1836,8 @@ describe('API do app web (docs/WEB-API.md)', () => {
         const p = await pedido(cookie);
         const info = await p.info();
         expect(info.sources.map((s: any) => s.source)).not.toContain('siasb');
-        expect(info.permissions).toEqual([]);
-        expect(((await (await get('/me/permissions', cookie)).json()) as any).items).toEqual([]);
+        expect(info.permissions.filter((x: any) => x.key.startsWith('siasb.'))).toEqual([]);
+        expect(((await (await get('/me/permissions', cookie)).json()) as any).items.filter((x: any) => x.key.startsWith('siasb.'))).toEqual([]);
         expect(((await (await get('/me/notification-settings', cookie)).json()) as any).items).toEqual([]);
         const anon = (await (await get(`/authorize/requests/${p.id}`)).json()) as any;
         expect(anon.permissions).toBeNull();
@@ -1848,7 +1848,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
         const p = await pedido(cookie);
         const info = await p.info();
         expect(info.sources).toContainEqual({ source: 'siasb', status: 'disconnected' });
-        expect(info.permissions.map((x: any) => [x.key, x.available, x.unavailableReason])).toEqual([
+        expect(info.permissions.filter((x: any) => x.key.startsWith('siasb.')).map((x: any) => [x.key, x.available, x.unavailableReason])).toEqual([
           ['siasb.schedule_write', false, 'source_not_connected'],
           ['siasb.procedures_write', false, 'source_not_connected'],
         ]);
@@ -1888,7 +1888,7 @@ describe('API do app web (docs/WEB-API.md)', () => {
         expect(dele(c.clientId)).toEqual([]);
         expect(dele(b.clientId)[0]).toEqual(expect.objectContaining({ title: expect.any(String), description: expect.any(String), risk: expect.any(String), source: 'siasb' }));
         // O legado enxerga a concessão (enabled = algum app).
-        const leg = ((await (await get('/me/permissions', cookie)).json()) as any).items;
+        const leg = ((await (await get('/me/permissions', cookie)).json()) as any).items.filter((x: any) => x.key.startsWith('siasb.'));
         expect(leg.map((x: any) => [x.key, x.enabled])).toEqual([
           ['siasb.schedule_write', true],
           ['siasb.procedures_write', true],
@@ -1945,9 +1945,9 @@ describe('API do app web (docs/WEB-API.md)', () => {
         const id = new URL((await get(`/authorize?${q}`)).headers.get('location')!).searchParams.get('request')!;
         // `granted` = já concedida a ESTE app: a tela pré-marca (o app novo da mesma pessoa vem tudo desmarcado).
         const antes = ((await (await get(`/authorize/requests/${id}`, cookie)).json()) as any).permissions;
-        expect(antes.map((x: any) => [x.key, x.granted])).toEqual([['siasb.schedule_write', true], ['siasb.procedures_write', true]]);
+        expect(antes.filter((x: any) => x.key.startsWith('siasb.')).map((x: any) => [x.key, x.granted])).toEqual([['siasb.schedule_write', true], ['siasb.procedures_write', true]]);
         const outro = await pedido(cookie);
-        expect((await outro.info()).permissions.map((x: any) => x.granted)).toEqual([false, false]);
+        expect((await outro.info()).permissions.filter((x: any) => x.key.startsWith('siasb.')).map((x: any) => x.granted)).toEqual([false, false]);
         expect((await aprovar(cookie, { clientId: a.clientId, id, verifier }, { permissions: ['siasb.procedures_write'] })).status).toBe(200);
         const depois = await pedido(cookie);
         expect((await depois.info()).permissions.every((x: any) => x.granted === false)).toBe(true); // outro cliente, outro conjunto
