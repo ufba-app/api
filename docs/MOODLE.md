@@ -32,7 +32,9 @@ Professores postam links do Google Drive/Docs no Moodle (URL de módulo, HTML da
 - **Só `drive.google.com` e `docs.google.com`** (`domain/drive/drive-link.ts`); pastas e formulários não viram anexo; id validado (`[A-Za-z0-9_-]{10,128}`).
 - **Como baixa** (`GoogleDriveDownloader`): 1º o token da pessoa (contas do Classroom conectadas, a `@ufba.br` primeiro; Drive API v3, `drive.readonly`); se nenhuma abrir, o link público (sem login). Sem acesso a nenhum: 403 `NO_ACCESS` com a dica de conectar o Classroom. Falha de rede/5xx é 502 (não vira "sem acesso").
 - **Limites:** 25 MB (pelo `size` e pelo corpo lido), 30 s por requisição; no link público o redirect só é seguido dentro de hosts do Google (`drive.google.com`, `docs.google.com`, `drive.usercontent.google.com`, `*.googleusercontent.com`); redirect para o login do Google = arquivo privado.
-- O link original continua em `links` do item; o anexo é a forma de baixar.
+- **O link do Drive sai de `links`** quando vira anexo: o agente deve usar a `ref` `gdrive1.…` com `baixar_anexo`; o link direto pede login (o MCP e as `instructions` dizem isso).
+- **Onde o extrator procura links** (`MoodleLive.verCurso`, melhor esforço, só com `SECRETS_KEY`): URL do módulo `url`; descrição/intro de qualquer módulo (inclusive `assign`, `label`, `forum`); **corpo de `page`** (1 chamada `mod_page_get_pages_by_courses` para o curso todo; se falhar, o `index.html` de cada página); **capítulos de `book`** e **arquivos HTML de `resource`** (baixados com o token da conta, só do Moodle dela). Teto de 12 arquivos HTML por curso, 512 KB cada; falha de leitura só deixa de achar links, nunca derruba `ver_curso`. Fora: `wiki`, `lesson`, `glossary`, `data`, `h5p` e PDFs/DOCX (o conteúdo de arquivos não é aberto aqui).
+- Custo de `ver_curso` no Moodle: 2 chamadas + 1 se houver módulo `page` + até 12 downloads de HTML.
 - **Não coberto:** pastas do Drive, formulários, desenhos; arquivos acima do teto (abrir pelo navegador).
 
 ## Como o token é obtido

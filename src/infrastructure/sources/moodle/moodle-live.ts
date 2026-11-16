@@ -9,12 +9,23 @@ import type {
   TipoAtividade,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
-import { DRIVE_KIND_NAME, extractDriveLinks } from '../../../domain/drive/drive-link';
+import { DRIVE_KIND_NAME, extractDriveLinks, parseDriveLink } from '../../../domain/drive/drive-link';
 import type { DriveRefs } from '../drive/drive-refs';
 import { accessOf, type MoodleAccess } from './moodle-access';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
 import { cleanUrl, type MoodleAssignment, type MoodleDiscussion, type MoodleFile } from './moodle-mapper';
+
+/** Teto de arquivos HTML (capítulos de livro, recursos HTML, páginas) baixados por `verCurso` só para achar links do Drive. */
+export const MAX_HTML_LEITURAS = 12;
+/** HTML maior que isso não é lido. */
+const MAX_HTML_BYTES = 512 * 1024;
+const PARALELO_HTML = 4;
+
+interface MoodlePageRow {
+  coursemodule?: number;
+  content?: string;
+}
 
 interface TimelineCourse {
   id: number;
@@ -87,7 +98,8 @@ function anexo(f: MoodleFile): AnexoVivo {
 
 /**
  * Moodle ao vivo. Chamadas por método (nunca varre curso por curso):
- * listarCursos 1 · prazos 1 · verCurso 2 · verForum 1 · baixar 1 (o arquivo).
+ * listarCursos 1 · prazos 1 · verCurso 2 (+1 se houver módulo "page", +até 12 arquivos HTML de livro/recurso/página, só para achar
+ * links do Drive) · verForum 1 · baixar 1 (o arquivo).
  */
 export class MoodleLive implements LiveSource {
   readonly provider: Provider = 'MOODLE';
@@ -163,6 +175,8 @@ export class MoodleLive implements LiveSource {
       ]);
       const tarefas = new Map<number, MoodleAssignment>();
       for (const c of assigns.courses ?? []) for (const a of c.assignments) if (a.cmid) tarefas.set(a.cmid, a);
+      // Corpo de páginas, capítulos de livro e recursos HTML: é onde o professor costuma pôr o link do Drive.
+      const corpos = await this.corposHtml(ctx, m, id, sections);
 
       const out: AtividadeViva[] = [];
       for (const s of sections) {
@@ -173,7 +187,7 @@ export class MoodleLive implements LiveSource {
           const htmlDescricao = tarefa?.intro ?? mod.description;
           const doDrive = this.driveAnexos(
             ctx.userId,
-            htmlDescricao,
+            [htmlDescricao, ...(corpos.get(mod.id) ?? [])].join(' '),
             contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
           );
           // Rótulos (texto solto na página do curso) só entram se trouxerem arquivo do Drive.
@@ -191,13 +205,61 @@ export class MoodleLive implements LiveSource {
               ...(tarefa?.introattachments ?? []).map(anexo),
               ...doDrive,
             ],
-            links: contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
+            // Link do Drive que virou anexo sai de `links`: o agente deve usar o `ref` (o link direto pede login).
+            links: contents
+              .filter((f) => f.type === 'url' && !(this.drive && parseDriveLink(f.fileurl)))
+              .map((f) => f.fileurl),
             forumId: mod.modname === 'forum' && mod.instance ? String(mod.instance) : undefined,
           });
         }
       }
       return out;
     });
+  }
+
+  /**
+   * HTML dos módulos que guardam o texto fora da descrição, por id do módulo (`cmid`): `page` (1 chamada `mod_page_get_pages_by_courses`
+   * para o curso todo; se falhar, baixa o index.html de cada página), `book` (capítulos) e `resource` HTML (arquivo). Melhor esforço:
+   * qualquer falha aqui só deixa de achar links, nunca derruba `verCurso`. Teto de 12 arquivos e 512 KB cada.
+   */
+  private async corposHtml(ctx: SourceContext, m: MoodleAccess, courseId: number, sections: LiveSection[]): Promise<Map<number, string[]>> {
+    const out = new Map<number, string[]>();
+    if (!this.drive) return out; // só serve para achar links do Drive
+    const visible = sections.flatMap((s) => s.modules ?? []).filter((mod) => mod.visible !== 0 && mod.uservisible !== false);
+    const add = (cmid: number, html: string) => out.set(cmid, [...(out.get(cmid) ?? []), html]);
+    const isHtml = (f: MoodleFile) => f.type !== 'url' && (f.mimetype?.toLowerCase().startsWith('text/html') || /\.html?$/i.test(f.filename)) && (f.filesize ?? 0) <= MAX_HTML_BYTES;
+
+    const pages = visible.filter((mod) => mod.modname === 'page');
+    let pagesViaWs = false;
+    if (pages.length > 0) {
+      try {
+        const r = await this.client.call<{ pages?: MoodlePageRow[] }>(m, 'mod_page_get_pages_by_courses', { 'courseids[0]': courseId });
+        for (const p of r.pages ?? []) if (p.coursemodule && p.content) add(p.coursemodule, p.content);
+        pagesViaWs = true;
+      } catch {
+        // Função fora do serviço do AVA ou sem permissão: cai no index.html de cada página.
+      }
+    }
+    const files: Array<{ cmid: number; file: MoodleFile }> = [];
+    for (const mod of visible) {
+      const wanted = mod.modname === 'book' || mod.modname === 'resource' || (mod.modname === 'page' && !pagesViaWs);
+      if (!wanted) continue;
+      for (const f of mod.contents ?? []) if (isHtml(f)) files.push({ cmid: mod.id, file: f });
+    }
+    const queue = files.slice(0, MAX_HTML_LEITURAS);
+    const worker = async () => {
+      for (let it = queue.shift(); it; it = queue.shift()) {
+        try {
+          // O leitor só aceita URL do Moodle da própria conta e acrescenta o token (nunca logado).
+          const r = await this.files.read(ctx, cleanUrl(it.file.fileurl));
+          if (r.content.length <= MAX_HTML_BYTES) add(it.cmid, r.content.toString('utf8'));
+        } catch {
+          // melhor esforço
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PARALELO_HTML, queue.length) }, worker));
+    return out;
   }
 
   verForum(ctx: SourceContext, forumId: string): Promise<DiscussaoViva[]> {
