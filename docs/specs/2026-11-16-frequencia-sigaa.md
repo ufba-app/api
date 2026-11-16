@@ -38,7 +38,7 @@ histórico de semestres anteriores.
 
 1. **Postback do menu por turma, como `verCurso`/`prazos` (escolhida).** Portal → entrar na turma → postback do item
    "Frequência" → parser. Segue o caminho que o SIGAA aceita e reaproveita `entrarNaTurma` e o `postback` que já segue redirect.
-   Custo: 3 requisições por turma.
+   Custo: o portal uma vez, mais 2 requisições por turma (entrar na turma e postback do menu).
 2. **GET direto em `mapa.jsf`.** Descartada: falha no SIGAA real.
 3. **Ler o resumo de frequência do histórico/PDF.** Descartada: o histórico não tem frequência do semestre em curso.
 
@@ -58,7 +58,8 @@ histórico de semestres anteriores.
   - `remainingAbsentClasses = allowedAbsentClasses − absentClasses` (pode ser negativo; o painel mostra 0)
   - `status`: `failed` se `absentClasses > allowedAbsentClasses`; `at_risk` se restam `≤ 1/3` do limite; senão `ok`.
     O 1/3 é palpite meu, calibrado pelo mock (5 de 17 = "No limite", 13 de 17 = "Em dia").
-  - `complete = false` quando o aviso "ainda não foi lançada" aparece. Nesse caso o status é calculado com o que há e o
+  - `complete = false` quando o aviso "ainda não foi lançada" aparece (suposição minha sobre o significado do aviso, não
+    confirmada pelo André). Nesse caso o status é calculado com o que há e o
     painel deve tratar como estimativa: as aulas que ainda não foram lançadas podem virar falta.
 - **Resposta**, por disciplina: `courseId`, `courseName`, `presentClasses`, `recordedClasses`, `workloadClasses`,
   `absentClasses`, `allowedAbsentClasses`, `remainingAbsentClasses`, `status`, `complete`; mais `summary`:

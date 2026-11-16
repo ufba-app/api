@@ -90,6 +90,7 @@ Variáveis (só os nomes): `PORT`, `DATABASE_URL`, `SECRETS_KEY`, `SIGNUP_TOKEN`
 - **Classroom:** a volta do Google usa `PUBLIC_URL`; no Google Cloud os redirects são `https://api.ufba.app/oauth/callback/google` (app interno) e `/oauth/callback/classroom` (convidado).
 - **Logs do Prisma no Railway** aparecem com severidade "error" (é só stderr).
 - **Prazos do SIGAA** (`/sources/sigaa/deadlines`) nunca foram validados contra o SIGAA real.
+- **Frequência do SIGAA** (`/sources/sigaa/attendance`): `FrequenciaAluno/mapa.jsf` só abre pelo postback do item "Frequência" do `formMenu` da turma; GET direto dá "Comportamento Inesperado!". A página traz presenças em **aulas** (não horas); a falta é calculada. Lida com uma turma real; várias turmas (ViewState) não validadas.
 
 ## Memória do projeto
 
