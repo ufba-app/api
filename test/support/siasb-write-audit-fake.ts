@@ -14,6 +14,17 @@ export class InMemorySiasbWriteAudit extends SiasbWriteAuditRepository {
     });
   }
 
+  async hasProcedureAdd(userId: string, attendanceId: string, targetId: string): Promise<boolean> {
+    return this.rows.some(
+      (r) =>
+        r.userId === userId &&
+        r.kind === 'procedure_add' &&
+        r.result === 'ok' &&
+        r.attendanceId === attendanceId &&
+        r.targetId === targetId,
+    );
+  }
+
   /** Como o cascade do Postgres ao apagar a pessoa. */
   deleteUser(userId: string): void {
     this.rows = this.rows.filter((r) => r.userId !== userId);

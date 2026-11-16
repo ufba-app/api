@@ -5,7 +5,7 @@ const U = '0192b3c4-0000-7000-8000-000000000001';
 const AT = new Date('2026-11-16T12:00:00Z');
 
 function setup() {
-  const prisma = { siasbWriteAudit: { create: jest.fn().mockResolvedValue({}) } };
+  const prisma = { siasbWriteAudit: { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) } };
   return { repo: new PrismaSiasbWriteAuditRepository(prisma as unknown as PrismaService), prisma };
 }
 
@@ -33,5 +33,16 @@ describe('PrismaSiasbWriteAuditRepository', () => {
     expect(Object.keys(prisma.siasbWriteAudit.create.mock.calls[0][0].data).sort()).toEqual(
       ['at', 'attendanceId', 'kind', 'result', 'targetId', 'userId'],
     );
+  });
+
+  it('hasProcedureAdd procura procedure_add ok da pessoa, atendimento e id', async () => {
+    const { repo, prisma } = setup();
+    expect(await repo.hasProcedureAdd(U, '10', '55')).toBe(false);
+    expect(prisma.siasbWriteAudit.findFirst).toHaveBeenCalledWith({
+      where: { userId: U, kind: 'procedure_add', result: 'ok', attendanceId: '10', targetId: '55' },
+      select: { id: true },
+    });
+    prisma.siasbWriteAudit.findFirst.mockResolvedValue({ id: 'x' });
+    expect(await repo.hasProcedureAdd(U, '10', '55')).toBe(true);
   });
 });

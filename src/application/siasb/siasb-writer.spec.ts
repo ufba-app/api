@@ -24,6 +24,8 @@ const NOW = new Date('2026-11-16T12:00:00Z'); // segunda, 9h na Bahia
 const START = new Date('2026-11-20T13:00:00Z'); // sexta, 20/11/2026, 10h na Bahia
 const WEEK = 7 * 86_400_000;
 const PACIENTE = 'Zuleica Paciente-Canario';
+/** Como o writer devolve horários: hora da Bahia com -03:00. */
+const bahiaIso = (d: Date) => `${new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 19)}-03:00`;
 
 class FakeAccounts extends SourceAccountRepository {
   rows: SourceAccountRecord[] = [
@@ -237,7 +239,7 @@ describe('SiasbWriter.scheduleSession', () => {
         atendimentoId: '100',
         quantidade: 3,
         duracaoMin: 120,
-        datas: expectedStarts(3).map((d) => d.toISOString()),
+        datas: expectedStarts(3).map(bahiaIso),
         professor: 'Profa. Ana',
         local: 'Clínica 3',
         grupo: 'Adulto',
@@ -347,11 +349,24 @@ describe('SiasbWriter.scheduleSession', () => {
     expect(reread.to.getTime()).toBeGreaterThanOrEqual(START.getTime() + 2 * WEEK + 120 * 60_000);
     expect(out.status).toBe('done');
     expect(out.status === 'done' && out.details.verificado).toBe(true);
-    expect(out.status === 'done' && out.details.datasConfirmadas).toEqual(expectedStarts(3).map((d) => d.toISOString()));
+    expect(out.status === 'done' && out.details.datasConfirmadas).toEqual(expectedStarts(3).map(bahiaIso));
     expect(JSON.stringify(out)).not.toContain('Zuleica');
     expect(t.audit.rows).toEqual([{ userId: 'u1', kind: 'schedule', attendanceId: '100', targetId: undefined, result: 'ok', at: NOW }]);
     expect(t.syncCalls).toEqual(['u1']);
     expect(t.markDue).toEqual([]);
+  });
+
+  it('início com segundos e frações: normalizado para o minuto inteiro antes de enviar e conferir', async () => {
+    const t = setup();
+    t.siasb.afterSchedule = [sess('n0', '100', START, 'Nova')];
+    const out = await t.writer.scheduleSession(
+      'u1',
+      scheduleInput({ start: new Date(START.getTime() + 42_500), count: 1, confirmed: true }),
+    );
+    expect(t.siasb.scheduleBodies[0].startAt).toEqual(START);
+    expect(t.siasb.scheduleBodies[0].endAt).toEqual(new Date(START.getTime() + 120 * 60_000));
+    expect(out.status === 'done' && out.details.verificado).toBe(true);
+    expect(out.status === 'done' && out.details.datas).toEqual(['2026-11-20T10:00:00-03:00']);
   });
 
   it('sem observação: description vazia', async () => {
@@ -366,7 +381,7 @@ describe('SiasbWriter.scheduleSession', () => {
     const out = await t.writer.scheduleSession('u1', scheduleInput({ confirmed: true }));
     expect(out.status).toBe('done');
     expect(out.status === 'done' && out.details.verificado).toBe(false);
-    expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([START.toISOString()]);
+    expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([bahiaIso(START)]);
     expect(out.status === 'done' && out.summary).toContain('não deu para confirmar');
   });
 
@@ -403,7 +418,7 @@ describe('SiasbWriter.scheduleSession', () => {
       t.siasb.afterSchedule = [sess('n0', '100', START, 'Nova')];
       const out = await t.writer.scheduleSession('u1', one());
       expect(out.status === 'done' && out.details.verificado).toBe(true);
-      expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([START.toISOString()]);
+      expect(out.status === 'done' && out.details.datasConfirmadas).toEqual([bahiaIso(START)]);
       // a leitura prévia é da mesma janela da conferência
       expect(t.siasb.sessionRanges).toHaveLength(2);
       expect(t.siasb.sessionRanges[0]).toEqual(t.siasb.sessionRanges[1]);
@@ -529,7 +544,7 @@ describe('SiasbWriter.unscheduleSession', () => {
       summary:
         'Vai desmarcar a sessão de Clínica Integrada I de sexta, 27/11/2026, às 10h (horário da Bahia), com o motivo ' +
         '"Desmarcado pelo aluno". Não registra falta.',
-      details: { sessaoId: '500', atendimentoId: '100', disciplina: 'Clínica Integrada I', inicio: future.toISOString() },
+      details: { sessaoId: '500', atendimentoId: '100', disciplina: 'Clínica Integrada I', inicio: bahiaIso(future) },
     });
     expect(t.writes()).toEqual([]);
     const range = t.siasb.sessionRanges[0];
@@ -698,8 +713,13 @@ describe('SiasbWriter.addProcedure', () => {
 });
 
 describe('SiasbWriter.removeProcedure', () => {
+  const seed = (t: ReturnType<typeof setup>, over: Partial<{ userId: string; attendanceId: string; targetId: string; result: 'ok' | 'unknown' }> = {}) =>
+    t.audit.record({ userId: 'u1', kind: 'procedure_add', attendanceId: '100', targetId: '42', result: 'ok', at: NOW, ...over });
+  const GUARD = 'Só é possível excluir por aqui um procedimento incluído por esta ferramenta; para os demais use o site do SIASB.';
+
   it('sem confirmed: resumo e nenhuma escrita', async () => {
     const t = setup();
+    await seed(t);
     const out = await t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed: false });
     expect(out).toEqual({
       status: 'preview',
@@ -711,10 +731,48 @@ describe('SiasbWriter.removeProcedure', () => {
 
   it('confirmed: só então chama removeProcedure', async () => {
     const t = setup();
+    await seed(t);
     const out = await t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed: true });
     expect(t.siasb.removeBodies).toEqual([{ attendanceId: '100', procedureId: '42' }]);
     expect(out.status).toBe('done');
-    expect(t.audit.rows.map((r) => [r.kind, r.targetId, r.result])).toEqual([['procedure_remove', '42', 'ok']]);
+    expect(t.audit.rows.slice(1).map((r) => [r.kind, r.targetId, r.result])).toEqual([['procedure_remove', '42', 'ok']]);
+  });
+
+  it.each([
+    ['sem inclusão registrada', null],
+    ['inclusão de outra pessoa', { userId: 'u2' }],
+    ['inclusão em outro atendimento', { attendanceId: '200' }],
+    ['inclusão de outro id', { targetId: '43' }],
+    ['inclusão sem confirmação (unknown)', { result: 'unknown' as const }],
+  ])('%s: WriteInputError e nenhuma escrita (também sem confirmed)', async (_n, over) => {
+    const t = setup();
+    if (over) await seed(t, over);
+    for (const confirmed of [false, true]) {
+      const err = await t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed }).catch((e) => e);
+      expect(err).toBeInstanceOf(WriteInputError);
+      expect(err.message).toBe(GUARD);
+    }
+    expect(t.writes()).toEqual([]);
+  });
+
+  it('incluir e depois excluir o id devolvido pela inclusão', async () => {
+    const t = setup();
+    t.siasb.created = '42';
+    await t.writer.addProcedure('u1', { attendanceId: '100', serviceId: '7', confirmed: true });
+    const out = await t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed: true });
+    expect(out.status).toBe('done');
+    expect(t.writes()).toEqual(['addProcedure', 'removeProcedure']);
+  });
+
+  it('falha ao consultar a auditoria: recusa (porta fechada) sem escrita', async () => {
+    const t = setup();
+    t.audit.hasProcedureAdd = async () => {
+      throw new Error('db fora');
+    };
+    await expect(
+      t.writer.removeProcedure('u1', { attendanceId: '100', procedureId: '42', confirmed: true }),
+    ).rejects.toThrow(GUARD);
+    expect(t.writes()).toEqual([]);
   });
 
   it('procedureId não numérico ou atendimento alheio: recusa sem escrita', async () => {

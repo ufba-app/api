@@ -130,7 +130,7 @@ export function mapSchedulingOptions(raw: unknown): SchedulingOption[] {
   return parse(schedulingOptionSchema, raw).map((o) => ({ id: o.id, name: o.name, preferred: o.preferred === true }));
 }
 
-const unassignedSchema =z.array(z.object({ disciplineId: id }));
+const unassignedSchema = z.array(z.object({ disciplineId: id }));
 
 /** Só contagem por disciplina. Nome do paciente e prontuário (de terceiros) nem são lidos. */
 export function countUnassigned(raw: unknown): Record<string, number> {

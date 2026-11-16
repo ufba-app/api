@@ -21,4 +21,12 @@ export class PrismaSiasbWriteAuditRepository extends SiasbWriteAuditRepository {
       },
     });
   }
+
+  async hasProcedureAdd(userId: string, attendanceId: string, targetId: string): Promise<boolean> {
+    const row = await this.prisma.siasbWriteAudit.findFirst({
+      where: { userId, kind: 'procedure_add', result: 'ok', attendanceId, targetId },
+      select: { id: true },
+    });
+    return row !== null;
+  }
 }

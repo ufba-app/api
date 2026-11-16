@@ -130,6 +130,16 @@ describe('chamadas', () => {
     expect(w.calls[5].args).toMatchObject({ attendanceId: '1', procedureId: '9' });
   });
 
+  it('inicio com segundos e frações é normalizado para o minuto inteiro', async () => {
+    const w = new FakeWrite();
+    const c = await connect(both, clinicaWith(w));
+    await c.callTool({
+      name: 'clinica_agendar_sessao',
+      arguments: { atendimentoId: '10', inicio: '2026-11-20T14:00:59.999-03:00', duracaoMin: 60 },
+    });
+    expect((w.calls[0].args.start as Date).toISOString()).toBe('2026-11-20T17:00:00.000Z');
+  });
+
   it('inicio sem fuso ou inválido vira erro de entrada, sem eco e sem chamar o escritor', async () => {
     const w = new FakeWrite();
     const c = await connect(both, clinicaWith(w));
@@ -157,6 +167,9 @@ describe('chamadas', () => {
     expect(r.status).toBe('escolher');
     expect(r.faltando).toEqual(['professor', 'local']);
     expect(r.opcoes.professors).toEqual([{ id: '1', name: 'Prof', preferred: false }]);
+    expect(r.instrucao).toMatch(/SEM `confirmado`/);
+    expect(r.instrucao).toMatch(/resumo/);
+    expect(r.instrucao).toMatch(/OK/);
     w.outcome = { status: 'done', summary: 'Feito.', details: { verificado: true } };
     r = JSON.parse(texto(await c.callTool({ name: 'clinica_agendar_sessao', arguments: { ...args, confirmado: true } })));
     expect(r).toEqual({ status: 'feito', resumo: 'Feito.', detalhes: { verificado: true } });

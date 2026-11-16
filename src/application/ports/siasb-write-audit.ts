@@ -14,4 +14,9 @@ export interface SiasbWriteAuditEntry {
 
 export abstract class SiasbWriteAuditRepository {
   abstract record(e: SiasbWriteAuditEntry): Promise<void>;
+  /**
+   * Há registro de `procedure_add` com resultado `ok` desta pessoa, neste atendimento, com este id de procedimento?
+   * É a trava de `clinica_excluir_procedimento`: só se exclui por aqui o que foi incluído por aqui.
+   */
+  abstract hasProcedureAdd(userId: string, attendanceId: string, targetId: string): Promise<boolean>;
 }

@@ -274,7 +274,7 @@ Lista própria no cliente (`WRITE_ALLOWED`, método + caminho; o que não casa v
 
 ### Confirmação em duas etapas
 
-Cada ferramenta tem `confirmado` (booleano, padrão `false`); só `=== true` grava. Sem ele, a ferramenta valida e devolve o resumo exato do que fará (`status: resumo`), sem escrever. O Claude mostra o resumo, a pessoa dá o OK e a chamada se repete com `confirmado: true`. Não há estado entre as duas chamadas. Quando faltam professor, local ou grupo ao agendar, a resposta é `status: escolher` (com `faltando` e `opcoes`), com ou sem `confirmado`. Gravado: `status: feito`.
+Cada ferramenta tem `confirmado` (booleano, padrão `false`); só `=== true` grava. Sem ele, a ferramenta valida e devolve o resumo exato do que fará (`status: resumo`), sem escrever. O Claude mostra o resumo, a pessoa dá o OK e a chamada se repete com `confirmado: true`. Não há estado entre as duas chamadas. Quando faltam professor, local ou grupo ao agendar, a resposta é `status: escolher` (com `faltando`, `opcoes` e `instrucao`: chamar de novo **sem** `confirmado` para receber o resumo, e só então pedir o OK), com ou sem `confirmado`. Horários em `detalhes` vêm na hora da Bahia com `-03:00`; o início recebido é arredondado para o minuto inteiro antes de enviar e de conferir. Gravado: `status: feito`.
 
 ### Regras e validações (antes de tocar o SIASB; mensagens fixas em pt-BR, sem eco do valor)
 
@@ -283,6 +283,7 @@ Cada ferramenta tem `confirmado` (booleano, padrão `false`); só `=== true` gra
 - Agendar: `quantidade` inteira de 1 a 20; `duracaoMin` inteira de 15 a 240; início no futuro e no máximo 365 dias à frente; o início da **última** sessão da série também no máximo 365 dias. A série é semanal, no mesmo horário, tudo ou nada.
 - Desmarcar: só sessão **FUTURA** (início e eventual reagendamento depois de agora), marcada e de atendimento ativo, achada entre as sessões de 14 dias atrás a 45 dias à frente. Motivo padrão "Desmarcado pelo aluno". **Falta nunca é registrada** (`absence` fixo em `false`).
 - **Realizar** (dar baixa) procedimento não existe: o incluído fica PREVISTO e a baixa é no site.
+- Excluir: só um procedimento **incluído por `clinica_incluir_procedimento`**: precisa haver na auditoria `procedure_add` com resultado `ok` da mesma pessoa, no mesmo atendimento, com esse `target_id` (`SiasbWriteAuditRepository.hasProcedureAdd`). Senão: "Só é possível excluir por aqui um procedimento incluído por esta ferramenta; para os demais use o site do SIASB.", sem tocar o SIASB. Falha ao consultar a auditoria também recusa.
 - Textos livres (`observacao`, `motivo`) até 300 caracteres; dente e face até 50, sem caracteres de controle.
 
 ### Sem retry; resultado desconhecido
@@ -303,5 +304,6 @@ Tabela `siasb_write_audit` (migração `20261116220000_siasb_write_audit`): `use
 ### Lacunas conhecidas
 
 - **Formatos de resposta de escrita nunca confirmados ao vivo.** O corpo enviado e o que o SIASB devolve foram deduzidos, sem teste real. A primeira escrita real pode mostrar formatos diferentes; o roteiro está em `handoffs/siasb-escrita-teste-real.md` (fora do repositório).
-- **`procedimentoId` pode vir `null`** ao incluir (só se aceita `id`, `procedureId` ou `data.id` numéricos de 1 a 12 dígitos). Sem o id, **excluir** pela ferramenta não é possível: o id vem do site, ou se exclui pelo site.
-- **`clinica_excluir_procedimento` não confere que o procedimento é PREVISTO** (nem que existe): não há leitura dos lançados; quem decide é o SIASB.
+- **`procedimentoId` pode vir `null`** ao incluir (só se aceita `id`, `procedureId` ou `data.id` numéricos de 1 a 12 dígitos). Sem o id, **excluir** pela ferramenta não é possível: exclui-se pelo site.
+- **Excluir depende do id deduzido ao incluir.** A trava (só ids incluídos por esta ferramenta) evita excluir procedimento lançado por outro caminho, mas o id gravado na auditoria é o que o cliente deduziu da resposta de incluir (formato nunca confirmado ao vivo). Se o SIASB devolver ali outro número (não o do procedimento lançado), a exclusão pode mirar o id errado. Não há leitura dos lançados para conferir que é PREVISTO.
+- **Retenção da auditoria:** quando o expurgo de 90 dias existir, procedimentos incluídos há mais tempo deixam de poder ser excluídos por aqui (só pelo site).

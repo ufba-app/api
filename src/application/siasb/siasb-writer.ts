@@ -47,6 +47,8 @@ const MAX_START_DAYS = 365;
 const UNSCHEDULE_BACK_DAYS = 14;
 const WEEK_MS = 7 * DAY_MS;
 
+const NOT_OWN_PROCEDURE =
+  'Só é possível excluir por aqui um procedimento incluído por esta ferramenta; para os demais use o site do SIASB.';
 const ATTENDANCE_NOT_FOUND =
   'Não achamos esse atendimento entre os seus atendimentos ativos. Confira o id em clinica_pacientes.';
 
@@ -59,6 +61,11 @@ function mapWriteError(e: SiasbError): Error {
 
 const isDigits = (v: unknown): v is string => typeof v === 'string' && /^\d{1,12}$/.test(v);
 const two = (n: number) => String(n).padStart(2, '0');
+
+/** Instante na hora da Bahia (UTC-03:00 fixo) com o offset, como as leituras: `2026-11-20T10:00:00-03:00`. */
+export function bahiaIso(d: Date): string {
+  return `${new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 19)}-03:00`;
+}
 
 /** `sexta, 20/11/2026, às 10h` (ou `às 10h30`), na hora da Bahia. */
 function bahiaWhen(d: Date): string {
@@ -135,7 +142,9 @@ export class SiasbWriter {
     if (!(i.start instanceof Date) || Number.isNaN(i.start.getTime())) {
       throw new WriteInputError('O início da sessão precisa ser uma data e hora válidas.');
     }
-    if (i.start.getTime() <= now.getTime() || i.start.getTime() > now.getTime() + MAX_START_DAYS * DAY_MS) {
+    // Minuto inteiro (sem segundos nem frações): o mesmo instante vai ao SIASB e à conferência.
+    const start = new Date(Math.floor(i.start.getTime() / 60_000) * 60_000);
+    if (start.getTime() <= now.getTime() || start.getTime() > now.getTime() + MAX_START_DAYS * DAY_MS) {
       throw new WriteInputError(`O início precisa ser no futuro e no máximo ${MAX_START_DAYS} dias à frente.`);
     }
     const description = checkFreeText(i.observacao, 'A observação');
@@ -148,13 +157,13 @@ export class SiasbWriter {
     }
     const count = i.count;
     const durationMs = i.durationMin * 60_000;
-    const starts = Array.from({ length: count }, (_, k) => new Date(i.start.getTime() + k * WEEK_MS));
+    const starts = Array.from({ length: count }, (_, k) => new Date(start.getTime() + k * WEEK_MS));
     const last = starts[starts.length - 1];
     if (last.getTime() > now.getTime() + MAX_START_DAYS * DAY_MS) {
       throw new WriteInputError(`A última sessão da série precisa cair em no máximo ${MAX_START_DAYS} dias a partir de hoje.`);
     }
     // Janela da conferência: do início da primeira ao fim da última sessão da série.
-    const checkFrom = i.start;
+    const checkFrom = start;
     const checkTo = new Date(last.getTime() + durationMs);
     const confirmed = i.confirmed === true;
     const holder: AttemptHolder = { attempt: null };
@@ -176,7 +185,7 @@ export class SiasbWriter {
         if (!location) throw new WriteInputError('Esse local não está entre as opções do SIASB para este atendimento.');
         if (!group) throw new WriteInputError('Esse grupo não está entre as opções do SIASB para este atendimento.');
 
-        const when = `${bahiaWhen(i.start)} (horário da Bahia)`;
+        const when = `${bahiaWhen(start)} (horário da Bahia)`;
         const what =
           count === 1
             ? `1 sessão: ${when}, com ${i.durationMin} minutos.`
@@ -189,7 +198,7 @@ export class SiasbWriter {
           atendimentoId: attendanceId,
           quantidade: count,
           duracaoMin: i.durationMin,
-          datas: starts.map((d) => d.toISOString()),
+          datas: starts.map(bahiaIso),
           professor: professor.name,
           local: location.name,
           grupo: group.name,
@@ -211,8 +220,8 @@ export class SiasbWriter {
             professorId: professor.id,
             locationId: location.id,
             groupId: group.id,
-            startAt: i.start,
-            endAt: new Date(i.start.getTime() + durationMs),
+            startAt: start,
+            endAt: new Date(start.getTime() + durationMs),
             count,
             description,
           }),
@@ -234,7 +243,7 @@ export class SiasbWriter {
               ),
             ]
               .sort((a, b) => a - b)
-              .map((t) => new Date(t).toISOString())
+              .map((t) => bahiaIso(new Date(t)))
           : [];
         const verified = confirmedDates.length === count;
         return {
@@ -292,7 +301,7 @@ export class SiasbWriter {
           sessaoId: sessionId,
           atendimentoId: target.attendanceId,
           disciplina: target.disciplineName,
-          inicio: target.startAt.toISOString(),
+          inicio: bahiaIso(target.startAt),
         };
         const why = informed.trim() ? 'com o motivo informado' : `com o motivo "${DEFAULT_REASON}"`;
         if (!confirmed) {
@@ -401,12 +410,20 @@ export class SiasbWriter {
     const procedureId = requireId(i.procedureId, 'id do procedimento');
     const confirmed = i.confirmed === true;
     const holder: AttemptHolder = { attempt: null };
+    // Trava: não há leitura dos procedimentos lançados no atendimento (não dá para conferir que o id é de um
+    // procedimento PREVISTO). Por isso só se exclui por aqui um id que esta ferramenta incluiu (auditoria
+    // `procedure_add` ok da mesma pessoa e atendimento). Falha ao consultar: recusa (fecha a porta), sem tocar o SIASB.
+    let ownAdd = false;
+    try {
+      ownAdd = await this.audit.hasProcedureAdd(userId, attendanceId, procedureId);
+    } catch {
+      ownAdd = false;
+    }
+    if (!ownAdd) throw new WriteInputError(NOT_OWN_PROCEDURE);
 
     const run = this.runner.run(
       userId,
       async (session): Promise<WriteOutcome> => {
-        // Não há leitura dos procedimentos lançados no atendimento: não dá para conferir que o id é de um procedimento
-        // PREVISTO (nem que existe). O texto não afirma isso; quem decide é o SIASB.
         await this.requireActive(session, attendanceId);
         const details = { atendimentoId: attendanceId, procedimentoId: procedureId };
         if (!confirmed) {
@@ -416,10 +433,7 @@ export class SiasbWriter {
             details,
           };
         }
-        await this.attemptWrite(holder, 
-          () => this.siasb.removeProcedure(session, attendanceId, procedureId),
-          procedureId,
-        );
+        await this.attemptWrite(holder, () => this.siasb.removeProcedure(session, attendanceId, procedureId), procedureId);
         return {
           status: 'done',
           summary: `O SIASB aceitou o pedido para excluir o procedimento de id ${procedureId} do atendimento ${attendanceId}.`,

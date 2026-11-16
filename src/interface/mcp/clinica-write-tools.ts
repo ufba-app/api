@@ -23,19 +23,29 @@ const CONFIRMADO = z
   .default(false)
   .describe('`true` só depois de mostrar o resumo e a pessoa dar o OK explícito; sem isso nada é escrito.');
 
-/** ISO 8601 COM fuso (`Z` ou `±hh:mm`). Sem fuso ou inválido: erro de entrada, sem eco do valor. */
+/**
+ * ISO 8601 COM fuso (`Z` ou `±hh:mm`). Sem fuso ou inválido: erro de entrada, sem eco do valor. Segundos e frações são
+ * descartados (minuto inteiro), para o mesmo instante ir ao SIASB e à conferência.
+ */
 function parseInicio(texto: string): Date {
   const t = texto.trim();
   const d = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i.test(t) ? new Date(t) : null;
   if (!d || Number.isNaN(d.getTime())) {
     throw new WriteInputError('O início precisa ser data e hora ISO 8601 com fuso, como 2026-12-01T09:30:00-03:00.');
   }
-  return d;
+  return new Date(Math.floor(d.getTime() / 60_000) * 60_000);
 }
+
+const INSTRUCAO_ESCOLHER =
+  'Peça à pessoa que escolha entre as opções o que está em `faltando`. Depois chame de novo SEM `confirmado` (ou com ' +
+  '`false`), com os ids escolhidos, para receber o resumo; mostre o resumo e só então peça o OK da pessoa para chamar ' +
+  'com `confirmado: true`. Nada foi escrito ainda.';
 
 /** Resultado em português; nunca inclui texto livre do SIASB além do que o escritor já devolveu (mensagens fixas). */
 function resposta(o: WriteOutcome) {
-  if (o.status === 'choose') return { status: 'escolher' as const, faltando: o.missing, opcoes: o.options };
+  if (o.status === 'choose') {
+    return { status: 'escolher' as const, faltando: o.missing, opcoes: o.options, instrucao: INSTRUCAO_ESCOLHER };
+  }
   return { status: o.status === 'preview' ? ('resumo' as const) : ('feito' as const), resumo: o.summary, detalhes: o.details };
 }
 
@@ -84,16 +94,16 @@ export function registerClinicaAgendaWriteTools(server: McpServer, write: McpCli
     (a) =>
       runWrite(() =>
         write.scheduleSession(p.userId, {
-            attendanceId: a.atendimentoId,
-            start: parseInicio(a.inicio),
-            durationMin: a.duracaoMin,
-            count: a.quantidade ?? 1,
-            professorId: opcional(a.professorId),
-            localId: opcional(a.localId),
-            grupoId: opcional(a.grupoId),
-            observacao: a.observacao,
-            confirmed: a.confirmado === true,
-          }),
+          attendanceId: a.atendimentoId,
+          start: parseInicio(a.inicio),
+          durationMin: a.duracaoMin,
+          count: a.quantidade ?? 1,
+          professorId: opcional(a.professorId),
+          localId: opcional(a.localId),
+          grupoId: opcional(a.grupoId),
+          observacao: a.observacao,
+          confirmed: a.confirmado === true,
+        }),
       ),
   );
 
@@ -141,13 +151,13 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
     (a) =>
       runWrite(() =>
         write.addProcedure(p.userId, {
-            attendanceId: a.atendimentoId,
-            serviceId: a.procedimentoId,
-            teeth: a.dente,
-            faces: a.face,
-            observacao: a.observacao,
-            confirmed: a.confirmado === true,
-          }),
+          attendanceId: a.atendimentoId,
+          serviceId: a.procedimentoId,
+          teeth: a.dente,
+          faces: a.face,
+          observacao: a.observacao,
+          confirmed: a.confirmado === true,
+        }),
       ),
   );
 
@@ -157,22 +167,23 @@ export function registerClinicaProcedimentoWriteTools(server: McpServer, write: 
       title: 'Excluir procedimento previsto',
       annotations: { title: 'Excluir procedimento previsto', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       description:
-        'Exclui um procedimento PREVISTO já lançado no atendimento (`procedimentoId` é o id do procedimento lançado, ' +
-        'devolvido ao incluir ou visto no site). Excluir não dá para desfazer por aqui. ' +
+        'Exclui um procedimento PREVISTO que foi incluído por `clinica_incluir_procedimento` (`procedimentoId` é o ' +
+        '`procedimentoId` devolvido ao incluir, não o do catálogo). Procedimento lançado por outro caminho (site do SIASB) ' +
+        'é recusado: exclua pelo site. Excluir não dá para desfazer por aqui. ' +
         ESCREVE,
       inputSchema: {
         atendimentoId: z.string().describe('Id do atendimento ativo, de `clinica_pacientes`.'),
-        procedimentoId: z.string().describe('Id do procedimento lançado (não o do catálogo).'),
+        procedimentoId: z.string().describe('Id devolvido por `clinica_incluir_procedimento` (não o do catálogo).'),
         confirmado: CONFIRMADO,
       },
     },
     (a) =>
       runWrite(() =>
         write.removeProcedure(p.userId, {
-            attendanceId: a.atendimentoId,
-            procedureId: a.procedimentoId,
-            confirmed: a.confirmado === true,
-          }),
+          attendanceId: a.atendimentoId,
+          procedureId: a.procedimentoId,
+          confirmed: a.confirmado === true,
+        }),
       ),
   );
 }
