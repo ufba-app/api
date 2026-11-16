@@ -74,11 +74,11 @@ export class GoogleHttp {
     private readonly fetchFn: FetchFn = fetch,
   ) {}
 
-  async get(refreshToken: Secret, url: string, params: Params = {}): Promise<Response> {
+  async get(refreshToken: Secret, url: string, params: Params = {}, init: { signal?: AbortSignal } = {}): Promise<Response> {
     const u = new URL(url);
     for (const [k, v] of Object.entries(params)) if (v !== undefined) u.searchParams.set(k, v);
     const token = await this.auth.accessToken(refreshToken);
-    const res = await this.fetchFn(u, { headers: { authorization: `Bearer ${token.reveal()}` } });
+    const res = await this.fetchFn(u, { headers: { authorization: `Bearer ${token.reveal()}` }, ...(init.signal ? { signal: init.signal } : {}) });
     if (!res.ok) {
       throw new GoogleApiError(res.status, `Google API ${res.status} em ${u.origin}${u.pathname}`);
     }

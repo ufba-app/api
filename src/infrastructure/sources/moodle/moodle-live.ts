@@ -9,6 +9,8 @@ import type {
   TipoAtividade,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
+import { DRIVE_KIND_NAME, extractDriveLinks } from '../../../domain/drive/drive-link';
+import type { DriveRefs } from '../drive/drive-refs';
 import { accessOf, type MoodleAccess } from './moodle-access';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
 import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
@@ -92,9 +94,26 @@ export class MoodleLive implements LiveSource {
   private readonly client: MoodleClient;
   private readonly files: MoodleAttachmentReader;
 
-  constructor(fetchFn: FetchFn = fetch) {
+  /** `drive` liga os arquivos do Drive linkados no curso (assina os `ref`); sem ele, os links ficam só como links. */
+  constructor(
+    fetchFn: FetchFn = fetch,
+    private readonly drive?: DriveRefs,
+  ) {
     this.client = new MoodleClient(fetchFn);
     this.files = new MoodleAttachmentReader(fetchFn);
+  }
+
+  /**
+   * Links do Drive/Docs que o professor pôs no conteúdo (HTML e URLs) viram anexos com `ref` ASSINADO e preso à pessoa:
+   * só o que apareceu no curso desta pessoa pode ser baixado depois.
+   */
+  private driveAnexos(userId: string, html: string | undefined, urls: readonly string[] = []): AnexoVivo[] {
+    if (!this.drive) return [];
+    return extractDriveLinks(html, urls).map((l) => ({
+      nome: l.label ?? DRIVE_KIND_NAME[l.kind],
+      ...(l.kind === 'sheet' ? { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } : l.kind === 'file' ? {} : { mimeType: 'application/pdf' }),
+      ref: this.drive!.sign(userId, l),
+    }));
   }
 
   listarCursos(ctx: SourceContext, opts?: { todas?: boolean }): Promise<CursoVivo[]> {
@@ -148,9 +167,17 @@ export class MoodleLive implements LiveSource {
       const out: AtividadeViva[] = [];
       for (const s of sections) {
         for (const mod of s.modules ?? []) {
-          if (mod.visible === 0 || mod.uservisible === false || mod.modname === 'label') continue;
+          if (mod.visible === 0 || mod.uservisible === false) continue;
           const contents = mod.contents ?? [];
           const tarefa = mod.modname === 'assign' ? tarefas.get(mod.id) : undefined;
+          const htmlDescricao = tarefa?.intro ?? mod.description;
+          const doDrive = this.driveAnexos(
+            ctx.userId,
+            htmlDescricao,
+            contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
+          );
+          // Rótulos (texto solto na página do curso) só entram se trouxerem arquivo do Drive.
+          if (mod.modname === 'label' && doDrive.length === 0) continue;
           out.push({
             id: String(mod.id),
             tipo: TIPO_POR_MODULO[mod.modname] ?? 'outro',
@@ -162,6 +189,7 @@ export class MoodleLive implements LiveSource {
             anexos: [
               ...contents.filter((f) => f.type !== 'url').map(anexo),
               ...(tarefa?.introattachments ?? []).map(anexo),
+              ...doDrive,
             ],
             links: contents.filter((f) => f.type === 'url').map((f) => f.fileurl),
             forumId: mod.modname === 'forum' && mod.instance ? String(mod.instance) : undefined,
@@ -185,7 +213,7 @@ export class MoodleLive implements LiveSource {
         mensagem: htmlToText(d.message),
         autor: d.userfullname,
         publicadaEm: date(d.created),
-        anexos: (Array.isArray(d.attachments) ? d.attachments : []).map(anexo),
+        anexos: [...(Array.isArray(d.attachments) ? d.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, d.message)],
       }));
     });
   }

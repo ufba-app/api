@@ -30,7 +30,7 @@ function conta(accountKey: string, provider: Provider = 'CLASSROOM', secret = tr
   };
 }
 
-function build(contas: SourceAccountRecord[], falha?: string) {
+function build(contas: SourceAccountRecord[], falha?: string, drive?: import('../ports/drive-downloader').DriveDownloader) {
   const vistos: string[] = [];
   const source: LiveSource = {
     provider: 'CLASSROOM',
@@ -54,7 +54,7 @@ function build(contas: SourceAccountRecord[], falha?: string) {
   } as never;
   const cipher = { decrypt: (s: { ciphertext: string }) => s.ciphertext } as never;
   const cofre = { situacao: async () => null } as never;
-  return { svc: new ConsultaService(live, accounts, cipher, cofre), vistos, setStatus };
+  return { svc: new ConsultaService(live, accounts, cipher, cofre, drive), vistos, setStatus };
 }
 
 describe('ConsultaService: uma conta por consulta', () => {
@@ -266,5 +266,46 @@ describe('ConsultaService: SIGAA com a credencial do cliente', () => {
     await expect(svc.conta(COM_CHAVE, 'SIGAA')).rejects.toBeInstanceOf(FonteSemLeituraError);
     await expect(svc.baixar(COM_CHAVE, 'SIGAA', undefined, 'ref')).rejects.toBeInstanceOf(FonteSemLeituraError);
     expect(chamadas).toEqual([]);
+  });
+});
+
+describe('ConsultaService: arquivos do Drive linkados no Moodle', () => {
+  it('ref do Drive vai ao DriveDownloader com as contas do Google da pessoa (token só em memória) e NÃO ao Moodle', async () => {
+    const chamadas: Array<{ userId: string; ref: string; contas: string[] }> = [];
+    const drive = {
+      owns: (r: string) => r.startsWith('gdrive1.'),
+      download: async (userId: string, ref: string, contas: ReadonlyArray<{ accountKey: string; refreshToken: { reveal(): string } }>) => {
+        chamadas.push({ userId, ref, contas: contas.map((c) => `${c.accountKey}/${c.refreshToken.reveal()}`) });
+        return { bytes: new Uint8Array([1]), mimeType: 'application/pdf' };
+      },
+    };
+    const moodleBaixar = jest.fn();
+    const { svc } = build([conta('ava:aluno', 'MOODLE'), conta('eu@ufba.br'), conta('eu@gmail.com'), { ...conta('velho@x'), status: 'REAUTH_NEEDED' }, conta('sem@x', 'CLASSROOM', false)], undefined, drive as never);
+    // O Moodle não deve ser consultado: registra uma fonte Moodle que falha se chamada.
+    (svc as unknown as { sources: LiveSources }).sources.register({ provider: 'MOODLE', baixar: moodleBaixar } as never);
+    await expect(svc.baixar(U1, 'MOODLE', undefined, 'gdrive1.file.abc.sig')).resolves.toMatchObject({ mimeType: 'application/pdf' });
+    expect(chamadas).toEqual([{ userId: 'u1', ref: 'gdrive1.file.abc.sig', contas: ['eu@ufba.br/rt-eu@ufba.br', 'eu@gmail.com/rt-eu@gmail.com'] }]);
+    expect(moodleBaixar).not.toHaveBeenCalled();
+  });
+
+  it('confere a conta do Moodle de onde o anexo veio (sem Moodle conectado: erro, sem Drive)', async () => {
+    const download = jest.fn();
+    const { svc } = build([conta('eu@ufba.br')], undefined, { owns: () => true, download } as never);
+    await expect(svc.baixar(U1, 'MOODLE', undefined, 'gdrive1.file.abc.sig')).rejects.toBeInstanceOf(FonteNaoConectadaError);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it('ref que não é do Drive segue para o Moodle como sempre; sem DriveDownloader também', async () => {
+    const baixar = jest.fn().mockResolvedValue({ bytes: new Uint8Array(), mimeType: 'text/plain' });
+    const download = jest.fn();
+    const mk = (drive?: unknown) => {
+      const r = build([conta('ava:aluno', 'MOODLE')], undefined, drive as never);
+      (r.svc as unknown as { sources: LiveSources }).sources.register({ provider: 'MOODLE', baixar } as never);
+      return r.svc;
+    };
+    await mk({ owns: () => false, download }).baixar(U1, 'MOODLE', undefined, 'https://ava.test/pluginfile.php/1/a.pdf');
+    await mk(undefined).baixar(U1, 'MOODLE', undefined, 'gdrive1.file.abc.sig');
+    expect(baixar).toHaveBeenCalledTimes(2);
+    expect(download).not.toHaveBeenCalled();
   });
 });
