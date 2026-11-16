@@ -66,7 +66,10 @@ type Discussion = MoodleDiscussion & { userfullname?: string };
 /** Mensagem de `mod_forum_get_discussion_posts` (só os campos usados). */
 interface MoodlePost {
   id: number;
+  /** Id da mensagem pai (0 na inicial). Na resposta real do Moodle o campo é `parentid`; `parent` fica como reserva. */
+  parentid?: number;
   parent?: number;
+  author?: { fullname?: string };
   userfullname?: string;
   created?: number;
   message?: string;
@@ -318,8 +321,8 @@ export class MoodleLive implements LiveSource {
       });
       return (res.posts ?? []).map((p) => ({
         postId: String(p.id),
-        ...(p.parent ? { respostaA: String(p.parent) } : {}),
-        autor: p.userfullname,
+        ...((p.parentid ?? p.parent) ? { respostaA: String(p.parentid ?? p.parent) } : {}),
+        autor: p.author?.fullname ?? p.userfullname,
         publicadaEm: date(p.created),
         mensagem: htmlToText(p.message),
         anexos: [...(Array.isArray(p.attachments) ? p.attachments : []).map(anexo), ...this.driveAnexos(ctx.userId, p.message)],
