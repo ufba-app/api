@@ -12,6 +12,7 @@ import type {
   PostarForumInput,
   PrazosInput,
   VerAvisoInput,
+  VerTopicoInput,
   VerCursoInput,
   VerForumInput,
 } from './mcp-ports';
@@ -61,13 +62,11 @@ export class McpUseCasesImpl implements McpUseCases {
   }
 
   async verForum(p: McpPrincipal, i: VerForumInput) {
-    if ((i.forumId === undefined) === (i.discussaoId === undefined)) {
-      throw new Error('Informe `forumId` (lista de tópicos do fórum) ou `discussaoId` (mensagens de um tópico), não os dois.');
-    }
-    if (i.discussaoId !== undefined) {
-      return { discussaoId: i.discussaoId, mensagens: await this.consulta.verTopico(quem(p), provider(i.fonte), i.conta, i.discussaoId) };
-    }
-    return { forumId: i.forumId, discussoes: await this.consulta.verForum(quem(p), provider(i.fonte), i.conta, i.forumId!) };
+    return { forumId: i.forumId, discussoes: await this.consulta.verForum(quem(p), provider(i.fonte), i.conta, i.forumId) };
+  }
+
+  async verTopico(p: McpPrincipal, i: VerTopicoInput) {
+    return { discussaoId: i.discussaoId, mensagens: await this.consulta.verTopico(quem(p), provider(i.fonte), i.conta, i.discussaoId) };
   }
 
   async verAviso(p: McpPrincipal, i: VerAvisoInput) {

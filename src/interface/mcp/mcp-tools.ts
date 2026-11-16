@@ -48,6 +48,7 @@ export const FERRAMENTAS = [
   'prazos',
   'ver_curso',
   'ver_forum',
+  'ver_topico',
   'ver_aviso',
   'baixar_anexo',
 ] as const;
@@ -144,13 +145,26 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       title: 'Ver fórum',
       annotations: { title: 'Ver fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       description:
-        'Dois modos, use exatamente um. Com `forumId` (de `ver_curso`): a lista de TÓPICOS do fórum, com a mensagem inicial de cada um ' +
-        '(inclui o fórum de avisos da matéria). Com `discussaoId` (o `id` de um tópico de `ver_forum`): as MENSAGENS desse tópico, ' +
-        'inclusive as respostas, em ordem; cada uma traz `postId` e `respostaA`. Para ver o que os colegas postaram, leia o tópico com `discussaoId`. ' +
+        'Lista os TÓPICOS de UM fórum do Moodle (inclui o de avisos da matéria), com a mensagem inicial de cada um e o `id` de cada tópico. ' +
+        'Para ver as respostas de um tópico (o que os colegas postaram), use `ver_topico` com esse `id`. Use o `forumId` de `ver_curso`. ' +
         '(O Classroom não tem fóruns: os avisos vêm em `ver_curso`.) ' + AO_VIVO,
-      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string().optional(), discussaoId: z.string().optional() },
+      inputSchema: { fonte: FONTE, conta: CONTA, forumId: z.string() },
     },
     (args) => run(() => uc.verForum(p, args)),
+  );
+
+  server.registerTool(
+    'ver_topico',
+    {
+      title: 'Ver tópico do fórum',
+      annotations: { title: 'Ver tópico do fórum', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Todas as MENSAGENS de UM tópico de fórum do Moodle, com as respostas, em ordem cronológica. Cada mensagem traz `autor`, `mensagem`, ' +
+        '`postId` (para responder com `postar_forum`) e `respostaA` (o `postId` da mensagem a que ela responde; ausente na inicial). ' +
+        'Use o `id` de um tópico vindo de `ver_forum`. ' + AO_VIVO,
+      inputSchema: { fonte: FONTE, conta: CONTA, discussaoId: z.string() },
+    },
+    (args) => run(() => uc.verTopico(p, args)),
   );
 
   server.registerTool(
