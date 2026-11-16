@@ -390,14 +390,15 @@ describe('SiasbAlerts: prazo perdido (a partir do horário anterior da leitura)'
 describe('SiasbAlerts: prazo perdido de ponta a ponta (leitor real da cópia)', () => {
   const HOURMS = 3_600_000;
   /** Sextas 14h da Bahia (30/10, 06/11, 13/11 atendidas); o horário de 20/11 tem prazo na terça 17/11 14h. */
-  async function real(extra: { id: string; start: string; label: string; resched?: string }[], known = false) {
+  async function real(extra: { id: string; start: string; label: string; resched?: string }[], known: boolean | AcademicCalendar = false) {
     const t = await setup();
     const cipher = new AadCipher();
     class Cal extends AcademicCalendar {
       async holidays() {
-        return { known, dates: [] as string[] };
+        return { known: known as boolean, dates: [] as string[] };
       }
     }
+    const calendar = typeof known === "boolean" ? new Cal() : known;
     const att: SyncedAttendance = {
       id: 'a1',
       disciplineId: 'd1',
@@ -427,7 +428,7 @@ describe('SiasbAlerts: prazo perdido de ponta a ponta (leitor real da cópia)', 
         { disciplines: [{ id: 'd1', name: 'Clínica Integrada I' }], attendances: [att], sessions: [...weekly, ...more.map((m) => ses(m.id, m.start, m.label, m.resched))] },
       );
     await load([]);
-    const alerts = new SiasbAlerts(new SiasbCopyReader(t.copy, cipher, new Cal(), () => t.clock.now), t.copy, t.notifier, t.accounts);
+    const alerts = new SiasbAlerts(new SiasbCopyReader(t.copy, cipher, calendar, () => t.clock.now), t.copy, t.notifier, t.accounts);
     const run = async (when: string) => {
       t.clock.now = at(when);
       await t.copy.recordAttempt(U, { result: 'OK', at: new Date(t.clock.now.getTime() - 60_000), nextRunAt: null });
@@ -479,6 +480,32 @@ describe('SiasbAlerts: prazo perdido de ponta a ponta (leitor real da cópia)', 
     const spy = jest.spyOn(t.copy, 'state');
     await run('2026-11-19T20:00:00-03:00');
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  describe('calendário com known diferente por janela (vão de um dia útil)', () => {
+    /** known só na janela [agora, agora + 45 d] (a dos itens); a do anterior (agora − 14 d) não é coberta. */
+    class ByInterval extends AcademicCalendar {
+      async holidays(from: Date, to: Date) {
+        return { known: to.getTime() - from.getTime() <= 45 * DAY, dates: [] as string[] };
+      }
+    }
+    // horário sexta 20/11 14h: prazo conhecido = quarta 18/11 14h; com margem de 1 dia útil = terça 17/11 14h (o vão).
+    it('dentro do vão [terça 14h, quarta 14h): avisou e não marcou, mas NÃO há "Prazo perdido" (prazo ainda aberto)', async () => {
+      const { t, run } = await real([], new ByInterval());
+      await run('2026-11-17T20:00:00-03:00');
+      await run('2026-11-18T13:45:00-03:00');
+      expect(perdido(t)).toEqual([]);
+    });
+
+    it('depois do prazo conhecido (quarta 14h): o "perdido" do horário sai uma vez (caso normal intacto)', async () => {
+      const { t, run } = await real([], new ByInterval());
+      await run('2026-11-17T20:00:00-03:00');
+      await run('2026-11-18T20:00:00-03:00');
+      expect(perdido(t)).toHaveLength(1);
+      expect(perdido(t)[0]).toMatch(/^Prazo perdido em Clínica Integrada I. Próxima chance: /);
+      await run('2026-11-18T20:15:00-03:00');
+      expect(perdido(t)).toHaveLength(1);
+    });
   });
 
   it('sessão cancelada no intervalo não cobre: é perdido', async () => {
@@ -833,6 +860,27 @@ describe('SiasbAlerts: ajustes finais', () => {
     ok.accounts.rows = [account(at('2026-12-08T12:00:00-03:00'))];
     await ok.run('2026-11-18T12:00:00-03:00');
     expect(ok.sender.sent).toHaveLength(0);
+  });
+
+  it('reconectar (resetState às 06:50) com a cópia em RECONNECT_REQUIRED e vencimento longe: NÃO há "venceu" às 07:00', async () => {
+    const setupBroken = async () => {
+      const t = await setup();
+      t.items = [];
+      t.syncOk = false;
+      await t.copy.recordAttempt(U, { result: 'RECONNECT_REQUIRED', at: at('2026-11-18T23:00:00-03:00'), nextRunAt: null });
+      t.accounts.rows = [account(at('2026-12-08T12:00:00-03:00'))];
+      return t;
+    };
+    // controle: sem reconectar, a âncora antiga faz o "venceu" sair às 07:00
+    const control = await setupBroken();
+    expect((await control.run('2026-11-19T07:00:00-03:00')).sent).toBe(1);
+    expect(control.bodies()).toEqual(['Seu acesso ao SIASB venceu. Reconecte no painel.']);
+    // reconectou: o estado é zerado e o vencimento declarado vale
+    const t = await setupBroken();
+    t.clock.now = at('2026-11-19T06:50:00-03:00');
+    await t.copy.resetState(U);
+    expect((await t.run('2026-11-19T07:00:00-03:00')).sent).toBe(0);
+    expect(t.sender.sent).toHaveLength(0);
   });
 
   it('m1 uma disciplina que falha não derruba as outras (conta failed)', async () => {

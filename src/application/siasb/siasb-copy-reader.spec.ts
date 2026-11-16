@@ -328,6 +328,62 @@ describe('SiasbCopyReader.situation', () => {
     expect((await b.reader.situation('u1', NOW)).previous.d1!.deadline).toEqual(new Date(iso(-4)));
   });
 
+  describe('previous: só vale se estritamente antes do próximo horário', () => {
+    /** known depende do intervalo: só a janela [agora, agora + 45 d] está coberta; a de 14 d atrás, não. */
+    class ByInterval extends AcademicCalendar {
+      calls: { from: Date; to: Date }[] = [];
+      async holidays(from: Date, to: Date) {
+        this.calls.push({ from, to });
+        return { known: to.getTime() - from.getTime() <= 45 * DAY, dates: [] as string[] };
+      }
+    }
+    // horário da clínica: sextas 13:00Z (prazo conhecido: quarta 13:00Z; com 1 dia útil de margem: terça 13:00Z).
+    // agora = terça 10/11 20:00Z: só a margem de 1 dia útil já venceu (o vão).
+    const TUE_NOW = new Date('2026-11-10T20:00:00Z');
+    const FRI = (n: number) => {
+      const t = new Date('2026-11-13T13:00:00Z');
+      t.setUTCDate(t.getUTCDate() + 7 * n);
+      return t.toISOString();
+    };
+    const weeklyFri = [sess('f1', 'a1', 'd1', FRI(-3), 'Atendido'), sess('f2', 'a1', 'd1', FRI(-2), 'Atendido'), sess('f3', 'a1', 'd1', FRI(-1), 'Atendido')];
+    async function buildAt(now: Date, calendar: AcademicCalendar) {
+      const copy = new InMemorySiasbCopy();
+      copy.accounts.set('u1', 'OK');
+      await copy.replaceWindow(
+        'u1',
+        { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-12-31T00:00:00Z') },
+        { disciplines: [DISCS[0]], attendances: [att('a1', 'd1')], sessions: weeklyFri },
+      );
+      copy.seedState('u1');
+      await copy.recordAttempt('u1', { result: 'OK', at: new Date(now.getTime() - 60_000), nextRunAt: null });
+      return new SiasbCopyReader(copy, cipher, calendar, () => now);
+    }
+
+    it('no vão de um dia útil (itens com known, previous sem): o horário atual NÃO volta como previous', async () => {
+      const cal = new ByInterval();
+      const reader = await buildAt(TUE_NOW, cal);
+      const r = await reader.situation('u1', TUE_NOW);
+      expect(r.items[0].nextSlot).toEqual(new Date(FRI(0)));
+      expect(r.items[0].deadline).toEqual(new Date('2026-11-11T13:00:00Z'));
+      expect(r.previous.d1).toBeNull();
+      // as duas consultas de calendário seguem com os mesmos argumentos
+      expect(cal.calls).toEqual([
+        { from: TUE_NOW, to: new Date(TUE_NOW.getTime() + 45 * DAY) },
+        { from: new Date(TUE_NOW.getTime() - 14 * DAY), to: new Date(TUE_NOW.getTime() + 45 * DAY) },
+      ]);
+    });
+
+    it('horário realmente anterior (estritamente antes do próximo) com prazo vencido continua como previous', async () => {
+      const cal = new ByInterval();
+      const now = new Date('2026-11-11T20:00:00Z'); // quarta, depois do prazo conhecido (qua 13:00Z) do horário de sexta 13/11
+      const reader = await buildAt(now, cal);
+      const r = await reader.situation('u1', now);
+      expect(r.items[0].nextSlot).toEqual(new Date(FRI(1)));
+      expect(r.previous.d1).toMatchObject({ slot: new Date(FRI(0)), covered: false });
+      expect(r.previous.d1!.slot.getTime()).toBeLessThan(r.items[0].nextSlot!.getTime());
+    });
+  });
+
   it('só enxerga a cópia da própria pessoa', async () => {
     const { reader } = await build({ disciplines: [DISCS[0]] });
     expect((await reader.situation('u2', NOW)).items).toEqual([]);

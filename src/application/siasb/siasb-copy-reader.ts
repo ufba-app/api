@@ -132,7 +132,12 @@ export class SiasbCopyReader {
     }
     const previous: Record<string, PreviousSlot | null> = {};
     for (const d of disciplines) {
-      previous[d.id] = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays: previousHolidays });
+      const prev = computePreviousSlot({ disciplineId: d.id, sessions: clinicalSessions, now, holidays: previousHolidays });
+      // Guarda única: o anterior só vale se vem ESTRITAMENTE antes do próximo horário do item. Os itens e o anterior usam
+      // calendários de janelas diferentes (known pode divergir, margem 0 x 1 dia útil); no vão entre os dois prazos o
+      // horário atual voltaria como "anterior" e geraria um "Prazo perdido" com o prazo ainda aberto.
+      const next = items.find((i) => i.disciplineId === d.id)?.nextSlot ?? null;
+      previous[d.id] = prev && next && prev.slot.getTime() >= next.getTime() ? null : prev;
     }
     return { ...this.freshness(state, now), items, previous };
   }
