@@ -1,13 +1,15 @@
 import { todayInBahia } from '../calendar/calendar-alerts';
 import type { PublishedCalendarView } from '../calendar/published-calendar';
+import { expandClass, type ClassSchedule, type SchedulePeriod } from '../../domain/academic/class-schedule';
 import { isMarked } from '../../domain/siasb/clinical-state';
-import { FonteNaoConectadaError, type ContaConectada, type Quem } from '../live/consulta.service';
-import type { PrazoVivo } from '../ports/live-source';
+import { FonteNaoConectadaError, type Quem } from '../live/consulta.service';
 import { ApiError } from './web-api';
 
-export type CalendarSourceName = 'sigaa' | 'moodle' | 'classroom' | 'siasb';
+export type CalendarSourceName = 'sigaa' | 'siasb';
 export type CalendarSourceStatus = 'ok' | 'failed' | 'reconnect_required';
-export type CalendarItemKind = 'class' | 'deadline' | 'exam' | 'session';
+export type CalendarItemKind = 'class' | 'session';
+/** Estado do SIGAA nesta sessão (o mesmo de `/me`): só `connected` lê; `password_required`/`locked` pedem reconectar. */
+export type SigaaState = 'connected' | 'disconnected' | 'password_required' | 'locked';
 
 export interface CalendarItem {
   id: string;
@@ -32,9 +34,9 @@ export interface MeCalendarView {
 /** O que o serviço precisa de cada coisa (portas estreitas: os testes passam fakes, sem rede nem banco). */
 export interface MeCalendarDeps {
   calendars: { all(): Promise<PublishedCalendarView[]> };
-  consulta: {
-    contas(q: Quem): Promise<ContaConectada[]>;
-    prazos(q: Quem, provider: 'MOODLE' | 'CLASSROOM', conta?: string): Promise<PrazoVivo[]>;
+  sigaa: {
+    /** Turmas do semestre com dia, horário, período e sala (1 requisição ao portal do SIGAA). */
+    turmas(q: Quem): Promise<ClassSchedule[]>;
   };
   siasb: {
     /** Conexão com o SIASB e se ele é oferecido à pessoa. */
@@ -51,7 +53,7 @@ export interface MeCalendarDeps {
 export const MAX_RANGE_DAYS = 62;
 const CACHE_TTL_MS = 3 * 60_000;
 const CACHE_MAX = 500;
-const SOURCE_TIMEOUT_MS = 12_000;
+const SOURCE_TIMEOUT_MS = 20_000;
 const DAY_MS = 86_400_000;
 const BAHIA_OFFSET_MS = 3 * 3_600_000; // America/Bahia: UTC-3 o ano todo desde 2019
 
@@ -73,26 +75,23 @@ export function bahiaIso(d: Date): string {
 /** Instante → dia (AAAA-MM-DD) em Salvador. */
 export const bahiaDay = (d: Date): string => todayInBahia(d);
 
-const EXAM = /\b(prova|exame|teste|avalia[cç][aã]o)\b/i;
-
-/**
- * A API classifica (o web não adivinha): `prova` do Moodle (módulo quiz) ou título de prova/exame/teste/avaliação = `exam`;
- * o resto é `deadline` (entrega).
- */
-export function classifyDeadline(p: Pick<PrazoVivo, 'tipo' | 'titulo'>): 'deadline' | 'exam' {
-  if (p.tipo === 'prova' || p.tipo === 'quiz') return 'exam';
-  return EXAM.test(p.titulo) ? 'exam' : 'deadline';
-}
+const slug = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 const withTimeout = <T>(p: Promise<T>): Promise<T> =>
   Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), SOURCE_TIMEOUT_MS).unref())]);
 
 /**
- * `GET /me/calendar`: compila o que a pessoa tem em cada dia num formato pronto para desenhar. Feriados e dias sem aula vêm do
- * calendário acadêmico (intervalos já expandidos); entregas e provas do Moodle e do Classroom (ao vivo, uma consulta por conta,
- * em paralelo, com teto de tempo); sessões da clínica do SIASB da cópia sincronizada (sem dado de paciente, não excluídas em
- * feriado, só para quem tem acesso). Falha de uma fonte não derruba a rota: ela vira `sources[].status`. As aulas (`class`)
- * entram quando as turmas do SIGAA com dia e horário existirem; o formato não muda.
+ * `GET /me/calendar`: compila o que a pessoa tem em cada dia num formato pronto para desenhar. Só três coisas: (1) feriados e
+ * dias sem aula do calendário acadêmico da UFBA (intervalos já expandidos); (2) as AULAS, pela recorrência que o próprio SIGAA
+ * aponta (turmas do semestre com dia, horário e período, ex. "35T45"), excluídas nos feriados e dias sem aula; (3) as sessões
+ * marcadas do SIASB, para quem tem acesso (sem dado de paciente, não excluídas em feriado). Entregas e provas do Moodle e do
+ * Classroom NÃO entram. Falha de uma fonte não derruba a rota: ela vira `sources[].status`.
  */
 export class MeCalendar {
   private readonly now: () => Date;
@@ -102,16 +101,17 @@ export class MeCalendar {
     this.now = d.now ?? (() => new Date());
   }
 
-  async get(q: Quem, from: string, to: string): Promise<MeCalendarView> {
+  async get(q: Quem, from: string, to: string, sigaa: SigaaState = 'disconnected'): Promise<MeCalendarView> {
     const a = parseDay(from);
     const b = parseDay(to);
     if (a === null || b === null || b < a || (b - a) / DAY_MS + 1 > MAX_RANGE_DAYS) throw invalid();
 
-    const key = `${q.userId}|${from}|${to}`;
+    const key = `${q.userId}|${from}|${to}|${sigaa}`;
     const hit = this.cache.get(key);
     if (hit && this.now().getTime() - hit.at < CACHE_TTL_MS) return hit.value;
 
-    const [calendar, prazos, siasb] = await Promise.all([this.holidays(from, to, a, b), this.deadlines(q, from, to), this.sessions(q.userId, a, b)]);
+    const [calendar, siasb] = await Promise.all([this.holidays(a, b), this.sessions(q.userId, a, b)]);
+    const classes = await this.classes(q, sigaa, from, to, calendar);
     const days = new Map<string, { date: string; nonTeaching: { name: string } | null; items: CalendarItem[] }>();
     const day = (date: string) => {
       let r = days.get(date);
@@ -119,7 +119,7 @@ export class MeCalendar {
       return r;
     };
     for (const [date, name] of calendar.nonTeaching) day(date).nonTeaching = { name };
-    for (const it of [...prazos.items, ...siasb.items]) {
+    for (const it of [...classes.items, ...siasb.items]) {
       const when = it.startsAt ?? it.endsAt;
       if (!when) continue;
       const date = when.slice(0, 10); // já está no fuso de Salvador
@@ -133,7 +133,7 @@ export class MeCalendar {
       days: [...days.values()]
         .sort((x, y) => x.date.localeCompare(y.date))
         .map((r) => ({ ...r, items: r.items.sort((x, y) => order(x).localeCompare(order(y)) || x.title.localeCompare(y.title)) })),
-      sources: [...prazos.sources, ...siasb.sources],
+      sources: [...classes.sources, ...siasb.sources],
     };
     // Falha parcial não fica em cache: a pessoa reconecta ou tenta de novo e vê o resultado novo.
     if (value.sources.every((s) => s.status === 'ok')) this.remember(key, value);
@@ -146,9 +146,10 @@ export class MeCalendar {
   }
 
   /** Dias sem aula do intervalo (de TODOS os calendários publicados) e o semestre que mais cobre o intervalo. */
-  private async holidays(from: string, to: string, a: number, b: number) {
+  private async holidays(a: number, b: number) {
     const nonTeaching = new Map<string, string>();
     let term: string | null = null;
+    let termPeriod: SchedulePeriod | null = null;
     let best = 0;
     for (const c of await this.d.calendars.all()) {
       const start = parseDay(c.keyDates.termStart);
@@ -158,6 +159,7 @@ export class MeCalendar {
         if (overlap >= 0 && overlap >= best) {
           best = overlap;
           term = c.document.term;
+          termPeriod = { start: c.keyDates.termStart, end: c.keyDates.termEnd };
         }
       }
       for (const n of c.nonTeachingDays) {
@@ -172,52 +174,38 @@ export class MeCalendar {
         }
       }
     }
-    return { term, nonTeaching };
+    return { term, termPeriod, nonTeaching };
   }
 
-  /** Entregas e provas do Moodle e do Classroom: uma consulta por conta, em paralelo; o status é por fonte. */
-  private async deadlines(q: Quem, from: string, to: string) {
-    const contas = (await this.d.consulta.contas(q)).filter(
-      (c): c is ContaConectada & { provider: 'MOODLE' | 'CLASSROOM' } => c.provider === 'MOODLE' || c.provider === 'CLASSROOM',
+  /**
+   * As aulas: cada turma do portal do SIGAA vira uma `class` por dia da recorrência, dentro do período da própria turma (ou do
+   * semestre do calendário, se o portal não o mostrar) e SEM os dias com `nonTeaching`. Entrega e prova do AVA não entram aqui.
+   */
+  private async classes(q: Quem, state: SigaaState, from: string, to: string, calendar: { termPeriod: SchedulePeriod | null; nonTeaching: Map<string, string> }) {
+    const none = { items: [] as CalendarItem[], sources: [] as MeCalendarView['sources'] };
+    if (state === 'disconnected') return none;
+    if (state === 'password_required' || state === 'locked') return { items: [], sources: [{ source: 'sigaa' as const, status: 'reconnect_required' as const }] };
+    let turmas: ClassSchedule[];
+    try {
+      turmas = await withTimeout(this.d.sigaa.turmas(q));
+    } catch (e) {
+      return { items: [], sources: [{ source: 'sigaa' as const, status: (e instanceof FonteNaoConectadaError ? 'reconnect_required' : 'failed') as CalendarSourceStatus }] };
+    }
+    const off = (date: string) => calendar.nonTeaching.has(date);
+    const items = turmas.flatMap((t) =>
+      expandClass(t, from, to, off, calendar.termPeriod).map<CalendarItem>((o) => ({
+        id: `sigaa:${slug(t.name)}:${o.date}:${o.start.replace(':', '')}`,
+        kind: 'class',
+        source: 'sigaa',
+        title: t.name,
+        courseName: t.name,
+        courseCode: null, // o portal não traz o código do componente
+        startsAt: `${o.date}T${o.start}:00-03:00`,
+        endsAt: `${o.date}T${o.end}:00-03:00`,
+        place: t.room,
+      })),
     );
-    const items: CalendarItem[] = [];
-    const flags = new Map<CalendarSourceName, { failed: boolean; reconnect: boolean }>();
-    await Promise.all(
-      contas.map(async (c) => {
-        const source = c.provider === 'MOODLE' ? 'moodle' : 'classroom';
-        const f = flags.get(source) ?? { failed: false, reconnect: false };
-        flags.set(source, f);
-        if (c.status === 'REAUTH_NEEDED') {
-          f.reconnect = true;
-          return;
-        }
-        try {
-          for (const p of await withTimeout(this.d.consulta.prazos(q, c.provider, c.conta))) {
-            const kind = classifyDeadline(p);
-            items.push({
-              id: `${source}:${c.conta}:${p.id}`,
-              kind,
-              source,
-              title: p.titulo,
-              courseName: p.cursoNome ?? null,
-              courseCode: null,
-              // Prova: o horário que a fonte dá é o início; entrega: o horário é o PRAZO (fim).
-              startsAt: kind === 'exam' ? bahiaIso(p.quando) : null,
-              endsAt: kind === 'deadline' ? bahiaIso(p.quando) : null,
-              place: c.provider === 'MOODLE' ? 'Moodle' : 'Classroom',
-            });
-          }
-        } catch (e) {
-          if (e instanceof FonteNaoConectadaError) f.reconnect = true;
-          else f.failed = true;
-        }
-      }),
-    );
-    const sources = [...flags].map(([source, f]) => ({
-      source,
-      status: (f.reconnect ? 'reconnect_required' : f.failed ? 'failed' : 'ok') as CalendarSourceStatus,
-    }));
-    return { items, sources };
+    return { items, sources: [{ source: 'sigaa' as const, status: 'ok' as const }] };
   }
 
   /** Sessões marcadas na clínica, só para quem tem acesso e conexão com o SIASB; sem nome de paciente. */

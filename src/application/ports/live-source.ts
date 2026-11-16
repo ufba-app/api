@@ -1,4 +1,5 @@
 import type { AttachmentContent } from './attachment-reader';
+import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { Provider, SourceContext } from './source-gateway';
 
 /**
@@ -81,6 +82,8 @@ export interface LiveSource {
   verForum(ctx: SourceContext, forumId: string): Promise<DiscussaoViva[]>;
   /** Conteúdo de um anexo (`ref` vindo de `verCurso`/`verForum`). */
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent>;
+  /** Turmas do semestre com dia, horário, período e sala (só o SIGAA: 1 requisição, a página do portal que já se lê). */
+  turmasComHorario?(ctx: SourceContext): Promise<ClassSchedule[]>;
   /** Texto completo de UM aviso/notícia (`id` de um item `tipo: aviso` de `verCurso`). Hoje só o SIGAA. */
   verAviso?(ctx: SourceContext, avisoId: string): Promise<DiscussaoViva>;
 }

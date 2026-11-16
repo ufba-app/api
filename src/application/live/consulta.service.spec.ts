@@ -309,3 +309,16 @@ describe('ConsultaService: arquivos do Drive linkados no Moodle', () => {
     expect(download).not.toHaveBeenCalled();
   });
 });
+
+describe('ConsultaService.turmasComHorario', () => {
+  it('fonte SIGAA sem a capacidade: FonteSemLeituraError, sem tocar nada', async () => {
+    const { svc } = build([conta('a@x')]);
+    await expect(svc.turmasComHorario(U1)).rejects.toBeInstanceOf(FonteSemLeituraError);
+  });
+
+  it('sem K no token (chave de API): SIGAA não conectado neste aplicativo', async () => {
+    const { svc } = build([conta('a@x')]);
+    (svc as unknown as { sources: LiveSources }).sources.register({ provider: 'SIGAA', turmasComHorario: async () => [] } as never);
+    await expect(svc.turmasComHorario(U1)).rejects.toBeInstanceOf(FonteNaoConectadaError);
+  });
+});

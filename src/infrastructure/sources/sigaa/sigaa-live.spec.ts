@@ -92,6 +92,17 @@ describe('SigaaLive', () => {
     ]);
   });
 
+  it('turmasComHorario: 1 requisição (a mesma página do portal) e inclui a turma sem Turma Virtual', async () => {
+    const { live, reqs } = montar();
+    const turmas = await live.turmasComHorario(ctx);
+    expect(reqs).toEqual([`GET ${PORTAL}`]);
+    expect(turmas.map((t) => [t.name, t.room, t.blocks[0].shift])).toEqual([
+      ['SISTEMAS OPERACIONAIS', 'Sala 12', 'T'],
+      ['VISÃO COMPUTACIONAL', 'Sala 8', 'M'],
+      ['LABORATÓRIO INTEGRADO III-A', 'Sala 3', 'N'],
+    ]);
+  });
+
   it('ver_curso: 5 requisições, na ordem portal, postback, notícias, avaliações, timeline', async () => {
     const { live, reqs, posts } = montar();
     const atividades = await live.verCurso(ctx, 'visao-computacional');
