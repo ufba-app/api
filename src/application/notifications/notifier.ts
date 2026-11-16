@@ -1,10 +1,9 @@
-import { inQuietHours } from '../../domain/notifications/quiet-hours';
 import { AlertLogRepository, PushSender } from '../ports/notifications';
 import type { NotificationKey } from '../web/contract';
 import { NotificationSettings } from './notification-settings.service';
 import { PushDevices } from './push-devices.service';
 
-export type NotifyResult = 'sent' | 'duplicate' | 'disabled' | 'no_device' | 'quiet' | 'unavailable' | 'failed';
+export type NotifyResult = 'sent' | 'duplicate' | 'disabled' | 'no_device' | 'unavailable' | 'failed';
 
 export interface NotifyMessage {
   key: NotificationKey;
@@ -26,8 +25,9 @@ const safeUrl = (u: string | undefined) => (u && (/^\/(?!\/)/.test(u) || /^https
 
 /**
  * Canal de avisos genérico: qualquer fonte chama `send`. Respeita o canal ligado (`unavailable`), o ajuste da pessoa
- * (`disabled`), o silêncio 22h-7h na Bahia (`quiet`: não envia e NÃO registra, o chamador tenta de novo depois) e a
- * existência de aparelho (`no_device`). A anti-duplicata é atômica: o instante é reivindicado (insert com chave única)
+ * (`disabled`) e a existência de aparelho (`no_device`). É NEUTRO quanto a horário: não há silêncio aqui. Horário de
+ * aviso é regra de quem avisa (o SIASB decide no próprio `AlertProvider`, com `domain/notifications/quiet-hours.ts`),
+ * e um aviso por gatilho (algo que acabou de acontecer) sai na hora. A anti-duplicata é atômica: o instante é reivindicado (insert com chave única)
  * ANTES de enviar, e só quem gravou envia (`duplicate` para os outros). No máximo uma vez: se nenhum aparelho recebeu, o
  * instante é devolvido (`failed`) para uma nova tentativa. NUNCA lança, nunca loga endpoint, chaves nem o texto do aviso.
  * O conteúdo é de quem envia: sem dado de paciente.
@@ -47,7 +47,6 @@ export class Notifier {
       if (!this.sender.enabled) return 'unavailable';
       if (!(await this.settings.isEnabled(userId, m.key))) return 'disabled';
       const at = this.now();
-      if (inQuietHours(at)) return 'quiet';
       const devices = await this.devices.active(userId);
       if (devices.length === 0) return 'no_device';
       if (!(await this.log.claim(userId, m.key, m.subject, m.slotAt, at, false))) return 'duplicate';

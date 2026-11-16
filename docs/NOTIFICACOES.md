@@ -14,15 +14,15 @@ Canal de avisos genérico: qualquer fonte avisa o aluno pelo mesmo caminho; o SI
 
 ```ts
 Notifier.send(userId, { key, subject, slotAt, title, body, tag, url? }):
-  Promise<'sent' | 'duplicate' | 'disabled' | 'no_device' | 'quiet' | 'unavailable' | 'failed'>
+  Promise<'sent' | 'duplicate' | 'disabled' | 'no_device' | 'unavailable' | 'failed'>
 Notifier.record(userId, key, subject, slotAt, { suppressed }): Promise<boolean>  // true = gravou, false = já existia
 Notifier.lastSentAt(userId, key, subject): Promise<Date | null>                  // ignora os suppressed
 Notifier.hasDevices(userId): Promise<boolean>
 ```
 
-`send` decide, nesta ordem: canal desligado (`unavailable`), ajuste da pessoa (`disabled`), silêncio (`quiet`), nenhum aparelho (`no_device`), instante já reivindicado (`duplicate`) e então envia. Nunca lança: erro vira `'failed'`.
+`send` decide, nesta ordem: canal desligado (`unavailable`), ajuste da pessoa (`disabled`), nenhum aparelho (`no_device`), instante já reivindicado (`duplicate`) e então envia. Nunca lança: erro vira `'failed'`.
 
-- **Silêncio 22h às 7h na Bahia** (UTC-3 fixo, intervalo `[22h, 7h)`): `quiet` não envia e **não registra**; o chamador tenta de novo depois.
+- **Sem silêncio no canal:** o `Notifier` é **neutro quanto a horário**: envia a qualquer hora, para servir a qualquer fonte e a avisos por gatilho (algo que acabou de acontecer). O silêncio das 22h às 7h é **regra do SIASB**: cada fonte que quiser respeitar um horário decide no próprio `AlertProvider` e simplesmente não chama `send` fora dele. A função pura `inQuietHours(at)` (`src/domain/notifications/quiet-hours.ts`, UTC-3 fixo, intervalo `[22h, 7h)`) está disponível para isso.
 - **Anti-duplicata atômica:** a chave única `(userId, key, subject, slotAt)` de `alert_log` é reivindicada **antes** de enviar, com um único `insert` com `skipDuplicates` (`count === 1` = quem gravou envia). Nunca "ler e depois escrever". Duas execuções simultâneas enviam uma vez só.
 - **No máximo uma vez:** se o envio não chegou a nenhum aparelho, o instante é devolvido (apagado do registro) e `send` responde `'failed'` (ou `'no_device'` se todos os aparelhos tinham morrido); uma nova tentativa pode reenviar. Se o processo cair entre a reivindicação e o envio, esse aviso se perde (preferimos perder a duplicar).
 - **Aparelho morto:** 404/410 do provedor remove o aparelho.
