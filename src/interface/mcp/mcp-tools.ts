@@ -35,7 +35,9 @@ export const ACADEMIC_INSTRUCTIONS =
   'professor, nota, falta, semestre, material, fórum, aviso, "o que tenho para hoje/amanhã/esta semana", pedir ajuda ' +
   'para estudar ou se organizar. Antes de responder de memória, consulte: comece por `listar_contas` e `prazos`, e ' +
   'use `listar_cursos` e `ver_curso` para o conteúdo da matéria (tarefas, materiais, avisos). Assim a ajuda parte do ' +
-  'que a pessoa realmente tem, não de suposições. Só lê, nunca altera nada nas fontes.';
+  'que a pessoa realmente tem, não de suposições. Links do Google Drive/Docs em cursos do Moodle: use `baixar_anexo` ' +
+  'com a `ref` que começa com `gdrive1.` (vem em `ver_curso`/`ver_forum`); NÃO abra o link do Drive direto, ele pede ' +
+  'login. Só lê, nunca altera nada nas fontes.';
 
 const AO_VIVO = 'Consulta a fonte AO VIVO, em UMA conta, com o acesso que a pessoa conectou; não grava nada.';
 
@@ -128,7 +130,7 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
       description:
         'Conteúdo de UMA matéria (útil para estudar para uma prova): tarefas (com descrição e prazo), materiais, avisos, provas e fóruns. Moodle: anexos ' +
         'com `ref` para `baixar_anexo` e `forumId` para `ver_forum`; links do Google Drive/Docs postados pelo professor também ' +
-        'viram anexos com `ref` (Docs e Apresentações saem em PDF, Planilhas em XLSX). Classroom: arquivos em `abrirNoNavegador` ' +
+        'viram anexos com `ref` `gdrive1.…` (Docs e Apresentações saem em PDF, Planilhas em XLSX): use `baixar_anexo` com essa `ref` e NÃO abra o link do Drive direto (ele pede login). Classroom: arquivos em `abrirNoNavegador` ' +
         '(links do Drive que a pessoa abre no próprio navegador). Use o `id` de `listar_cursos` ou o `cursoId` de ' +
         '`prazos`, com a mesma `fonte` e `conta`. ' + AO_VIVO,
       inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
@@ -172,7 +174,8 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
         'ou, em chat web (sem terminal), para a sua ferramenta de leitura de URL abrir (`comoLer`: abra o `link`; vale 10 min e 3 acessos). O arquivo é buscado na fonte na hora do download e não fica guardado no serviço. ' +
         'Passe `ref` (e `nome`) de um anexo de `ver_curso`/`ver_forum`, ou `anexos` com vários da mesma conta ' +
         '(até 20). No Classroom, só arquivos anexados nas matérias são entregues. Arquivos do Drive linkados no Moodle ' +
-        'também (só os que apareceram no curso): o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +
+        'também (a `ref` que começa com `gdrive1.`; só os que apareceram no curso): use SEMPRE a `ref`, nunca o link do Drive ' +
+        'direto (ele pede login); o arquivo vem como ele é; sem acesso, o download responde 403 com a dica ' +
         'de conectar o Google Classroom.',
       inputSchema: {
         fonte: FONTE,
