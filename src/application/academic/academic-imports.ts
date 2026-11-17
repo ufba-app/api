@@ -55,8 +55,11 @@ export interface AcademicState {
   registration: string | null;
   summary: AcademicSummary | null;
   /** O que foi lido, à espera da confirmação. Só em `NEEDS_CONFIRMATION`. */
-  draft: TranscriptContract | null;
+  draft: AcademicDraftView | null;
 }
+
+/** O rascunho como a tela o recebe: o contrato lido, com o curso também separado em pedaços (`program.programLabel`). O gravado não muda. */
+export type AcademicDraftView = Omit<TranscriptContract, 'program'> & { program: TranscriptContract['program'] & { programLabel: ProgramLabel } };
 
 /** Falha de uma etapa, com o código que vai para o estado. Nunca carrega conteúdo do documento. */
 class StepFailure extends Error {
@@ -151,7 +154,10 @@ export class AcademicImports {
             hours: transcript.hours,
           }
         : null,
-      draft: imp?.status === 'NEEDS_CONFIRMATION' ? imp.draft : null,
+      draft:
+        imp?.status === 'NEEDS_CONFIRMATION' && imp.draft
+          ? { ...imp.draft, program: { ...imp.draft.program, programLabel: programLabelFor(imp.draft.program.name) } }
+          : null,
     };
   }
 

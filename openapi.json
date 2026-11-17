@@ -1723,13 +1723,73 @@
                                 "standard",
                                 "maximum"
                               ]
+                            },
+                            "programLabel": {
+                              "type": "object",
+                              "properties": {
+                                "raw": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "unit": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "campus": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "degree": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "modality": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "shift": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "format": {
+                                  "type": "string",
+                                  "enum": [
+                                    "full",
+                                    "partial",
+                                    "raw"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "raw",
+                                "name",
+                                "unit",
+                                "campus",
+                                "degree",
+                                "modality",
+                                "shift",
+                                "format"
+                              ]
                             }
                           },
                           "required": [
                             "name",
                             "curriculum",
                             "currentTerm",
-                            "completionDeadline"
+                            "completionDeadline",
+                            "programLabel"
                           ]
                         },
                         "indices": {

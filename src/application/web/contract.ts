@@ -121,7 +121,7 @@ export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyVi
 const AcademicHours = z.object({ required: z.number(), completed: z.number(), pending: z.number() });
 
 /** O que foi lido do histórico (o contrato da leitura, sem docente nem identidade). Rascunho até a pessoa confirmar. */
-export const AcademicDraft = z.object({
+const AcademicDraftBase = z.object({
   contractVersion: z.literal("1"),
   document: z.object({ issuedOn: z.string() }),
   program: z.object({
@@ -179,6 +179,11 @@ export const ProgramLabel = z.object({
   format: z.enum(["full", "partial", "raw"]),
 });
 
+/** O rascunho como a tela o recebe: `program.programLabel` é o mesmo objeto de `summary.programLabel` (a tela prefere ele e cai em `program.name`). */
+export const AcademicDraft = AcademicDraftBase.extend({
+  program: AcademicDraftBase.shape.program.extend({ programLabel: ProgramLabel }),
+});
+
 export const AcademicSummary = z.object({
   /** O texto do curso exatamente como o histórico traz. A tela prefere `programLabel` e cai neste se precisar. */
   programName: z.string(),
@@ -188,7 +193,7 @@ export const AcademicSummary = z.object({
   currentTerm: z.number(),
   completionDeadline: z.object({ standard: z.string(), maximum: z.string() }),
   indices: z.object({ cr: z.number().nullable(), iap: z.number().nullable() }),
-  hours: AcademicDraft.shape.hours,
+  hours: AcademicDraftBase.shape.hours,
 });
 
 export const AcademicFailure = z.enum([
