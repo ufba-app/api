@@ -1,6 +1,7 @@
 import type { Provider } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
+import { SourceHealthRepository } from './application/ports/source-health';
 import { DownloadLinks } from './application/live/download-links';
 import {
   CLASSROOM_LINK,
@@ -113,8 +114,9 @@ export const mcpProviders: Provider[] = [
       classroom: ClassroomLinkPort,
       slots: SigaaMasterSlotRepository,
       siasb: SiasbLink,
-    ) => new ConnectionStatus(cofre, accounts, classroom, slots, siasb),
-    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository, SiasbLink],
+      health: SourceHealthRepository,
+    ) => new ConnectionStatus(cofre, accounts, classroom, slots, siasb, Date.now, undefined, health),
+    inject: [CofreSigaa, SourceAccountRepository, CLASSROOM_LINK, SigaaMasterSlotRepository, SiasbLink, SourceHealthRepository],
   },
   {
     provide: SigaaPairings,

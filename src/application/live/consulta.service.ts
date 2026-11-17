@@ -10,6 +10,7 @@ import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositor
 import { SecretCipher } from '../ports/secret-cipher';
 import { SourceError, type Provider, type SourceContext } from '../ports/source-gateway';
 import { CofreSigaa, CredencialSigaaInvalidaError } from '../sigaa/cofre-sigaa';
+import { SourceHealthRecorder } from './source-health-recorder';
 
 /** Pastas do Drive expandidas por consulta de curso/fórum, e anexos novos no total: tetos de custo e de tamanho da resposta. */
 export const MAX_PASTAS = 5;
@@ -53,8 +54,8 @@ export interface ContaConectada {
 
 /**
  * Consultas AO VIVO em UMA conta: resolve a conta da pessoa (a indicada em `conta`, ou a única conectada), decifra
- * o token só em memória e pergunta à fonte. Não grava nada (a única escrita é marcar a conta como REAUTH_NEEDED
- * quando a fonte recusa o token). Para ler várias contas, quem chama lista com `contas` e consulta uma a uma.
+ * o token só em memória e pergunta à fonte. Não grava conteúdo. As únicas escritas são metadados: marcar a conta como
+ * REAUTH_NEEDED quando a fonte recusa o token e registrar a saúde da leitura (`SourceHealthRecorder`: ok ou fora do ar). Para ler várias contas, quem chama lista com `contas` e consulta uma a uma.
  *
  * SIGAA: a sessão (cookie) é da pessoa; a senha vem do cofre, decifrada com a K do token do cliente, só em memória e só
  * quando é preciso logar. Nunca vai para log nem para mensagem de erro.
@@ -68,7 +69,23 @@ export class ConsultaService {
     private readonly cofre: CofreSigaa,
     /** Arquivos do Drive linkados no Moodle; sem ele, esses `ref` nem existem. */
     @Optional() private readonly drive?: DriveDownloader,
+    /** Registra só metadados de saúde (sucesso/fora do ar) para a tela Conexões; sem ele, nada é gravado. */
+    @Optional() private readonly saude?: SourceHealthRecorder,
   ) {}
+
+  /** Roda a leitura e registra o resultado na saúde da conta: sucesso, ou fonte fora do ar. Outros erros não dizem nada sobre a fonte. */
+  private async registrando<T>(userId: string, provider: Provider, accountKey: string, run: () => Promise<T>): Promise<T> {
+    try {
+      const r = await run();
+      void this.saude?.success(userId, provider, accountKey);
+      return r;
+    } catch (e) {
+      if (e instanceof SourceError && (e.code === 'UNAVAILABLE' || e.code === 'BLOCKED')) {
+        void this.saude?.failure(userId, provider, accountKey, 'source_unavailable');
+      }
+      throw e;
+    }
+  }
 
   /** Contas conectadas (com acesso guardado) nas fontes com leitura ao vivo. Só lê o banco: não chama fonte. */
   async contas(quem: Quem): Promise<ContaConectada[]> {
@@ -292,7 +309,7 @@ export class ConsultaService {
       credentials: { kind: 'token', token: Secret.of(this.cipher.decrypt(account.secret!)) },
     };
     try {
-      return await fn(source, ctx);
+      return await this.registrando(quem.userId, provider, account.accountKey, () => fn(source, ctx));
     } catch (e) {
       if (e instanceof SourceError && e.code === 'REAUTH_NEEDED') {
         await this.accounts.setStatus(account.id, 'REAUTH_NEEDED', e.code);
@@ -352,7 +369,7 @@ export class ConsultaService {
       },
     };
     try {
-      return await fn(source, ctx);
+      return await this.registrando(quem.userId, 'SIGAA', `sigaa:${cred.login}`, () => fn(source, ctx));
     } catch (e) {
       if (e instanceof SourceError && e.code === 'REAUTH_NEEDED') {
         await this.cofre.marcarInvalida(quem.userId);
