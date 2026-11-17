@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { assertPaginaDaTurmaVirtual } from './ava-page';
+import { lerJsfcljs } from './jsfcljs';
 
 export interface NoticiaResumo {
   id: string;
@@ -50,9 +51,6 @@ export interface PostbackNoticia {
   fields: Record<string, string>;
 }
 
-const JSFCLJS = /jsfcljs\(\s*document\.getElementById\('([^']+)'\)\s*,\s*\{([^}]*)\}/;
-const PAR = /'([^']*)'\s*:\s*'([^']*)'/g;
-
 /**
  * Campos do clique "Visualizar" de UMA notícia em `NoticiaTurma/listar.jsf`: o `jsfcljs` submete o form da lista
  * com o id do link e o `id` da notícia, e a resposta é a notícia. É o único jeito: POST direto em `mostrar.jsf`
@@ -63,12 +61,9 @@ export function parsePostbackNoticia(html: string, id: string): PostbackNoticia 
   const $ = cheerio.load(html);
   let achado: { form: string; params: Record<string, string> } | null = null;
   $('a[onclick]').each((_, a) => {
-    const m = JSFCLJS.exec($(a).attr('onclick') ?? '');
-    if (!m) return;
-    const params: Record<string, string> = {};
-    for (const [, k, v] of m[2].matchAll(PAR)) params[k] = v;
-    if (params.id === id) {
-      achado = { form: m[1], params };
+    const clique = lerJsfcljs($(a).attr('onclick') ?? '');
+    if (clique?.params.id === id) {
+      achado = clique;
       return false;
     }
   });

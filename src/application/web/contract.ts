@@ -121,7 +121,7 @@ export const SigaaPasskeysResponse = z.object({ passkeys: z.array(SigaaPasskeyVi
 const AcademicHours = z.object({ required: z.number(), completed: z.number(), pending: z.number() });
 
 /** O que foi lido do histórico (o contrato da leitura, sem docente nem identidade). Rascunho até a pessoa confirmar. */
-export const AcademicDraft = z.object({
+const AcademicDraftBase = z.object({
   contractVersion: z.literal("1"),
   document: z.object({ issuedOn: z.string() }),
   program: z.object({
@@ -179,6 +179,11 @@ export const ProgramLabel = z.object({
   format: z.enum(["full", "partial", "raw"]),
 });
 
+/** O rascunho como a tela o recebe: `program.programLabel` é o mesmo objeto de `summary.programLabel` (a tela prefere ele e cai em `program.name`). */
+export const AcademicDraft = AcademicDraftBase.extend({
+  program: AcademicDraftBase.shape.program.extend({ programLabel: ProgramLabel }),
+});
+
 export const AcademicSummary = z.object({
   /** O texto do curso exatamente como o histórico traz. A tela prefere `programLabel` e cai neste se precisar. */
   programName: z.string(),
@@ -188,7 +193,7 @@ export const AcademicSummary = z.object({
   currentTerm: z.number(),
   completionDeadline: z.object({ standard: z.string(), maximum: z.string() }),
   indices: z.object({ cr: z.number().nullable(), iap: z.number().nullable() }),
-  hours: AcademicDraft.shape.hours,
+  hours: AcademicDraftBase.shape.hours,
 });
 
 export const AcademicFailure = z.enum([
@@ -963,6 +968,39 @@ export const Discussion = z.object({
   attachments: z.array(Attachment),
 });
 
+/** `at_risk`: restam 1/3 do limite de faltas ou menos; `failed`: passou do limite (25% da carga horária). */
+export const AttendanceStatus = z.enum(["ok", "at_risk", "failed"]);
+
+/** Frequência de uma turma, em **aulas** (55 min), não em horas. A fonte só informa presenças: falta = registradas − presenças. */
+export const AttendanceCourse = z.object({
+  courseId: z.string(),
+  courseName: z.string(),
+  presentClasses: z.number().int(),
+  /** Aulas com frequência lançada pelo professor até agora. */
+  recordedClasses: z.number().int(),
+  /** Aulas definidas pela carga horária do componente. */
+  workloadClasses: z.number().int(),
+  absentClasses: z.number().int(),
+  allowedAbsentClasses: z.number().int(),
+  /** Negativo quando passou do limite. */
+  remainingAbsentClasses: z.number().int(),
+  status: AttendanceStatus,
+  /** `false`: o SIGAA avisou que a frequência ainda não foi lançada; tratar como estimativa. */
+  complete: z.boolean(),
+});
+
+export const AttendanceSummary = z.object({
+  absentClasses: z.number().int(),
+  allowedAbsentClasses: z.number().int(),
+  /** Disciplinas `at_risk` ou `failed`. */
+  atRiskCourses: z.number().int(),
+});
+
+export const AttendanceResponse = z.object({
+  courses: z.array(AttendanceCourse),
+  summary: AttendanceSummary,
+});
+
 export const CoursesResponse = z.object({ courses: z.array(Course) });
 export const DeadlinesResponse = z.object({ deadlines: z.array(Deadline) });
 export const CourseResponse = z.object({
@@ -996,6 +1034,7 @@ export type Course = z.infer<typeof Course>;
 export type Deadline = z.infer<typeof Deadline>;
 export type Activity = z.infer<typeof Activity>;
 export type Discussion = z.infer<typeof Discussion>;
+export type AttendanceResponse = z.infer<typeof AttendanceResponse>;
 
 /**
  * Valida a entrada contra o schema. Erro vira 400 genérico: a mensagem nunca ecoa o que veio (pode ser senha).
