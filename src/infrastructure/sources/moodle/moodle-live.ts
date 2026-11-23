@@ -491,6 +491,10 @@ export class MoodleLive implements LiveSource {
   salvarEntrega(ctx: SourceContext, e: EntregaTarefa): Promise<EstadoEntrega> {
     return this.run(ctx, async (m) => {
       const tarefa = idMoodle(e.tarefaId, 'tarefaId');
+      // Sem arquivos nem texto o Moodle trataria como entrega vazia e poderia apagar o que já existe.
+      if (e.itemId === undefined && e.texto === undefined) {
+        throw new SourceError('UNSUPPORTED_SCOPE', 'A entrega precisa de arquivos ou texto');
+      }
       const params: Record<string, string | number> = { assignmentid: tarefa };
       if (e.itemId !== undefined) params['plugindata[files_filemanager]'] = idMoodle(e.itemId, 'itemId');
       if (e.texto !== undefined) {

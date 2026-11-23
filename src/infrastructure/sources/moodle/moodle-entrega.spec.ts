@@ -262,6 +262,14 @@ describe('MoodleLive.salvarEntrega', () => {
     expect(e.message).toContain('Prazo encerrado');
   });
 
+  it('salvarEntrega sem arquivos nem texto é recusado antes de chamar o Moodle', async () => {
+    const { live, calls } = moodle({});
+    const e = (await live.salvarEntrega!(ctx, { tarefaId: '5' }).catch((x) => x)) as SourceError;
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(calls).toHaveLength(0);
+  });
+
   it('id não inteiro não chega ao Moodle', async () => {
     const { live, calls } = moodle({});
     for (const id of ['', '0', '1e3', '-1', '0x10', 'abc']) {
