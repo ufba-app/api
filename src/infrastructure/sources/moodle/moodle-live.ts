@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { AttachmentContent } from '../../../application/ports/attachment-reader';
 import type {
   AnexoVivo,
@@ -167,6 +168,25 @@ function estadoDe(status?: string): RequisitosEntrega['estado'] {
   return status === 'submitted' ? 'entregue' : status === 'draft' ? 'rascunho' : 'nova';
 }
 
+/** Pausas entre as tentativas de ler o estado depois de gravar (3 tentativas no total). */
+const PAUSAS_LEITURA_MS = [400, 1200] as const;
+
+/**
+ * Código curto e seguro do porquê de uma leitura falhar: só o `errorcode` do Moodle (se tiver cara de código), `HTTP_<status>`,
+ * `REDE`, `RESPOSTA_INVALIDA` ou `DESCONHECIDO`. Nunca a mensagem (pode ter conteúdo), o token, ids ou a URL.
+ */
+function motivoDaFalha(e: unknown): string {
+  if (e instanceof MoodleError) {
+    if (e.errorCode && /^[A-Za-z0-9_]{1,64}$/.test(e.errorCode)) return e.errorCode;
+    const http = /^Moodle HTTP (\d{3}) /.exec(e.message);
+    return http ? `HTTP_${http[1]}` : 'DESCONHECIDO';
+  }
+  if (e instanceof SyntaxError) return 'RESPOSTA_INVALIDA';
+  const nome = (e as { name?: unknown })?.name;
+  if (e instanceof TypeError || nome === 'AbortError' || nome === 'TimeoutError') return 'REDE';
+  return 'DESCONHECIDO';
+}
+
 function anexo(f: MoodleFile): AnexoVivo {
   return { nome: f.filename, mimeType: f.mimetype, tamanhoBytes: f.filesize, ref: cleanUrl(f.fileurl) };
 }
@@ -182,9 +202,11 @@ export class MoodleLive implements LiveSource {
   private readonly files: MoodleAttachmentReader;
 
   /** `drive` liga os arquivos do Drive linkados no curso (assina os `ref`); sem ele, os links ficam só como links. */
+  /** `opcoes.esperar`: a pausa entre tentativas da leitura do estado depois de gravar (injetável nos testes). */
   constructor(
     fetchFn: FetchFn = fetch,
     private readonly drive?: DriveRefs,
+    private readonly opcoes: { esperar?: (ms: number) => Promise<void> } = {},
   ) {
     this.client = new MoodleClient(fetchFn);
     this.files = new MoodleAttachmentReader(fetchFn);
@@ -554,15 +576,31 @@ export class MoodleLive implements LiveSource {
     throw new SourceError('UNAVAILABLE', `O Moodle não aceitou ${acao}${msg ? `: ${msg}` : ''}`);
   }
 
-  /** Depois de uma escrita que deu certo, a falha da leitura não é falha da escrita: devolve o estado ausente. */
+  /**
+   * Depois de uma escrita que deu certo, a falha da leitura não é falha da escrita: tenta até 3 vezes (pausas de 400 ms e 1200 ms)
+   * e, se nenhuma der, devolve o estado ausente com `motivoLeitura` (só um código) e um aviso fixo no log. Nunca regrava.
+   */
   private async lerEstadoDepoisDeGravar(m: MoodleAccess, tarefa: number): Promise<EstadoEntrega> {
-    try {
-      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
-      return { estado: estadoDe(status.lastattempt?.submission?.status) };
-    } catch {
-      return {};
+    const esperar = this.opcoes.esperar ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    let motivo = 'DESCONHECIDO';
+    for (let tentativa = 0; tentativa < PAUSAS_LEITURA_MS.length + 1; tentativa++) {
+      if (tentativa > 0) await esperar(PAUSAS_LEITURA_MS[tentativa - 1]);
+      try {
+        const status: unknown = await this.client.call<unknown>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+        if (!status || typeof status !== 'object' || Array.isArray(status)) {
+          motivo = 'RESPOSTA_INVALIDA';
+          continue;
+        }
+        return { estado: estadoDe((status as MoodleSubmissionStatus).lastattempt?.submission?.status) };
+      } catch (e) {
+        motivo = motivoDaFalha(e);
+      }
     }
+    MoodleLive.log.warn(`Leitura do estado da entrega falhou depois de gravar: motivo=${motivo} tentativas=${PAUSAS_LEITURA_MS.length + 1}`);
+    return { motivoLeitura: motivo };
   }
+
+  private static readonly log = new Logger('MoodleLive');
 
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent> {
     return this.run(ctx, async () => {

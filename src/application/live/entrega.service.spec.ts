@@ -1,4 +1,4 @@
-import type { ArquivoParaEnvio, EntregaTarefa, LiveSource, RequisitosEntrega } from '../ports/live-source';
+import type { ArquivoParaEnvio, EntregaTarefa, EstadoEntrega, LiveSource, RequisitosEntrega } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import type { SourceAccountRecord } from '../ports/repositories';
 import type { Provider, SourceContext } from '../ports/source-gateway';
@@ -68,11 +68,11 @@ function montar(requisitos: RequisitosEntrega = req()) {
     arquivos: arquivos.map((a) => ({ nome: a.nome, tamanhoBytes: a.bytes.length })),
   }));
   const salvarEntrega = jest.fn(
-    async (_ctx: SourceContext, _e: EntregaTarefa): Promise<{ estado?: 'nova' | 'rascunho' | 'entregue' }> => ({
+    async (_ctx: SourceContext, _e: EntregaTarefa): Promise<EstadoEntrega> => ({
       estado: state.requisitos.exigeBotaoEnviar ? 'rascunho' : 'entregue',
     }),
   );
-  const finalizarEntrega = jest.fn(async (_ctx: SourceContext, _t: string): Promise<{ estado?: 'nova' | 'rascunho' | 'entregue' }> => ({ estado: 'entregue' }));
+  const finalizarEntrega = jest.fn(async (_ctx: SourceContext, _t: string): Promise<EstadoEntrega> => ({ estado: 'entregue' }));
   const moodle: LiveSource = {
     provider: 'MOODLE',
     listarCursos: async () => [],
@@ -575,6 +575,38 @@ describe('EntregaService', () => {
       expect(feita.estado).toBe('desconhecido');
       expect(m.salvarEntrega).toHaveBeenCalledTimes(1);
       expect(m.finalizarEntrega).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('motivoLeitura: o código do porquê a leitura do estado falhou', () => {
+    it('tarefa sem botão: o motivo da leitura do salvar chega na resposta desconhecido, com o aviso de sempre', async () => {
+      const m = montar(req({ exigeBotaoEnviar: false }));
+      m.salvarEntrega.mockResolvedValueOnce({ motivoLeitura: 'HTTP_504' });
+      const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
+      const feita = await m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO);
+      expect(feita).toEqual({ estado: 'desconhecido', aviso: expect.stringMatching(/confira/i), motivoLeitura: 'HTTP_504' });
+    });
+
+    it('com botão: o motivo é o da leitura depois do envio (a do salvar é descartada se o envio leu o estado)', async () => {
+      const m = montar(req({ exigeBotaoEnviar: true }));
+      m.finalizarEntrega.mockResolvedValueOnce({ motivoLeitura: 'RESPOSTA_INVALIDA' });
+      const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
+      const feita = await m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO);
+      expect(feita).toMatchObject({ estado: 'desconhecido', motivoLeitura: 'RESPOSTA_INVALIDA' });
+
+      const n = montar(req({ exigeBotaoEnviar: true }));
+      n.salvarEntrega.mockResolvedValueOnce({ motivoLeitura: 'REDE' });
+      const r2 = await n.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
+      const ok = await n.svc.confirmar(EU, 'enviar', r2.confirmacaoId, PEDIDO);
+      expect(ok).toEqual({ estado: 'entregue', entregue: true });
+    });
+
+    it('estado ausente sem motivo (fonte antiga): sem motivoLeitura na resposta', async () => {
+      const m = montar(req({ exigeBotaoEnviar: false }));
+      m.salvarEntrega.mockResolvedValueOnce({});
+      const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
+      const feita = await m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO);
+      expect(feita).not.toHaveProperty('motivoLeitura');
     });
   });
 
