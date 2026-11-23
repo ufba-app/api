@@ -184,11 +184,14 @@ export class ConsultaService {
     return this.com(quem, 'MOODLE', conta, (s, ctx) => s.postarForum!(ctx, { ...post, titulo, mensagem }));
   }
 
-  /** O que a tarefa pede e o estado da entrega da pessoa. Só lê. Só o Moodle. */
-  async requisitosEntrega(quem: Quem, conta: string | undefined, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
+  /**
+   * O que a tarefa pede e o estado da entrega da pessoa. Só lê. Só o Moodle. `cmid`: o id público da atividade em
+   * `ver_curso`; o resultado traz também o id interno (`tarefaId`) que as escritas recebem.
+   */
+  async requisitosEntrega(quem: Quem, conta: string | undefined, cursoId: string, cmid: string): Promise<RequisitosEntrega> {
     const source = this.sources.get('MOODLE');
     if (!source?.requisitosEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');
-    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.requisitosEntrega!(ctx, cursoId, tarefaId));
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.requisitosEntrega!(ctx, cursoId, cmid));
   }
 
   /** Sobe arquivos para a área de rascunho do Moodle (invisível ao professor). Quem valida é o `EntregaService`. */
@@ -205,7 +208,10 @@ export class ConsultaService {
     return this.com(quem, 'MOODLE', conta, (s, ctx) => s.salvarEntrega!(ctx, e));
   }
 
-  /** Envia o rascunho para avaliação (escrita). Só depois da confirmação da pessoa, pelo `EntregaService`. */
+  /**
+   * Envia o rascunho para avaliação (escrita). Só depois da confirmação da pessoa, pelo `EntregaService`.
+   * `tarefaId`: o id INTERNO da tarefa (assign id, `RequisitosEntrega.tarefaId`), nunca o cmid.
+   */
   async finalizarEntrega(quem: Quem, conta: string | undefined, tarefaId: string): Promise<EstadoEntrega> {
     const source = this.sources.get('MOODLE');
     if (!source?.finalizarEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');

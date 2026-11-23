@@ -11,6 +11,9 @@ const EU: Quem = { userId: 'u1' };
 const OUTRA: Quem = { userId: 'u2' };
 const AGORA = Date.parse('2026-11-22T12:00:00Z');
 const HORA = 3_600_000;
+/** Como no AVA real: o id público da atividade (cmid, de `ver_curso`) não é o id interno da tarefa (assign id). */
+const CMID = '4258935';
+const ASSIGN_ID = '286293';
 
 function contaMoodle(userId: string): SourceAccountRecord {
   return {
@@ -28,7 +31,8 @@ function contaMoodle(userId: string): SourceAccountRecord {
 
 function req(over: Partial<RequisitosEntrega> = {}): RequisitosEntrega {
   return {
-    tarefaId: '42',
+    tarefaId: ASSIGN_ID,
+    cmid: CMID,
     titulo: 'Lista 2',
     aceitaArquivo: true,
     aceitaTexto: false,
@@ -117,16 +121,40 @@ function montar(requisitos: RequisitosEntrega = req()) {
   };
 }
 
-const PEDIDO = { cursoId: '7', tarefaId: '42' };
+const PEDIDO = { cursoId: '7', tarefaId: CMID };
 
 describe('EntregaService', () => {
+  it('cmid x assign id: o caller fala em cmid; ticket e confirmação ligam ao cmid; as escritas recebem o assign id', async () => {
+    const m = montar(req({ exigeBotaoEnviar: true }));
+    const { uploadId } = await m.svc.preparar(EU, PEDIDO);
+    expect(m.uploads.espiar(uploadId!)).toMatchObject({ cmid: CMID, cursoId: '7' });
+    await m.svc.receberUpload(uploadId!, [arq('a.pdf')]);
+    const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, uploadId });
+    // A confirmação não vale com o id interno no lugar do cmid (não se confundem).
+    const e = await m.svc.confirmar(EU, 'enviar', r.confirmacaoId, { cursoId: '7', tarefaId: ASSIGN_ID }).catch((x: Error) => x);
+    expect(e).toBeInstanceOf(EntregaInvalidaError);
+    m.nadaEscrito();
+    await expect(m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO)).resolves.toEqual({ estado: 'entregue', entregue: true });
+    for (const call of m.requisitosEntrega.mock.calls) expect(call[2]).toBe(CMID);
+    expect(m.salvarEntrega).toHaveBeenCalledWith(expect.anything(), { tarefaId: ASSIGN_ID, itemId: '777' });
+    expect(m.finalizarEntrega).toHaveBeenCalledWith(expect.anything(), ASSIGN_ID);
+  });
+
+  it('a tarefa relida na confirmação com outro assign id (o cmid passou a apontar outra tarefa): recusa sem gravar', async () => {
+    const m = montar(req({ ...SO_TEXTO }));
+    const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, texto: 'oi' });
+    m.state.requisitos = req({ ...SO_TEXTO, tarefaId: '999' });
+    await expect(m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO)).rejects.toBeInstanceOf(EntregaInvalidaError);
+    m.nadaEscrito();
+  });
+
   it('preparar devolve os requisitos e um uploadId; sem aceitaArquivo não há uploadId', async () => {
     const m = montar();
     const p = await m.svc.preparar(EU, PEDIDO);
     expect(p.requisitos.titulo).toBe('Lista 2');
     expect(p.uploadId).toEqual(expect.any(String));
     expect(p.expiraEm).toEqual(new Date(AGORA + 15 * 60_000));
-    expect(m.requisitosEntrega).toHaveBeenCalledWith(expect.objectContaining({ accountKey: 'u1@ufba.br' }), '7', '42');
+    expect(m.requisitosEntrega).toHaveBeenCalledWith(expect.objectContaining({ accountKey: 'u1@ufba.br' }), '7', CMID);
 
     const s = montar(req({ aceitaArquivo: false }));
     const q = await s.svc.preparar(EU, PEDIDO);
@@ -267,8 +295,8 @@ describe('EntregaService', () => {
     const m = montar();
     const { uploadId } = await m.svc.preparar(EU, PEDIDO);
     await m.svc.receberUpload(uploadId!, [arq('a.pdf')]);
-    m.state.requisitos = req({ tarefaId: '43' });
-    await expect(m.svc.solicitar(EU, 'enviar', { cursoId: '7', tarefaId: '43', uploadId })).rejects.toBeInstanceOf(EntregaInvalidaError);
+    m.state.requisitos = req({ tarefaId: '286294', cmid: '4258936' });
+    await expect(m.svc.solicitar(EU, 'enviar', { cursoId: '7', tarefaId: '4258936', uploadId })).rejects.toBeInstanceOf(EntregaInvalidaError);
     m.nadaEscrito();
   });
 
@@ -289,20 +317,20 @@ describe('EntregaService', () => {
     expect(r.substituiEntrega).toBe(false);
     await expect(m.svc.confirmar(EU, 'enviar', r.confirmacaoId, PEDIDO)).resolves.toEqual({ estado: 'entregue', entregue: true });
     expect(m.salvarEntrega).not.toHaveBeenCalled();
-    expect(m.finalizarEntrega).toHaveBeenCalledWith(expect.anything(), '42');
+    expect(m.finalizarEntrega).toHaveBeenCalledWith(expect.anything(), ASSIGN_ID);
   });
 
   it('confirmar enviar: salva e, com exigeBotaoEnviar=true, também finaliza; sem botão só salva (não chama finalizarEntrega)', async () => {
     const com = montar(req({ exigeBotaoEnviar: true }));
     const r1 = await com.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
     await expect(com.svc.confirmar(EU, 'enviar', r1.confirmacaoId, PEDIDO)).resolves.toEqual({ estado: 'entregue', entregue: true });
-    expect(com.salvarEntrega).toHaveBeenCalledWith(expect.objectContaining({ accountKey: 'u1@ufba.br' }), { tarefaId: '42', itemId: '777' });
-    expect(com.finalizarEntrega).toHaveBeenCalledWith(expect.anything(), '42');
+    expect(com.salvarEntrega).toHaveBeenCalledWith(expect.objectContaining({ accountKey: 'u1@ufba.br' }), { tarefaId: ASSIGN_ID, itemId: '777' });
+    expect(com.finalizarEntrega).toHaveBeenCalledWith(expect.anything(), ASSIGN_ID);
 
     const sem = montar(req({ ...SO_TEXTO, exigeBotaoEnviar: false }));
     const r2 = await sem.svc.solicitar(EU, 'enviar', { ...PEDIDO, texto: 'oi' });
     await expect(sem.svc.confirmar(EU, 'enviar', r2.confirmacaoId, PEDIDO)).resolves.toEqual({ estado: 'entregue', entregue: true });
-    expect(sem.salvarEntrega).toHaveBeenCalledWith(expect.anything(), { tarefaId: '42', texto: 'oi' });
+    expect(sem.salvarEntrega).toHaveBeenCalledWith(expect.anything(), { tarefaId: ASSIGN_ID, texto: 'oi' });
     expect(sem.finalizarEntrega).not.toHaveBeenCalled();
   });
 
@@ -447,7 +475,7 @@ describe('EntregaService', () => {
     it('é recusada sem gastar e continua valendo para a tarefa certa', async () => {
       const m = montar(req({ exigeBotaoEnviar: true }));
       const r = await m.svc.solicitar(EU, 'enviar', { ...PEDIDO, arquivos: [arq('a.pdf')] });
-      for (const alvo of [{ cursoId: '7', tarefaId: '43' }, { cursoId: '8', tarefaId: '42' }]) {
+      for (const alvo of [{ cursoId: '7', tarefaId: '4258936' }, { cursoId: '8', tarefaId: CMID }, { cursoId: '7', tarefaId: ASSIGN_ID }]) {
         const e = await m.svc.confirmar(EU, 'enviar', r.confirmacaoId, alvo).catch((x: Error) => x);
         expect(e).toBeInstanceOf(EntregaInvalidaError);
         expect((e as Error).message).toMatch(/outra tarefa/);

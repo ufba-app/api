@@ -30,6 +30,7 @@ function assignments(extra: Record<string, unknown> = {}, filetypes = '') {
         assignments: [
           {
             id: 286293,
+            cmid: 4258935,
             name: 'ED1',
             duedate: 1796266620,
             cutoffdate: 0,
@@ -52,14 +53,18 @@ function assignments(extra: Record<string, unknown> = {}, filetypes = '') {
   };
 }
 
+/** Como no AVA real: o id da atividade em `ver_curso` (cmid) não é o id interno da tarefa (assign id). */
+const CMID = '4258935';
+const ASSIGN_ID = '286293';
+
 const statusNovo = { lastattempt: { canedit: true, submission: { status: 'new', plugins: [] } } };
 
 describe('MoodleLive.requisitosEntrega', () => {
   it('lê get_assignments do curso e o status, e mapeia as configs', async () => {
     const { live, calls } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
-    const r = await live.requisitosEntrega!(ctx, '359934', '286293');
+    const r = await live.requisitosEntrega!(ctx, '359934', CMID);
     expect(calls[0].get('courseids[0]')).toBe('359934');
-    expect(calls[1].get('assignid')).toBe('286293');
+    expect(calls[1].get('assignid')).toBe(ASSIGN_ID);
     expect(r).toMatchObject({
       aceitaArquivo: true,
       aceitaTexto: false,
@@ -74,6 +79,22 @@ describe('MoodleLive.requisitosEntrega', () => {
     });
   });
 
+  it('acha a tarefa pelo cmid de ver_curso e devolve o assign id interno (tarefaId) e o cmid', async () => {
+    const { live, calls } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
+    const r = await live.requisitosEntrega!(ctx, '359934', CMID);
+    expect(r.tarefaId).toBe(ASSIGN_ID);
+    expect(r.cmid).toBe(CMID);
+    expect(calls[1].get('assignid')).toBe(ASSIGN_ID);
+  });
+
+  it('o assign id interno como tarefaId não é achado (sem fallback para o id interno)', async () => {
+    const { live, calls } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
+    const err = (await live.requisitosEntrega!(ctx, '359934', ASSIGN_ID).catch((e) => e)) as SourceError;
+    expect(err).toBeInstanceOf(SourceError);
+    expect(err.code).toBe('UNSUPPORTED_SCOPE');
+    expect(calls.some((c) => c.get('wsfunction') === 'mod_assign_get_submission_status')).toBe(false);
+  });
+
   it('status draft/submitted vira rascunho/entregue e lista os arquivos atuais', async () => {
     const plugins = [{ type: 'file', fileareas: [{ area: 'submission_files', files: [{ filename: 'a.zip', filesize: 10 }] }] }];
     for (const [status, estado] of [['draft', 'rascunho'], ['submitted', 'entregue']] as const) {
@@ -81,7 +102,7 @@ describe('MoodleLive.requisitosEntrega', () => {
         mod_assign_get_assignments: assignments({ submissiondrafts: 1 }),
         mod_assign_get_submission_status: { lastattempt: { canedit: true, submission: { status, plugins } } },
       });
-      const r = await live.requisitosEntrega!(ctx, '359934', '286293');
+      const r = await live.requisitosEntrega!(ctx, '359934', CMID);
       expect(r.estado).toBe(estado);
       expect(r.exigeBotaoEnviar).toBe(true);
       expect(r.arquivosAtuais).toEqual([{ nome: 'a.zip', tamanhoBytes: 10 }]);
@@ -90,12 +111,12 @@ describe('MoodleLive.requisitosEntrega', () => {
 
   it('extensões: ".pdf, .zip" vira [".pdf",".zip"]', async () => {
     const { live } = moodle({ mod_assign_get_assignments: assignments({}, '.PDF, .zip'), mod_assign_get_submission_status: statusNovo });
-    expect((await live.requisitosEntrega!(ctx, '359934', '286293')).extensoes).toEqual(['.pdf', '.zip']);
+    expect((await live.requisitosEntrega!(ctx, '359934', CMID)).extensoes).toEqual(['.pdf', '.zip']);
   });
 
   it('filetypeslist com grupo ou MIME passa como está (sem descartar tokens) e aceita ";" como separador', async () => {
     const { live } = moodle({ mod_assign_get_assignments: assignments({}, 'document; image/PNG .pdf'), mod_assign_get_submission_status: statusNovo });
-    expect((await live.requisitosEntrega!(ctx, '359934', '286293')).extensoes).toEqual(['document', 'image/png', '.pdf']);
+    expect((await live.requisitosEntrega!(ctx, '359934', CMID)).extensoes).toEqual(['document', 'image/png', '.pdf']);
   });
 
   it('temTextoAtual: true quando a entrega tem texto online, false sem texto', async () => {
@@ -106,7 +127,7 @@ describe('MoodleLive.requisitosEntrega', () => {
         mod_assign_get_assignments: assignments(),
         mod_assign_get_submission_status: { lastattempt: { canedit: true, submission: { status: 'draft', plugins } } },
       });
-      const r = await live.requisitosEntrega!(ctx, '359934', '286293');
+      const r = await live.requisitosEntrega!(ctx, '359934', CMID);
       expect(r.temTextoAtual).toBe(esperado);
       expect(JSON.stringify(r)).not.toContain('minha resposta');
     }
@@ -118,7 +139,7 @@ describe('MoodleLive.requisitosEntrega', () => {
     expect(e.code).toBe('UNSUPPORTED_SCOPE');
     expect(calls).toHaveLength(0);
     const { live: ok, calls: c2 } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
-    await ok.requisitosEntrega!(ctx, '123456789012345', '286293').catch(() => undefined);
+    await ok.requisitosEntrega!(ctx, '123456789012345', CMID).catch(() => undefined);
     expect(c2.length).toBeGreaterThan(0);
   });
 
@@ -147,14 +168,14 @@ describe('MoodleLive.requisitosEntrega', () => {
     const a = assignments();
     a.courses[0].assignments[0].configs[2] = cfg('file', 'maxsubmissionsizebytes', '0');
     const { live } = moodle({ mod_assign_get_assignments: a, mod_assign_get_submission_status: statusNovo });
-    expect((await live.requisitosEntrega!(ctx, '359934', '286293')).maxBytesPorArquivo).toBeUndefined();
+    expect((await live.requisitosEntrega!(ctx, '359934', CMID)).maxBytesPorArquivo).toBeUndefined();
   });
 
   it('mapeia texto, datas, grupo e declaração', async () => {
     const a = assignments({ allowsubmissionsfromdate: 1700000000, cutoffdate: 1800000000, teamsubmission: 1, requiresubmissionstatement: 1 });
     a.courses[0].assignments[0].configs[4] = cfg('onlinetext', 'enabled', '1');
     const { live } = moodle({ mod_assign_get_assignments: a, mod_assign_get_submission_status: statusNovo });
-    expect(await live.requisitosEntrega!(ctx, '359934', '286293')).toMatchObject({
+    expect(await live.requisitosEntrega!(ctx, '359934', CMID)).toMatchObject({
       aceitaTexto: true,
       abreEm: new Date(1700000000 * 1000),
       limite: new Date(1800000000 * 1000),

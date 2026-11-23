@@ -83,7 +83,8 @@ describe('baixar_anexo: vídeo e arquivo grande do Drive não geram link', () =>
 
 describe('entrega de tarefa: adaptador fino sobre o EntregaService', () => {
   const requisitos = {
-    tarefaId: '20', titulo: 'ED2', aceitaArquivo: true, aceitaTexto: false, maxArquivos: 1, maxBytesPorArquivo: 1048576,
+    // Como no AVA real: o id interno da tarefa (assign id) difere do id público da atividade (cmid '20', o de ver_curso).
+    tarefaId: '286293', cmid: '20', titulo: 'ED2', aceitaArquivo: true, aceitaTexto: false, maxArquivos: 1, maxBytesPorArquivo: 1048576,
     extensoes: ['.pdf'], prazo: new Date('2026-11-30T23:59:00Z'), exigeBotaoEnviar: false, emGrupo: false, exigeDeclaracao: false,
     estado: 'nova', podeEditar: true, arquivosAtuais: [],
   };
@@ -119,6 +120,12 @@ describe('entrega de tarefa: adaptador fino sobre o EntregaService', () => {
       await expect(uc.salvarRascunhoTarefa(base, { cursoId: '10', tarefaId: '20', arquivos: [{ nome: 'a.pdf', conteudoBase64 }] })).rejects.toThrow(/base64 inválido/);
     }
     expect(e.solicitar).not.toHaveBeenCalled();
+  });
+
+  it('preparar devolve como tarefaId o id público (cmid de ver_curso), nunca o id interno do Moodle', async () => {
+    const r = (await montar().uc.prepararEnvioTarefa(base, { cursoId: '10', tarefaId: '20' })) as any;
+    expect(r.tarefaId).toBe('20');
+    expect(JSON.stringify(r)).not.toContain('286293');
   });
 
   it('linkUpload usa baseUrl do principal', async () => {

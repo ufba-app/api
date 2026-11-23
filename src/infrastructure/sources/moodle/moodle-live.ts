@@ -37,7 +37,10 @@ interface MoodlePageRow {
 }
 
 interface MoodleAssignmentConfig {
+  /** Id interno da tarefa (assign id): o que as escritas e o status recebem. */
   id: number;
+  /** Id do módulo do curso (a atividade em `ver_curso`): o `tarefaId` público. */
+  cmid: number;
   name: string;
   duedate?: number;
   cutoffdate?: number;
@@ -430,20 +433,22 @@ export class MoodleLive implements LiveSource {
   /**
    * Lê o que a tarefa pede (`mod_assign_get_assignments` do curso) e o estado da entrega do aluno
    * (`mod_assign_get_submission_status`). 2 chamadas. Timestamps do Moodle são em segundos; `0` = ausente.
+   * Acha a tarefa pelo `cmid` (o id da atividade em `ver_curso`), nunca pelo id interno; devolve os dois.
    */
-  requisitosEntrega(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
+  requisitosEntrega(ctx: SourceContext, cursoId: string, cmid: string): Promise<RequisitosEntrega> {
     return this.run(ctx, async (m) => {
       const curso = idMoodle(cursoId, 'cursoId');
-      const tarefa = idMoodle(tarefaId, 'tarefaId');
+      const modulo = idMoodle(cmid, 'tarefaId');
       const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
         m,
         'mod_assign_get_assignments',
         { 'courseids[0]': curso },
       );
       let a: MoodleAssignmentConfig | undefined;
-      for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.id === tarefa);
+      for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.cmid === modulo);
       if (!a) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefa não encontrada neste curso');
-      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+      // Daqui em diante o Moodle quer o id interno da tarefa (assign id), não o cmid.
+      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: a.id });
 
       const cfg = (plugin: string, name: string): string | undefined =>
         (a.configs ?? []).find((c) => c.plugin === plugin && c.name === name)?.value;
@@ -468,6 +473,7 @@ export class MoodleLive implements LiveSource {
       }
       return {
         tarefaId: String(a.id),
+        cmid: String(a.cmid),
         titulo: a.name,
         aceitaArquivo: cfg('file', 'enabled') === '1',
         aceitaTexto: cfg('onlinetext', 'enabled') === '1',
