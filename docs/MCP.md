@@ -42,7 +42,7 @@ No SIGAA, `ver_curso` traz notícias como `tipo: aviso` (só o título; o texto 
 
 ### Escrita: `postar_forum` (fórum do Moodle)
 
-A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome da pessoa, em **nova discussão** (`forumId`, o de `ver_curso`) ou em **resposta** (`postId`, o de `ver_forum`), com `titulo` e `mensagem` (texto puro, escapado e enviado como um parágrafo por linha). Chama `mod_forum_add_discussion` ou `mod_forum_add_discussion_post`: 1 chamada ao Moodle, nada é gravado no serviço.
+Publica no fórum do AVA em nome da pessoa, em **nova discussão** (`forumId`, o de `ver_curso`) ou em **resposta** (`postId`, o de `ver_forum`), com `titulo` e `mensagem` (texto puro, escapado e enviado como um parágrafo por linha). Chama `mod_forum_add_discussion` ou `mod_forum_add_discussion_post`: 1 chamada ao Moodle, nada é gravado no serviço.
 
 - **Só existe com a permissão `moodle.forum_write`** (ligada ao app na tela de autorizar, em Apps autorizados). Sem ela a ferramenta nem aparece em `tools/list`. Risco alto: o web pede confirmação antes de ligar.
 - A permissão aparece na tela de autorizar mesmo sem o Moodle conectado, marcada como indisponível (`source_not_connected`), como já acontece com o SIASB.
@@ -51,9 +51,31 @@ A única ferramenta de escrita das acadêmicas. Publica no fórum do AVA em nome
 - Só o Moodle. Classroom não tem fórum; SIGAA não tem escrita.
 - Ainda não testada contra o AVA real (depende do serviço de Web Service do AVA liberar essas duas funções para o token do app).
 
+### Escrita: entrega de tarefa do Moodle
+
+Três ferramentas, **todas só com a permissão `moodle.assignment_write`** (risco alto; sem ela nenhuma aparece em `tools/list`, nem a de leitura). São finas sobre o `EntregaService` (`src/application/live/entrega.service.ts`), que tem as regras; detalhes das funções do Moodle em `docs/MOODLE.md`. Nada do trabalho é gravado no serviço nem vai para log ou erro (só nomes e tamanhos).
+
+| Ferramenta | O que faz | Anotações |
+|---|---|---|
+| `preparar_envio_tarefa(cursoId, tarefaId)` | Lê o que a tarefa aceita (`aceita.arquivos`/`aceita.texto`, `limitesArquivos`), prazo e `atrasada`, `estado`, `arquivosAtuais` e **`salvarJaEntrega`** (tarefa sem o botão de enviar). Se aceita arquivo, abre um `linkUpload` de uso único (15 min, `expiraEm`) com `uploadId` e `comoEnviar`. Não grava | `readOnlyHint: true` |
+| `salvar_rascunho_tarefa(...)` | Salva como rascunho; só em tarefa **com** o botão de enviar (sem ele, recusa e manda usar `enviar_tarefa`) | escrita não destrutiva, não idempotente |
+| `enviar_tarefa(...)` | Entrega ao professor. Sem conteúdo novo, manda para avaliação o rascunho que já está no AVA | escrita não destrutiva, não idempotente |
+
+Entrada das duas de escrita: `cursoId`, `tarefaId`, `conta?`, `texto?` (texto puro), `uploadId?` (do link) **ou** `arquivos?: [{ nome, conteudoBase64 }]` (até 20; atalho para arquivo pequeno, no máximo **2 MB somados**, conferido pelo `EntregaService`; o schema só limita cada base64 a ~2,8 milhões de caracteres) e `confirmacaoId?`. Base64 inválido é recusado antes de chamar o serviço.
+
+**Confirmação em duas chamadas.** Sem `confirmacaoId`, a ferramenta valida tudo e devolve `{ confirmacaoPendente: true, confirmacaoId, expiraEm, tarefa, arquivos (nome e tamanho), texto, efeito, prazo, atrasada, substituiEntrega, instrucao }` **sem gravar a entrega** (arquivos em base64 já sobem à área de rascunho do próprio Moodle, invisível ao professor). O agente mostra o resumo à pessoa e só repete a chamada com o `confirmacaoId` (uso único, 10 min, preso à pessoa e à ação) depois de um "sim" dela. Com `confirmacaoId`, grava: `enviar_tarefa` devolve `{ enviado, estado, entregue }` (`enviado` = ficou entregue); `salvar_rascunho_tarefa` devolve `{ salvo: true, estado, entregue }`. As descrições dizem: a entrega vai ao professor e não pode ser desfeita por aqui; em tarefa sem o botão de enviar salvar já entrega (usar `enviar_tarefa`, nunca prometer rascunho); salvar arquivos **substitui** os arquivos atuais; nunca confirmar sem o "sim" explícito.
+
+**Link de upload.** `POST /upload/:id` (`src/interface/rest/upload.controller.ts`, fora do contrato OpenAPI): multipart, **todos os arquivos num único POST**, qualquer nome de campo, uso único; o id é a credencial (sem Bearer). Os arquivos são validados contra a tarefa (quantidade, tamanho, extensão) e vão direto para a área de rascunho do Moodle; o serviço guarda em memória só `itemid`, nomes e tamanhos. Depois, `uploadId` vai em `enviar_tarefa` ou `salvar_rascunho_tarefa`.
+
+```bash
+curl -fS -F "file=@relatorio.pdf" -F "file=@anexo.zip" "https://api.ufba.app/upload/<uploadId>"
+```
+
+Erros do link: 404 `LINK_INVALIDO` (expirado, usado ou inexistente), 413 `ARQUIVO_GRANDE_DEMAIS`, 400 `ENVIO_INVALIDO`/`SEM_ARQUIVO`. Tarefa em grupo ou com declaração de autoria é recusada (entregar pelo AVA).
+
 ### Metadados para a loja e uso sem dizer "UFBA"
 
-- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e as `clinica_*` de leitura são somente leitura; as de escrita (`postar_forum` e as 4 do SIASB, todas atrás de permissão) têm `readOnlyHint: false` (desmarcar sessão e excluir procedimento também `destructiveHint: true`); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
+- Toda ferramenta tem `title` e `annotations` (`readOnlyHint` e `destructiveHint`). As acadêmicas e as `clinica_*` de leitura são somente leitura; as de escrita (`postar_forum`, `salvar_rascunho_tarefa`, `enviar_tarefa` e as 4 do SIASB, todas atrás de permissão; `preparar_envio_tarefa` também fica atrás de `moodle.assignment_write`, mas é somente leitura) têm `readOnlyHint: false` (desmarcar sessão e excluir procedimento também `destructiveHint: true`); as `memory_*` seguem a classificação da casa (`memory-tool-meta.ts`), nunca as anotações do servidor remoto. Gravações que sobrescrevem ou retiram conteúdo (`memory_write_page`, `memory_patch_page`, `memory_write_pages_batch`, `memory_message_pop`, `memory_consolidate`) são destrutivas.
 - O proxy dá `type` a toda propriedade do `inputSchema` que o ai-memory manda sem (a loja recusa). `test/mcp-store-compliance.spec.ts` percorre todas as ferramentas e falha se faltar `type`, `title` ou anotação.
 - As `instructions` do servidor (`ACADEMIC_INSTRUCTIONS`) mandam o Claude usar o conector em qualquer conversa de contexto acadêmico (prova, prazo, matéria, estudar), mesmo sem a pessoa citar a UFBA.
 

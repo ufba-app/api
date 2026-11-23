@@ -39,6 +39,30 @@ Professores postam links do Google Drive/Docs no Moodle (URL de módulo, HTML da
 - **Vídeo e arquivo grande, antes de baixar:** o download consulta os metadados (`files.get` com nome, tipo e tamanho) e **não baixa** vídeo (qualquer tamanho) nem arquivo acima do teto; responde "\"Aula 01.mp4\" é um vídeo (350 MB): abra no navegador: <link>" (400). O `baixar_anexo` confere antes de gerar o link (1 consulta de metadados por arquivo do Drive pedido): se for bloqueado, devolve `aviso` + `abrirNoNavegador` e **nenhum link de download**. Link público sem token: o tipo vem do `content-type` (vídeo é recusado sem ler o corpo) e o tamanho do `content-length`.
 - **Não coberto:** formulários, desenhos e subpastas (primeiro nível só); arquivos acima do teto (abrir pelo navegador).
 
+## Entrega de tarefa (escrita)
+
+Ferramentas MCP `preparar_envio_tarefa`, `salvar_rascunho_tarefa` e `enviar_tarefa`, só com a permissão `moodle.assignment_write` (`docs/MCP.md`). Regras no `EntregaService` (`src/application/live/entrega.service.ts`); chamadas no `MoodleLive`/`MoodleClient`.
+
+| Função do Moodle | Para quê |
+|---|---|
+| `mod_assign_get_assignments` | Configuração da tarefa: `submissiondrafts`, plugins `file` (`enabled`, `maxfilesubmissions`, `maxsubmissionsizebytes`, `filetypeslist`) e `onlinetext.enabled`, `allowsubmissionsfromdate`, `duedate`, `cutoffdate`, `teamsubmission`, `requiresubmissionstatement` |
+| `mod_assign_get_submission_status` | `status` (`new`/`draft`/`submitted`), `canedit` e os arquivos atuais |
+| `POST /webservice/upload.php` (`token`, `filearea=draft`, `itemid=0`, `file_1`, `file_2`...) | Sobe os arquivos à área de rascunho do aluno (invisível ao professor) e devolve o `itemid` |
+| `mod_assign_save_submission` | Grava: `plugindata[files_filemanager]=<itemid>` e/ou `plugindata[onlinetext_editor][text\|format\|itemid]` (texto puro escapado para HTML) |
+| `mod_assign_submit_for_grading` | Manda para avaliação (só em tarefa com o botão de enviar) |
+
+- **Salvar pode ser entregar.** Com `submissiondrafts=0` (tarefa sem o botão "Enviar tarefa"), `save_submission` já deixa a entrega `submitted`: não existe rascunho, `salvar_rascunho_tarefa` recusa e `enviar_tarefa` só salva. Com `submissiondrafts=1`, salvar é rascunho e `enviar_tarefa` salva (se há conteúdo novo) e chama `submit_for_grading`.
+- **Regras antes de escrever:** fora da janela (`allowsubmissionsfromdate`/`cutoffdate`) recusa; depois do `duedate` e antes do `cutoffdate` segue, marcada "atrasada" no resumo; `canedit=false`, tarefa em grupo e declaração de autoria recusam (v1: entregar pelo AVA); arquivo ou texto que a tarefa não aceita recusa; quantidade, tamanho por arquivo e extensão conforme a tarefa.
+- **Limites:** link de upload de uso único, 15 min, até 20 arquivos e 100 MB por arquivo (ou o limite menor da tarefa); confirmação de uso único, 10 min; `arquivos` em base64 no máximo 2 MB somados.
+- **Salvar substitui:** os arquivos novos substituem o conjunto atual da entrega (é como o `files_filemanager` funciona); o resumo avisa.
+- **Validado no AVA real (2026-11-22, ED1):** `upload.php` → `save_submission` só com arquivos, em tarefa sem o botão de enviar, **entregou** (status `submitted`).
+
+**Não validado no AVA real:**
+
+1. O `itemid` do texto online (`onlinetext_editor[itemid]=0`): a única tarefa testada, a ED1, só aceita arquivo.
+2. Se `save_submission` só com texto apaga os arquivos já entregues, ou só com arquivos apaga o texto já entregue.
+3. O caminho do rascunho em tarefa com o botão de enviar (`submissiondrafts=1`): `save_submission` como rascunho e depois `submit_for_grading`.
+
 ## Como o token é obtido
 
 O token é obtido pelo login no navegador da pessoa e colado **só na tela de conexão** do /authorize (link de redirecionamento `moodlemobile://token=...`); nunca entra por ferramenta MCP. O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:
@@ -94,4 +118,4 @@ Se funcionar, o fluxo vira um caso de uso do servidor (credencial `segredo-por-r
 
 ## Pendências
 
-- Paginação de discussões de fórum (`page`/`perpage`) e `state` de entrega das tarefas (`mod_assign_get_submission_status`) ficaram fora deste primeiro corte.
+- Paginação de discussões de fórum (`page`/`perpage`) e `state` de entrega das tarefas na leitura (`ver_curso`/`prazos`) ficaram fora deste primeiro corte (`mod_assign_get_submission_status` só é usado na entrega).
