@@ -4,7 +4,26 @@ import { DriveDownloader } from '../ports/drive-downloader';
 import type { ClassSchedule } from '../../domain/academic/class-schedule';
 import type { AttachmentContent } from '../ports/attachment-reader';
 import type { DriveFileInfo, DriveFolderEntry } from '../ports/drive-downloader';
-import type { AgendaSigaa, AnexoVivo, AtividadeViva, CursoVivo, DiscussaoViva, FrequenciaViva, LinkVivo, LiveSource, MensagemViva, ParticipanteVivo, PostagemFeita, PostagemForum, PrazoVivo } from '../ports/live-source';
+import type {
+  AgendaSigaa,
+  AnexoVivo,
+  ArquivoParaEnvio,
+  AtividadeViva,
+  CursoVivo,
+  DiscussaoViva,
+  EntregaTarefa,
+  EstadoEntrega,
+  FrequenciaViva,
+  LinkVivo,
+  LiveSource,
+  MensagemViva,
+  ParticipanteVivo,
+  PostagemFeita,
+  PostagemForum,
+  PrazoVivo,
+  RascunhoEnviado,
+  RequisitosEntrega,
+} from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
 import { SecretCipher } from '../ports/secret-cipher';
@@ -35,6 +54,8 @@ export class FonteNaoConectadaError extends Error {}
 export class ContaAmbiguaError extends Error {}
 /** Publicação com destino, título ou mensagem fora da regra. Nada chega à fonte. */
 export class PostagemInvalidaError extends Error {}
+/** Entrega de tarefa fora da regra (tarefa, arquivos, texto ou confirmação). Nada é gravado na fonte. */
+export class EntregaInvalidaError extends Error {}
 
 /**
  * Quem consulta. `cliente` só existe em tokens OAuth: o SIGAA é lido com a senha guardada PARA AQUELE cliente,
@@ -161,6 +182,34 @@ export class ConsultaService {
     const source = this.sources.get('MOODLE');
     if (!source?.postarForum) throw new FonteSemLeituraError('Moodle: postar no fórum ainda não disponível');
     return this.com(quem, 'MOODLE', conta, (s, ctx) => s.postarForum!(ctx, { ...post, titulo, mensagem }));
+  }
+
+  /** O que a tarefa pede e o estado da entrega da pessoa. Só lê. Só o Moodle. */
+  async requisitosEntrega(quem: Quem, conta: string | undefined, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
+    const source = this.sources.get('MOODLE');
+    if (!source?.requisitosEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.requisitosEntrega!(ctx, cursoId, tarefaId));
+  }
+
+  /** Sobe arquivos para a área de rascunho do Moodle (invisível ao professor). Quem valida é o `EntregaService`. */
+  async subirArquivosEntrega(quem: Quem, conta: string | undefined, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado> {
+    const source = this.sources.get('MOODLE');
+    if (!source?.subirArquivosEntrega) throw new FonteSemLeituraError('Moodle: envio de arquivos ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.subirArquivosEntrega!(ctx, arquivos));
+  }
+
+  /** Grava a entrega (escrita). Só depois da confirmação da pessoa, pelo `EntregaService`. */
+  async salvarEntrega(quem: Quem, conta: string | undefined, e: EntregaTarefa): Promise<EstadoEntrega> {
+    const source = this.sources.get('MOODLE');
+    if (!source?.salvarEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.salvarEntrega!(ctx, e));
+  }
+
+  /** Envia o rascunho para avaliação (escrita). Só depois da confirmação da pessoa, pelo `EntregaService`. */
+  async finalizarEntrega(quem: Quem, conta: string | undefined, tarefaId: string): Promise<EstadoEntrega> {
+    const source = this.sources.get('MOODLE');
+    if (!source?.finalizarEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.finalizarEntrega!(ctx, tarefaId));
   }
 
   /** Texto completo de um aviso. Só fontes com `verAviso` (hoje, o SIGAA). */
