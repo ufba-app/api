@@ -1,16 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { ConsultaService, type Quem } from '../../application/live/consulta.service';
+import { ConsultaService, EntregaInvalidaError, type Quem } from '../../application/live/consulta.service';
 import { DownloadLinks } from '../../application/live/download-links';
+import { EntregaService } from '../../application/live/entrega.service';
+import type { ArquivoParaEnvio } from '../../application/ports/live-source';
 import { isWebChatClient } from '../../application/memory/connect-guide';
 import type { Provider } from '../../application/ports/source-gateway';
 import type {
   BaixarAnexoInput,
+  EnvioTarefaInput,
   Fonte,
   ListarCursosInput,
   McpPrincipal,
   McpUseCases,
   PostarForumInput,
   PrazosInput,
+  PrepararEnvioInput,
   ListarAlunosInput,
   VerAvisoInput,
   VerTopicoInput,
@@ -48,13 +52,106 @@ export const COMO_LER_WEB =
 /** Quem consulta: o usuário e, em token OAuth, o cliente com a chave K (o SIGAA só abre com ela). */
 const quem = (p: McpPrincipal): Quem => (p.cliente ? { userId: p.userId, cliente: p.cliente } : { userId: p.userId });
 
-/** Adapta o `ConsultaService` (leitura ao vivo) às ferramentas MCP. Sem regra de negócio. */
+/** URL pública do serviço, para os links temporários (download e upload). */
+const baseUrl = (p: McpPrincipal): string => (p.baseUrl ?? process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+
+const BASE64 = /^(?:[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}$/;
+
+/**
+ * Arquivos em base64 viram bytes. Só confere o formato: o teto de 2 MB somados e as regras da tarefa são do `EntregaService`.
+ * A mensagem cita só a posição do arquivo, nunca o conteúdo.
+ */
+function decodificar(arquivos: { nome: string; conteudoBase64: string }[]): ArquivoParaEnvio[] {
+  return arquivos.map((a, n) => {
+    const s = a.conteudoBase64.replace(/\s+/g, '');
+    if (!BASE64.test(s) || s.length % 4 === 1 || (s.includes('=') && s.length % 4 !== 0)) {
+      throw new EntregaInvalidaError(`Conteúdo base64 inválido no arquivo ${n + 1} de \`arquivos\`.`);
+    }
+    return { nome: a.nome, bytes: new Uint8Array(Buffer.from(s, 'base64')) };
+  });
+}
+
+const INSTRUCAO_CONFIRMAR =
+  'Nada foi gravado ainda. Mostre este resumo à pessoa (tarefa, arquivos, texto e `efeito`) e pergunte se confirma. ' +
+  'Só depois de um "sim" claro dela, repita a mesma ferramenta com este `confirmacaoId` (vale uma vez, até `expiraEm`).';
+
+/** Adapta o `ConsultaService` (leitura ao vivo) e o `EntregaService` às ferramentas MCP. Sem regra de negócio. */
 @Injectable()
 export class McpUseCasesImpl implements McpUseCases {
   constructor(
     private readonly consulta: ConsultaService,
     private readonly downloads: DownloadLinks,
+    private readonly entrega: EntregaService,
   ) {}
+
+  async prepararEnvioTarefa(p: McpPrincipal, i: PrepararEnvioInput) {
+    const { requisitos: r, uploadId, expiraEm } = await this.entrega.preparar(quem(p), { conta: i.conta, cursoId: i.cursoId, tarefaId: i.tarefaId });
+    const salvarJaEntrega = !r.exigeBotaoEnviar;
+    const link = uploadId !== undefined ? `${baseUrl(p)}/upload/${uploadId}` : undefined;
+    return {
+      tarefaId: r.tarefaId,
+      tarefa: r.titulo,
+      aceita: { arquivos: r.aceitaArquivo, texto: r.aceitaTexto },
+      ...(r.aceitaArquivo
+        ? {
+            limitesArquivos: {
+              ...(r.maxArquivos !== undefined ? { maxArquivos: r.maxArquivos } : {}),
+              ...(r.maxBytesPorArquivo !== undefined ? { maxBytesPorArquivo: r.maxBytesPorArquivo } : {}),
+              extensoes: r.extensoes.length > 0 ? r.extensoes : 'qualquer',
+            },
+          }
+        : {}),
+      ...(r.abreEm ? { abreEm: r.abreEm } : {}),
+      ...(r.prazo ? { prazo: r.prazo, atrasada: r.prazo.getTime() < Date.now() } : {}),
+      ...(r.limite ? { limite: r.limite } : {}),
+      estado: r.estado,
+      podeEditar: r.podeEditar,
+      arquivosAtuais: r.arquivosAtuais,
+      emGrupo: r.emGrupo,
+      exigeDeclaracao: r.exigeDeclaracao,
+      salvarJaEntrega,
+      comoFunciona: salvarJaEntrega
+        ? 'Esta tarefa não tem o botão de enviar: salvar já entrega ao professor. Use enviar_tarefa (não existe rascunho aqui).'
+        : 'Esta tarefa tem o botão de enviar: salvar_rascunho_tarefa só salva (o professor não recebe); enviar_tarefa entrega.',
+      ...(link !== undefined
+        ? {
+            uploadId,
+            linkUpload: link,
+            expiraEm,
+            comoEnviar:
+              `Um único POST com TODOS os arquivos (o link vale uma vez, até expiraEm): curl -fS -F "file=@<caminho>" "${link}" ` +
+              '(para vários arquivos, repita -F "file=@<outro>" no mesmo comando). Arquivos enviados substituem os atuais da entrega. ' +
+              `Depois chame enviar_tarefa (ou salvar_rascunho_tarefa) com uploadId: "${uploadId}".`,
+          }
+        : {}),
+    };
+  }
+
+  salvarRascunhoTarefa(p: McpPrincipal, i: EnvioTarefaInput) {
+    return this.entregar(p, 'rascunho', i);
+  }
+
+  enviarTarefa(p: McpPrincipal, i: EnvioTarefaInput) {
+    return this.entregar(p, 'enviar', i);
+  }
+
+  /** Sem `confirmacaoId`: só o resumo (não grava). Com ele: grava. */
+  private async entregar(p: McpPrincipal, acao: 'rascunho' | 'enviar', i: EnvioTarefaInput) {
+    if (i.confirmacaoId !== undefined) {
+      const feita = await this.entrega.confirmar(quem(p), acao, i.confirmacaoId);
+      return acao === 'enviar' ? { enviado: feita.entregue, ...feita } : { salvo: true, ...feita };
+    }
+    const arquivos = i.arquivos?.length ? decodificar(i.arquivos) : undefined;
+    const resumo = await this.entrega.solicitar(quem(p), acao, {
+      ...(i.conta !== undefined ? { conta: i.conta } : {}),
+      cursoId: i.cursoId,
+      tarefaId: i.tarefaId,
+      ...(i.texto !== undefined ? { texto: i.texto } : {}),
+      ...(i.uploadId !== undefined ? { uploadId: i.uploadId } : {}),
+      ...(arquivos ? { arquivos } : {}),
+    });
+    return { confirmacaoPendente: true, ...resumo, instrucao: INSTRUCAO_CONFIRMAR };
+  }
 
   async listarContas(p: McpPrincipal) {
     const contas = await this.consulta.contas(quem(p));
@@ -111,7 +208,7 @@ export class McpUseCasesImpl implements McpUseCases {
     if (anexos.length === 0) throw new Error('Informe `ref` ou `anexos`');
     if (anexos.length > 20) throw new Error('No máximo 20 anexos por vez');
     const conta = (await this.consulta.conta(quem(p), fonte, i.conta)).accountKey;
-    const base = (p.baseUrl ?? process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+    const base = baseUrl(p);
     // Chat web não tem terminal: recebe um link para a ferramenta de leitura de URL abrir (poucos usos, pouco tempo, `inline`).
     const web = isWebChatClient(p.clientName);
 

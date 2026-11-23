@@ -141,6 +141,24 @@ export interface BaixarAnexoInput extends Alvo {
   anexos?: { ref: string; nome?: string }[];
 }
 
+/** Uma tarefa do Moodle (o `cursoId` de `listar_cursos` e o `tarefaId` de `ver_curso`). */
+export interface PrepararEnvioInput {
+  conta?: string;
+  cursoId: string;
+  tarefaId: string;
+}
+
+/**
+ * Entrega de tarefa em duas chamadas: sem `confirmacaoId` só devolve o resumo (não grava); com ele, grava.
+ * Arquivos pelo link de upload (`uploadId`) ou pequenos em base64 (`arquivos`).
+ */
+export interface EnvioTarefaInput extends PrepararEnvioInput {
+  texto?: string;
+  uploadId?: string;
+  arquivos?: { nome: string; conteudoBase64: string }[];
+  confirmacaoId?: string;
+}
+
 export interface McpUseCases {
   /** Contas conectadas por fonte. Não chama fonte nenhuma. */
   listarContas(p: McpPrincipal): Promise<unknown>;
@@ -158,4 +176,10 @@ export interface McpUseCases {
   baixarAnexo(p: McpPrincipal, input: BaixarAnexoInput): Promise<unknown>;
   /** Publica no fórum do Moodle (escrita; só existe no MCP com a permissão `moodle.forum_write`). */
   postarForum(p: McpPrincipal, input: PostarForumInput): Promise<unknown>;
+  /** O que a tarefa pede e, se aceita arquivo, o link de upload de uso único. Não grava (permissão `moodle.assignment_write`). */
+  prepararEnvioTarefa(p: McpPrincipal, input: PrepararEnvioInput): Promise<unknown>;
+  /** Salva como rascunho (só em tarefa com o botão de enviar), em duas chamadas (`confirmacaoId`). */
+  salvarRascunhoTarefa(p: McpPrincipal, input: EnvioTarefaInput): Promise<unknown>;
+  /** Entrega ao professor, em duas chamadas (`confirmacaoId`). */
+  enviarTarefa(p: McpPrincipal, input: EnvioTarefaInput): Promise<unknown>;
 }

@@ -3,6 +3,7 @@ import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { SourceHealthRepository } from './application/ports/source-health';
 import { DownloadLinks } from './application/live/download-links';
+import { EntregaService } from './application/live/entrega.service';
 import {
   CLASSROOM_LINK,
   CHAVE_DO_CLIENTE,
@@ -86,8 +87,8 @@ export const mcpProviders: Provider[] = [
   // Ferramentas MCP: leitura ao vivo nas fontes + links de download.
   {
     provide: MCP_USE_CASES,
-    useFactory: (consulta: ConsultaService, downloads: DownloadLinks) => new McpUseCasesImpl(consulta, downloads),
-    inject: [ConsultaService, DownloadLinks],
+    useFactory: (consulta: ConsultaService, downloads: DownloadLinks, entrega: EntregaService) => new McpUseCasesImpl(consulta, downloads, entrega),
+    inject: [ConsultaService, DownloadLinks, EntregaService],
   },
 
   // Clientes OAuth: registro dinâmico (banco) e documento de metadados (client_id = URL https), com a lista de

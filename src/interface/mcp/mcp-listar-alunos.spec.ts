@@ -14,7 +14,7 @@ describe('listar_alunos', () => {
         { nome: 'Bruno Alves', papeis: ['student', 'teacherassistant'] },
       ]),
     };
-    const impl = new McpUseCasesImpl(consulta as never, {} as never);
+    const impl = new McpUseCasesImpl(consulta as never, {} as never, {} as never);
     const r = (await impl.listarAlunos(P, { cursoId: '359934' })) as { total: number; alunos: string[]; cursoId: string };
     expect(consulta.listarParticipantes).toHaveBeenCalledWith({ userId: 'u1' }, 'MOODLE', undefined, '359934');
     expect(r).toEqual({ cursoId: '359934', total: 3, alunos: ['Ana Souza', 'Bruno Alves', 'Vinícius Lima'] });

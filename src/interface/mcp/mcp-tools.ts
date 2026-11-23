@@ -249,6 +249,9 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     ),
   );
 
+  // Escrita: entrega de tarefa do Moodle, só com a permissão `moodle.assignment_write` (ver docs/MCP.md).
+  registerPermissionedTool(p, 'moodle.assignment_write', () => registerEntregaTools(server, uc, p));
+
   if (p.siasb && clinica) {
     registerClinicaTools(server, clinica, p);
     // Escrita: só com a permissão do app (ligada no painel) e o escritor disponível.
@@ -274,6 +277,82 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
     }
   }
   return server;
+}
+
+/** Teto do base64 de UM arquivo em `arquivos`: só protege o payload (~2 MB em base64). O teto real, 2 MB somados, é do `EntregaService`. */
+const MAX_BASE64 = 2_800_000;
+
+const TAREFA = {
+  conta: CONTA,
+  cursoId: z.string().describe('O `id` da matéria em `listar_cursos` (ou o `cursoId` de `prazos`).'),
+  tarefaId: z.string().describe('O id da tarefa (atividade `tipo: tarefa`) em `ver_curso`.'),
+};
+
+const ENVIO = {
+  ...TAREFA,
+  texto: z.string().optional().describe('Texto online (texto puro), só se a tarefa aceita texto.'),
+  uploadId: z.string().optional().describe('O `uploadId` de `preparar_envio_tarefa`, depois de mandar os arquivos pelo `linkUpload`.'),
+  arquivos: z
+    .array(z.object({ nome: z.string().min(1).max(255), conteudoBase64: z.string().max(MAX_BASE64) }))
+    .max(20)
+    .optional()
+    .describe('Atalho para arquivo PEQUENO: no máximo 2 MB somando todos. Maior que isso, use o `linkUpload`. Não use junto com `uploadId`.'),
+  confirmacaoId: z
+    .string()
+    .optional()
+    .describe('Omita na primeira chamada (só devolve o resumo). Passe o `confirmacaoId` do resumo SÓ depois do "sim" explícito da pessoa.'),
+};
+
+const AVISOS_ENTREGA =
+  'A entrega vai para o professor e NÃO pode ser desfeita por esta ferramenta. Em tarefa SEM o botão de enviar, salvar já entrega: ' +
+  'use enviar_tarefa e nunca prometa rascunho. Salvar arquivos SUBSTITUI os arquivos atuais da entrega. ' +
+  'Duas chamadas: a primeira (sem `confirmacaoId`) não grava nada e devolve um resumo com `confirmacaoId`; mostre o resumo à pessoa ' +
+  'e só repita a chamada com o `confirmacaoId` depois de um "sim" explícito dela. Nunca confirme sem esse sim. ' +
+  'Arquivos: pelo `uploadId` (link de `preparar_envio_tarefa`) ou, se pequenos, em `arquivos` (base64). Escreve no AVA, na hora; não guarda o trabalho no serviço.';
+
+/** Entrega de tarefa do Moodle (permissão `moodle.assignment_write`): preparar (leitura), salvar rascunho e enviar. */
+function registerEntregaTools(server: McpServer, uc: McpUseCases, p: McpPrincipal): void {
+  server.registerTool(
+    'preparar_envio_tarefa',
+    {
+      title: 'Preparar envio de tarefa',
+      annotations: { title: 'Preparar envio de tarefa', readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      description:
+        'Primeiro passo para entregar uma tarefa do Moodle (AVA): lê o que a tarefa aceita (arquivos e/ou texto, quantidade, tamanho, extensões), ' +
+        'prazo e se já está atrasada, estado atual da entrega e se salvar JÁ ENTREGA (`salvarJaEntrega`) ou só grava rascunho. ' +
+        'Se a tarefa aceita arquivo, devolve `linkUpload` de uso único (com `expiraEm`) e `comoEnviar`: mande TODOS os arquivos em UM só POST, ' +
+        'ex.: curl -fS -F "file=@<caminho>" "<linkUpload>" (repita -F para mais arquivos), e depois use o `uploadId` em enviar_tarefa ou salvar_rascunho_tarefa. ' +
+        'Não grava nada na entrega.',
+      inputSchema: TAREFA,
+    },
+    (args) => run(() => uc.prepararEnvioTarefa(p, args)),
+  );
+
+  server.registerTool(
+    'salvar_rascunho_tarefa',
+    {
+      title: 'Salvar rascunho da tarefa',
+      annotations: { title: 'Salvar rascunho da tarefa', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      description:
+        'Salva a entrega de uma tarefa do Moodle como RASCUNHO, só em tarefa COM o botão de enviar (`salvarJaEntrega: false` em preparar_envio_tarefa); ' +
+        'o professor ainda não recebe. Em tarefa sem o botão, é recusada: use enviar_tarefa. ' + AVISOS_ENTREGA,
+      inputSchema: ENVIO,
+    },
+    (args) => run(() => uc.salvarRascunhoTarefa(p, args)),
+  );
+
+  server.registerTool(
+    'enviar_tarefa',
+    {
+      title: 'Enviar tarefa',
+      annotations: { title: 'Enviar tarefa', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      description:
+        'Entrega uma tarefa do Moodle (AVA) ao professor em nome da pessoa. Sem conteúdo novo, manda para avaliação o rascunho que já está no AVA. ' +
+        'O resultado final traz `enviado` (true quando ficou entregue) e `estado`. ' + AVISOS_ENTREGA,
+      inputSchema: ENVIO,
+    },
+    (args) => run(() => uc.enviarTarefa(p, args)),
+  );
 }
 
 type Handler = (req: unknown, extra: unknown) => Promise<{ tools?: unknown[] } & Record<string, unknown>>;
