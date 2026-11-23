@@ -42,6 +42,9 @@ export interface EntregaFeita {
   entregue: boolean;
 }
 
+/** Link de upload inexistente, expirado ou já usado (a interface responde 404, não 400). */
+export class LinkUploadInvalidoError extends EntregaInvalidaError {}
+
 const PELO_AVA = 'entregue direto pelo AVA';
 
 /**
@@ -70,7 +73,7 @@ export class EntregaService {
   /** Arquivos chegados pelo link de upload: valida contra a tarefa, sobe à área de rascunho do Moodle e guarda o resultado. */
   async receberUpload(uploadId: string, arquivos: ArquivoParaEnvio[]): Promise<{ arquivos: ArquivoResumo[] }> {
     const ticket = this.uploads.consumir(uploadId);
-    if (!ticket) throw new EntregaInvalidaError('Link de upload inválido, expirado ou já usado: chame preparar_envio_tarefa de novo.');
+    if (!ticket) throw new LinkUploadInvalidoError('Link de upload inválido, expirado ou já usado: chame preparar_envio_tarefa de novo.');
     if (arquivos.length === 0) throw new EntregaInvalidaError('Nenhum arquivo recebido.');
     validarArquivos(ticket.requisitos, arquivos);
     const quem: Quem = { userId: ticket.userId };
