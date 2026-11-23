@@ -29,6 +29,8 @@ const novoId = (): string => randomBytes(24).toString('base64url');
 export class UploadLinks {
   private readonly tickets = new Map<string, UploadTicket>();
   private readonly rascunhos = new Map<string, RascunhoGuardado>();
+  /** Links com um envio em andamento (corpo sendo lido): um segundo POST no mesmo link é recusado antes de ler. */
+  private readonly reservados = new Set<string>();
 
   constructor(
     private readonly ttlMs = 15 * 60_000,
@@ -47,8 +49,21 @@ export class UploadLinks {
   consumir(id: string): UploadTicket | undefined {
     const t = this.tickets.get(id);
     this.tickets.delete(id);
+    this.reservados.delete(id);
     if (!t || t.expiresAt <= this.now()) return undefined;
     return { ...t };
+  }
+
+  /** Marca o link como em uso ANTES de ler o corpo. `false` se não existe, expirou ou já há um envio em andamento. */
+  reservar(id: string): boolean {
+    if (!this.espiar(id) || this.reservados.has(id)) return false;
+    this.reservados.add(id);
+    return true;
+  }
+
+  /** Solta a reserva (corpo inválido, conexão caída). Link já consumido continua gasto. */
+  liberar(id: string): void {
+    this.reservados.delete(id);
   }
 
   /** Confere o ticket SEM gastar o uso (para recusar cedo, antes de ler o corpo). `undefined` se não existe ou expirou. */
@@ -57,6 +72,7 @@ export class UploadLinks {
     if (!t) return undefined;
     if (t.expiresAt <= this.now()) {
       this.tickets.delete(id);
+      this.reservados.delete(id);
       return undefined;
     }
     return { ...t };
@@ -80,7 +96,12 @@ export class UploadLinks {
 
   private limpar(): void {
     const agora = this.now();
-    for (const [id, t] of this.tickets) if (t.expiresAt <= agora) this.tickets.delete(id);
+    for (const [id, t] of this.tickets) {
+      if (t.expiresAt <= agora) {
+        this.tickets.delete(id);
+        this.reservados.delete(id);
+      }
+    }
     for (const [id, r] of this.rascunhos) if (r.expiresAt <= agora) this.rascunhos.delete(id);
   }
 }
@@ -93,6 +114,9 @@ export interface ConfirmacaoEntrega {
   tarefaId: string;
   itemId?: string;
   texto?: string;
+  /** Estado da entrega e impressão digital dos arquivos atuais (nomes e tamanhos) quando o resumo foi feito. */
+  estado: 'nova' | 'rascunho' | 'entregue';
+  arquivosAtuais: string;
   expiresAt: number;
 }
 
@@ -113,8 +137,8 @@ export class ConfirmacoesEntrega {
     return { id, expiresAt: new Date(expiresAt) };
   }
 
-  /** Só consome se for o dono e a ação combinar; caso contrário a confirmação continua valendo. */
-  consumir(id: string, userId: string, acao: 'rascunho' | 'enviar'): ConfirmacaoEntrega | undefined {
+  /** Lê sem gastar: só o dono, com a mesma ação. */
+  ler(id: string, userId: string, acao: 'rascunho' | 'enviar'): ConfirmacaoEntrega | undefined {
     const c = this.itens.get(id);
     if (!c) return undefined;
     if (c.expiresAt <= this.now()) {
@@ -122,8 +146,14 @@ export class ConfirmacoesEntrega {
       return undefined;
     }
     if (c.userId !== userId || c.acao !== acao) return undefined;
-    this.itens.delete(id);
     return { ...c };
+  }
+
+  /** Só consome se for o dono e a ação combinar; caso contrário a confirmação continua valendo. */
+  consumir(id: string, userId: string, acao: 'rascunho' | 'enviar'): ConfirmacaoEntrega | undefined {
+    const c = this.ler(id, userId, acao);
+    if (c) this.itens.delete(id);
+    return c;
   }
 
   private limpar(): void {

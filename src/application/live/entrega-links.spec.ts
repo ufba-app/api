@@ -37,6 +37,28 @@ describe('UploadLinks', () => {
     expect(links.ler(id, 'u1')).toBeUndefined();
   });
 
+  it('reservar: só um envio por vez no mesmo link; liberar devolve o link; consumir gasta mesmo reservado', () => {
+    const links = new UploadLinks(15 * 60_000, now);
+    const { id } = links.abrir(ticket);
+    expect(links.reservar(id)).toBe(true);
+    expect(links.reservar(id)).toBe(false);
+    expect(links.espiar(id)).toMatchObject(ticket);
+    links.liberar(id);
+    expect(links.reservar(id)).toBe(true);
+    expect(links.consumir(id)).toMatchObject(ticket);
+    links.liberar(id);
+    expect(links.reservar(id)).toBe(false);
+    expect(links.espiar(id)).toBeUndefined();
+  });
+
+  it('reservar link inexistente ou expirado: false', () => {
+    const links = new UploadLinks(1000, now);
+    expect(links.reservar('nada')).toBe(false);
+    const { id } = links.abrir(ticket);
+    t = 2_000;
+    expect(links.reservar(id)).toBe(false);
+  });
+
   it('ids têm pelo menos 32 caracteres e não repetem', () => {
     const links = new UploadLinks(1000, now);
     const a = links.abrir(ticket).id;
@@ -48,7 +70,7 @@ describe('UploadLinks', () => {
 describe('ConfirmacoesEntrega', () => {
   let t = 1_000;
   const now = () => t;
-  const conf = { userId: 'u1', acao: 'enviar' as const, conta: 'c1', cursoId: '10', tarefaId: '20' };
+  const conf = { userId: 'u1', acao: 'enviar' as const, conta: 'c1', cursoId: '10', tarefaId: '20', estado: 'nova' as const, arquivosAtuais: '' };
   beforeEach(() => {
     t = 1_000;
   });
@@ -66,6 +88,17 @@ describe('ConfirmacoesEntrega', () => {
     const { id } = c.criar(conf);
     expect(c.consumir(id, 'u1', 'rascunho')).toBeUndefined();
     expect(c.consumir(id, 'u1', 'enviar')).toBeDefined();
+  });
+
+  it('ler não gasta e só devolve ao dono com a mesma ação', () => {
+    const c = new ConfirmacoesEntrega(10 * 60_000, now);
+    const { id } = c.criar(conf);
+    expect(c.ler(id, 'u2', 'enviar')).toBeUndefined();
+    expect(c.ler(id, 'u1', 'rascunho')).toBeUndefined();
+    expect(c.ler(id, 'u1', 'enviar')).toMatchObject(conf);
+    expect(c.ler(id, 'u1', 'enviar')).toMatchObject(conf);
+    expect(c.consumir(id, 'u1', 'enviar')).toMatchObject(conf);
+    expect(c.ler(id, 'u1', 'enviar')).toBeUndefined();
   });
 
   it('confirmação expirada ou reutilizada devolve undefined', () => {
