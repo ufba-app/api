@@ -43,7 +43,14 @@ export const ACADEMIC_INSTRUCTIONS =
   'use `listar_cursos` e `ver_curso` para o conteúdo da matéria (tarefas, materiais, avisos). Assim a ajuda parte do ' +
   'que a pessoa realmente tem, não de suposições. Links do Google Drive/Docs em cursos do Moodle: use `baixar_anexo` ' +
   'com a `ref` que começa com `gdrive1.` (vem em `ver_curso`/`ver_forum`); NÃO abra o link do Drive direto, ele pede ' +
-  'login. Só lê, nunca altera nada nas fontes.';
+  'login. Sem permissão de escrita concedida ao app, só lê: não altera nada nas fontes.';
+
+/** Chaves de permissão que registram ferramentas de escrita. Com qualquer uma, as instruções ganham `ESCRITA_INSTRUCTIONS`. */
+const CHAVES_ESCRITA = ['moodle.forum_write', 'moodle.assignment_write', PERMISSAO_AGENDA, PERMISSAO_PROCEDIMENTOS];
+
+export const ESCRITA_INSTRUCTIONS =
+  'Com permissão do app, algumas ferramentas escrevem na fonte (postar no fórum, entregar tarefa, agenda e procedimentos do SIASB): ' +
+  'sempre mostre o resumo à pessoa e só confirme depois do "sim" explícito dela.';
 
 const AO_VIVO = 'Consulta a fonte AO VIVO, em UMA conta, com o acesso que a pessoa conectou; não grava nada.';
 
@@ -81,11 +88,12 @@ export function buildMcpServer(
   clinica?: McpClinica,
 ): McpServer {
   const withMemory = memory?.enabled() === true;
+  const academicas = CHAVES_ESCRITA.some((k) => p.permissions?.has(k)) ? `${ACADEMIC_INSTRUCTIONS} ${ESCRITA_INSTRUCTIONS}` : ACADEMIC_INSTRUCTIONS;
   const server = new McpServer(
     { name: 'platform', title: 'UFBA: vida acadêmica', version: '0.1.0' },
-    { instructions: withMemory ? `${ACADEMIC_INSTRUCTIONS}
+    { instructions: withMemory ? `${academicas}
 
-${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
+${memoryInstructionsFor(p.clientName)}` : academicas },
   );
 
   server.registerTool(
@@ -279,8 +287,11 @@ ${memoryInstructionsFor(p.clientName)}` : ACADEMIC_INSTRUCTIONS },
   return server;
 }
 
-/** Teto do base64 de UM arquivo em `arquivos`: só protege o payload (~2 MB em base64). O teto real, 2 MB somados, é do `EntregaService`. */
-const MAX_BASE64 = 2_800_000;
+/**
+ * Teto do base64 de UM arquivo em `arquivos` (~64 KB decodificado). O limite que vale de fato é o do parser JSON do Nest
+ * (100 kb por corpo do /mcp, de propósito não aumentado: roda antes da autenticação e é global). Arquivo maior vai pelo `linkUpload`.
+ */
+const MAX_BASE64 = 90_000;
 
 const TAREFA = {
   conta: CONTA,
@@ -296,11 +307,14 @@ const ENVIO = {
     .array(z.object({ nome: z.string().min(1).max(255), conteudoBase64: z.string().max(MAX_BASE64) }))
     .max(20)
     .optional()
-    .describe('Atalho para arquivo PEQUENO: no máximo 2 MB somando todos. Maior que isso, use o `linkUpload`. Não use junto com `uploadId`.'),
+    .describe('Atalho só para arquivo MINÚSCULO: cerca de 64 KB somando todos (a requisição maior é recusada). Qualquer coisa maior vai pelo `linkUpload` de preparar_envio_tarefa. Não use junto com `uploadId`.'),
   confirmacaoId: z
     .string()
     .optional()
-    .describe('Omita na primeira chamada (só devolve o resumo). Passe o `confirmacaoId` do resumo SÓ depois do "sim" explícito da pessoa.'),
+    .describe(
+      'Omita na primeira chamada (só devolve o resumo). Passe o `confirmacaoId` do resumo SÓ depois do "sim" explícito da pessoa, ' +
+        'SEM `texto`, `arquivos` ou `uploadId`: para mudar algo, peça um novo resumo sem `confirmacaoId`.',
+    ),
 };
 
 const AVISOS_ENTREGA =
@@ -308,7 +322,8 @@ const AVISOS_ENTREGA =
   'use enviar_tarefa e nunca prometa rascunho. Salvar arquivos SUBSTITUI os arquivos atuais da entrega. ' +
   'Duas chamadas: a primeira (sem `confirmacaoId`) não grava nada e devolve um resumo com `confirmacaoId`; mostre o resumo à pessoa ' +
   'e só repita a chamada com o `confirmacaoId` depois de um "sim" explícito dela. Nunca confirme sem esse sim. ' +
-  'Arquivos: pelo `uploadId` (link de `preparar_envio_tarefa`) ou, se pequenos, em `arquivos` (base64). Escreve no AVA, na hora; não guarda o trabalho no serviço.';
+  'A chamada com `confirmacaoId` não leva `texto`, `arquivos` nem `uploadId` (é recusada): se a pessoa quiser mudar algo, peça um novo resumo sem `confirmacaoId`. ' +
+  'Arquivos: pelo `uploadId` (link de `preparar_envio_tarefa`) ou, só se minúsculos (~64 KB somados), em `arquivos` (base64). Escreve no AVA, na hora; não guarda o trabalho no serviço.';
 
 /** Entrega de tarefa do Moodle (permissão `moodle.assignment_write`): preparar (leitura), salvar rascunho e enviar. */
 function registerEntregaTools(server: McpServer, uc: McpUseCases, p: McpPrincipal): void {

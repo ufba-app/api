@@ -58,7 +58,7 @@ const baseUrl = (p: McpPrincipal): string => (p.baseUrl ?? process.env.PUBLIC_UR
 const BASE64 = /^(?:[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}$/;
 
 /**
- * Arquivos em base64 viram bytes. Só confere o formato: o teto de 2 MB somados e as regras da tarefa são do `EntregaService`.
+ * Arquivos em base64 viram bytes. Só confere o formato: tamanho e regras da tarefa são do `EntregaService` (na prática o parser JSON do /mcp, 100 kb por corpo, corta antes: prometemos ~64 KB).
  * A mensagem cita só a posição do arquivo, nunca o conteúdo.
  */
 function decodificar(arquivos: { nome: string; conteudoBase64: string }[]): ArquivoParaEnvio[] {
@@ -138,6 +138,10 @@ export class McpUseCasesImpl implements McpUseCases {
   /** Sem `confirmacaoId`: só o resumo (não grava). Com ele: grava. */
   private async entregar(p: McpPrincipal, acao: 'rascunho' | 'enviar', i: EnvioTarefaInput) {
     if (i.confirmacaoId !== undefined) {
+      // A confirmação grava o que o resumo mostrou; conteúdo novo junto seria ignorado sem aviso.
+      if ((i.texto !== undefined && i.texto.trim() !== '') || i.uploadId !== undefined || (i.arquivos?.length ?? 0) > 0) {
+        throw new EntregaInvalidaError('Com `confirmacaoId` não mande conteúdo: para mudar algo, peça um novo resumo sem `confirmacaoId`.');
+      }
       const feita = await this.entrega.confirmar(quem(p), acao, i.confirmacaoId);
       return acao === 'enviar' ? { enviado: feita.entregue, ...feita } : { salvo: true, ...feita };
     }

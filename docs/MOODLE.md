@@ -53,7 +53,7 @@ Ferramentas MCP `preparar_envio_tarefa`, `salvar_rascunho_tarefa` e `enviar_tare
 
 - **Salvar pode ser entregar.** Com `submissiondrafts=0` (tarefa sem o botão "Enviar tarefa"), `save_submission` já deixa a entrega `submitted`: não existe rascunho, `salvar_rascunho_tarefa` recusa e `enviar_tarefa` só salva. Com `submissiondrafts=1`, salvar é rascunho e `enviar_tarefa` salva (se há conteúdo novo) e chama `submit_for_grading`.
 - **Regras antes de escrever:** fora da janela (`allowsubmissionsfromdate`/`cutoffdate`) recusa; depois do `duedate` e antes do `cutoffdate` segue, marcada "atrasada" no resumo; `canedit=false`, tarefa em grupo e declaração de autoria recusam (v1: entregar pelo AVA); arquivo ou texto que a tarefa não aceita recusa; quantidade, tamanho por arquivo e extensão conforme a tarefa.
-- **Limites:** link de upload de uso único, 15 min, até 20 arquivos e 100 MB por arquivo (ou o limite menor da tarefa); confirmação de uso único, 10 min; `arquivos` em base64 no máximo 2 MB somados.
+- **Limites:** link de upload de uso único, 15 min, até 20 arquivos e 100 MB por arquivo (ou o limite menor da tarefa); confirmação de uso único, 10 min; `arquivos` em base64 só para arquivo minúsculo, cerca de 64 KB somados (o corpo do `/mcp` passa pelo parser JSON padrão, 100 kb); maior que isso, o link de upload.
 - **Salvar substitui:** os arquivos novos substituem o conjunto atual da entrega (é como o `files_filemanager` funciona); o resumo avisa.
 - **Validado no AVA real (2026-11-22, ED1):** `upload.php` → `save_submission` só com arquivos, em tarefa sem o botão de enviar, **entregou** (status `submitted`).
 

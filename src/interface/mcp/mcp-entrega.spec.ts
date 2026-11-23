@@ -90,3 +90,42 @@ describe('ferramentas de entrega de tarefa', () => {
     expect(JSON.stringify(r.content)).toContain('O prazo final da tarefa já passou');
   });
 });
+
+describe('instruções do servidor x permissões de escrita', () => {
+  const instrucoes = async (p: McpPrincipal) => (await servidor(p, {})).getInstructions() ?? '';
+
+  it('sem permissão de escrita: diz que só lê, sem o absoluto antigo e sem a frase de escrita', async () => {
+    const i = await instrucoes({ userId: 'u1' });
+    expect(i).toMatch(/Sem permissão de escrita/);
+    expect(i).not.toMatch(/nunca altera/);
+    expect(i).not.toMatch(/só confirme depois do "sim" explícito/);
+  });
+
+  it.each(['moodle.assignment_write', 'moodle.forum_write', 'siasb.schedule_write', 'siasb.procedures_write'])(
+    'com %s: acrescenta que algumas ferramentas escrevem e pedem o sim explícito',
+    async (key) => {
+      const i = await instrucoes({ userId: 'u1', permissions: new Set([key]) });
+      expect(i).toMatch(/algumas ferramentas escrevem/);
+      expect(i).toMatch(/só confirme depois do "sim" explícito/);
+      expect(i).not.toMatch(/nunca altera/);
+    },
+  );
+});
+
+describe('arquivos em base64: só arquivo minúsculo (~64 KB)', () => {
+  it('descrição fala em ~64 KB e manda o resto para o linkUpload; string acima de 90.000 caracteres é recusada', async () => {
+    const enviarTarefa = jest.fn(async () => ({}));
+    const c = await servidor(COM, { enviarTarefa });
+    const t = (await c.listTools()).tools.find((x) => x.name === 'enviar_tarefa')!;
+    expect(JSON.stringify(t)).toMatch(/64 KB/);
+    expect(JSON.stringify(t)).not.toMatch(/2 MB/);
+    const r = await c.callTool({ name: 'enviar_tarefa', arguments: { cursoId: '10', tarefaId: '20', arquivos: [{ nome: 'a.pdf', conteudoBase64: 'A'.repeat(90_004) }] } });
+    expect(r.isError).toBe(true);
+    expect(enviarTarefa).not.toHaveBeenCalled();
+  });
+
+  it('a descrição diz para não mandar conteúdo junto com o confirmacaoId', async () => {
+    const t = (await (await servidor(COM, {})).listTools()).tools.find((x) => x.name === 'enviar_tarefa')!;
+    expect(t.description).toMatch(/novo resumo/);
+  });
+});

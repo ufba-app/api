@@ -145,3 +145,19 @@ describe('entrega de tarefa: adaptador fino sobre o EntregaService', () => {
     expect(r3).toMatchObject({ salvo: true });
   });
 });
+
+describe('confirmação não aceita conteúdo junto', () => {
+  it.each([
+    { texto: 'troquei' },
+    { uploadId: 'up-9' },
+    { arquivos: [{ nome: 'b.pdf', conteudoBase64: 'QQ==' }] },
+  ])('com confirmacaoId e %j: recusa antes de chamar o serviço', async (extra) => {
+    const e = { confirmar: jest.fn(), solicitar: jest.fn() };
+    const uc = new McpUseCasesImpl({} as never, new DownloadLinks(), e as never);
+    for (const chamar of [uc.enviarTarefa.bind(uc), uc.salvarRascunhoTarefa.bind(uc)]) {
+      await expect(chamar(base, { cursoId: '10', tarefaId: '20', confirmacaoId: 'c1', ...extra })).rejects.toThrow(/novo resumo sem `confirmacaoId`/);
+    }
+    expect(e.confirmar).not.toHaveBeenCalled();
+    expect(e.solicitar).not.toHaveBeenCalled();
+  });
+});
