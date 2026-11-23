@@ -93,6 +93,35 @@ describe('MoodleLive.requisitosEntrega', () => {
     expect((await live.requisitosEntrega!(ctx, '359934', '286293')).extensoes).toEqual(['.pdf', '.zip']);
   });
 
+  it('filetypeslist com grupo ou MIME passa como está (sem descartar tokens) e aceita ";" como separador', async () => {
+    const { live } = moodle({ mod_assign_get_assignments: assignments({}, 'document; image/PNG .pdf'), mod_assign_get_submission_status: statusNovo });
+    expect((await live.requisitosEntrega!(ctx, '359934', '286293')).extensoes).toEqual(['document', 'image/png', '.pdf']);
+  });
+
+  it('temTextoAtual: true quando a entrega tem texto online, false sem texto', async () => {
+    const com = { type: 'onlinetext', editorfields: [{ name: 'onlinetext', text: '<p>minha resposta</p>' }] };
+    const vazio = { type: 'onlinetext', editorfields: [{ name: 'onlinetext', text: '' }] };
+    for (const [plugins, esperado] of [[[com], true], [[vazio], false], [[], false]] as const) {
+      const { live } = moodle({
+        mod_assign_get_assignments: assignments(),
+        mod_assign_get_submission_status: { lastattempt: { canedit: true, submission: { status: 'draft', plugins } } },
+      });
+      const r = await live.requisitosEntrega!(ctx, '359934', '286293');
+      expect(r.temTextoAtual).toBe(esperado);
+      expect(JSON.stringify(r)).not.toContain('minha resposta');
+    }
+  });
+
+  it('id com mais de 15 dígitos não chega ao Moodle', async () => {
+    const { live, calls } = moodle({});
+    const e = (await live.requisitosEntrega!(ctx, '1234567890123456', '1').catch((x) => x)) as SourceError;
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(calls).toHaveLength(0);
+    const { live: ok, calls: c2 } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
+    await ok.requisitosEntrega!(ctx, '123456789012345', '286293').catch(() => undefined);
+    expect(c2.length).toBeGreaterThan(0);
+  });
+
   it('tarefa que não está no curso: SourceError UNSUPPORTED_SCOPE', async () => {
     const { live } = moodle({ mod_assign_get_assignments: assignments(), mod_assign_get_submission_status: statusNovo });
     const err = (await live.requisitosEntrega!(ctx, '359934', '999').catch((e) => e)) as SourceError;
@@ -136,9 +165,9 @@ describe('MoodleLive.requisitosEntrega', () => {
 });
 
 function moodleUpload(resposta: unknown) {
-  const reqs: { url: string; body: FormData }[] = [];
+  const reqs: { url: string; body: FormData; init: RequestInit }[] = [];
   const fetchFn = (async (url: string, init: RequestInit) => {
-    reqs.push({ url, body: init.body as FormData });
+    reqs.push({ url, body: init.body as FormData, init });
     return new Response(JSON.stringify(resposta), { status: 200 });
   }) as unknown as typeof fetch;
   return { live: new MoodleLive(fetchFn), reqs };
@@ -158,6 +187,14 @@ describe('MoodleLive.subirArquivosEntrega', () => {
     expect(reqs[0].body.get('itemid')).toBe('0');
     expect((reqs[0].body.get('file_1') as File).name).toBe('a.zip');
     expect(r).toEqual({ itemId: '137294331', arquivos: [{ nome: 'a.zip', tamanhoBytes: 3 }] });
+  });
+
+  it('o POST do upload tem tempo limite e não segue redirecionamento', async () => {
+    const { live, reqs } = moodleUpload([{ filename: 'a.zip', filesize: 3, itemid: 1 }]);
+    await live.subirArquivosEntrega!(ctx, [{ nome: 'a.zip', bytes: bytes(1, 2, 3) }]);
+    expect(reqs[0].init.redirect).toBe('error');
+    expect(reqs[0].init.signal).toBeInstanceOf(AbortSignal);
+    expect(reqs[0].init.signal!.aborted).toBe(false);
   });
 
   it('vários arquivos vão no mesmo POST como file_1, file_2', async () => {
@@ -279,6 +316,50 @@ describe('MoodleLive.salvarEntrega', () => {
     const e = (await live.salvarEntrega!(ctx, { tarefaId: '5', itemId: 'x;1' }).catch((x) => x)) as SourceError;
     expect(e.code).toBe('UNSUPPORTED_SCOPE');
     expect(calls).toHaveLength(0);
+  });
+});
+
+/** Moodle falso em que a leitura do estado (get_submission_status) falha depois da escrita. */
+function moodleLeituraFalha(escrita: string) {
+  const calls: string[] = [];
+  const fetchFn = (async (_url: string, init: RequestInit) => {
+    const f = (init.body as URLSearchParams).get('wsfunction') as string;
+    calls.push(f);
+    if (f === escrita) return new Response('[]', { status: 200 });
+    return new Response('erro', { status: 503 });
+  }) as unknown as typeof fetch;
+  return { live: new MoodleLive(fetchFn), calls };
+}
+
+describe('MoodleLive: leitura do estado falha depois de uma escrita que deu certo', () => {
+  it('salvarEntrega devolve estado ausente (não lança) e grava uma vez só', async () => {
+    const { live, calls } = moodleLeituraFalha('mod_assign_save_submission');
+    await expect(live.salvarEntrega!(ctx, { tarefaId: '5', itemId: '9' })).resolves.toEqual({});
+    expect(calls.filter((c) => c === 'mod_assign_save_submission')).toHaveLength(1);
+  });
+
+  it('finalizarEntrega devolve estado ausente (não lança) e envia uma vez só', async () => {
+    const { live, calls } = moodleLeituraFalha('mod_assign_submit_for_grading');
+    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({});
+    expect(calls.filter((c) => c === 'mod_assign_submit_for_grading')).toHaveLength(1);
+  });
+});
+
+describe('MoodleLive: avisos da escrita', () => {
+  it('resposta que não é lista de avisos é falha', async () => {
+    for (const resp of [{}, null, 'ok']) {
+      const { live } = moodle({ mod_assign_save_submission: resp });
+      const e = await live.salvarEntrega!(ctx, { tarefaId: '5', itemId: '9' }).catch((x) => x);
+      expect(e).toBeInstanceOf(SourceError);
+    }
+  });
+
+  it('texto do aviso do Moodle sai sem o token', async () => {
+    const { live } = moodle({ mod_assign_submit_for_grading: [{ message: 'token SEGREDO123 inválido' }] });
+    const e = (await live.finalizarEntrega!(ctx, '5').catch((x) => x)) as SourceError;
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.message).not.toContain('SEGREDO123');
+    expect(e.message).toContain('inválido');
   });
 });
 

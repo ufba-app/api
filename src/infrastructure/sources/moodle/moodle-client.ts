@@ -16,16 +16,7 @@ function scrub(text: string, token: string): string {
   return token ? text.split(token).join('***') : text;
 }
 
-/** Nome de arquivo seguro para o Moodle: só o último segmento, sem controle, até 255 caracteres (preserva a extensão). */
-export function nomeSeguro(nome: string): string {
-  // eslint-disable-next-line no-control-regex
-  const base = (nome.split(/[\\/]/).pop() ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim();
-  const limpo = base === '' || base === '.' || base === '..' ? 'arquivo' : base;
-  if (limpo.length <= 255) return limpo;
-  const ponto = limpo.lastIndexOf('.');
-  const ext = ponto > 0 && limpo.length - ponto <= 32 ? limpo.slice(ponto) : '';
-  return limpo.slice(0, 255 - ext.length) + ext;
-}
+export { nomeSeguro } from '../../../application/live/nome-seguro';
 
 /** Cliente fino da Web Service REST do Moodle (POST /webservice/rest/server.php). */
 export class MoodleClient {
@@ -70,10 +61,12 @@ export class MoodleClient {
     body.set('token', token);
     body.set('filearea', 'draft');
     body.set('itemid', '0');
-    arquivos.forEach((a, i) => body.set(`file_${i + 1}`, new Blob([a.bytes as unknown as ArrayBuffer]), a.nome));
+    // O Blob copia os bytes uma vez (inevitável); a visão é passada direto, sem cópia extra antes.
+    arquivos.forEach((a, i) => body.set(`file_${i + 1}`, new Blob([a.bytes as Uint8Array<ArrayBuffer>]), a.nome));
 
     const url = `${ctx.baseUrl.replace(/\/+$/, '')}/webservice/upload.php`;
-    const res = await this.fetchFn(url, { method: 'POST', body });
+    // Só o upload: não segue redirecionamento (o token vai no corpo) e não fica pendurado para sempre.
+    const res = await this.fetchFn(url, { method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(120_000) });
     if (!res.ok) throw new MoodleError(`Moodle HTTP ${res.status} no upload`);
     const json: unknown = await res.json();
 

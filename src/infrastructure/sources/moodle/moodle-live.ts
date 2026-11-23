@@ -52,7 +52,11 @@ interface MoodleSubmissionStatus {
     canedit?: boolean;
     submission?: {
       status?: string;
-      plugins?: { type: string; fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[] }[];
+      plugins?: {
+        type: string;
+        fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
+        editorfields?: { name?: string; text?: string }[];
+      }[];
     };
   };
 }
@@ -152,11 +156,11 @@ export function textoParaHtml(texto: string): string {
 
 /** Id do Moodle: só dígitos, sem zero à esquerda nem zero (barra '', '0', '1e3', '-1', '0x10'). */
 function idMoodle(valor: string, nome: string): number {
-  if (!/^[1-9]\d*$/.test(valor)) throw new SourceError('UNSUPPORTED_SCOPE', `${nome} inválido`);
+  if (!/^[1-9]\d{0,14}$/.test(valor)) throw new SourceError('UNSUPPORTED_SCOPE', `${nome} inválido`);
   return Number(valor);
 }
 
-function estadoDe(status?: string): EstadoEntrega['estado'] {
+function estadoDe(status?: string): RequisitosEntrega['estado'] {
   return status === 'submitted' ? 'entregue' : status === 'draft' ? 'rascunho' : 'nova';
 }
 
@@ -451,6 +455,10 @@ export class MoodleLive implements LiveSource {
       const sub = status.lastattempt?.submission;
       const estado = estadoDe(sub?.status);
       const arquivosAtuais: { nome: string; tamanhoBytes: number }[] = [];
+      // Só se existe texto online: o texto em si não sai daqui.
+      const temTextoAtual = (sub?.plugins ?? []).some(
+        (p) => p.type === 'onlinetext' && (p.editorfields ?? []).some((f) => typeof f.text === 'string' && f.text.trim() !== ''),
+      );
       for (const p of sub?.plugins ?? []) {
         if (p.type !== 'file') continue;
         for (const area of p.fileareas ?? []) {
@@ -465,8 +473,9 @@ export class MoodleLive implements LiveSource {
         aceitaTexto: cfg('onlinetext', 'enabled') === '1',
         maxArquivos: num(cfg('file', 'maxfilesubmissions')),
         maxBytesPorArquivo: num(cfg('file', 'maxsubmissionsizebytes')) || undefined, // 0 = limite do site/curso
+        // Extensões, grupos (`document`) ou MIME, como o Moodle guarda: quem confere é o EntregaService (só extensões).
         extensoes: (cfg('file', 'filetypeslist') ?? '')
-          .split(/[\s,]+/)
+          .split(/[\s,;]+/)
           .map((e) => e.trim().toLowerCase())
           .filter(Boolean),
         abreEm: segundos(a.allowsubmissionsfromdate),
@@ -478,6 +487,7 @@ export class MoodleLive implements LiveSource {
         estado,
         podeEditar: status.lastattempt?.canedit === true,
         arquivosAtuais,
+        temTextoAtual,
       };
     });
   }
@@ -503,8 +513,8 @@ export class MoodleLive implements LiveSource {
         params['plugindata[onlinetext_editor][itemid]'] = 0;
       }
       const avisos = await this.client.call<unknown>(m, 'mod_assign_save_submission', params);
-      this.exigirSemAvisos(avisos, 'salvar a entrega');
-      return this.lerEstadoEntrega(m, tarefa);
+      this.exigirSemAvisos(m, avisos, 'salvar a entrega');
+      return this.lerEstadoDepoisDeGravar(m, tarefa);
     });
   }
 
@@ -516,23 +526,36 @@ export class MoodleLive implements LiveSource {
         assignmentid: tarefa,
         acceptsubmissionstatement: 0,
       });
-      this.exigirSemAvisos(avisos, 'enviar a tarefa');
-      return this.lerEstadoEntrega(m, tarefa);
+      this.exigirSemAvisos(m, avisos, 'enviar a tarefa');
+      return this.lerEstadoDepoisDeGravar(m, tarefa);
     });
   }
 
-  private exigirSemAvisos(avisos: unknown, acao: string): void {
-    if (!Array.isArray(avisos) || avisos.length === 0) return;
+  /** A escrita responde uma lista de avisos: `[]` = ok. Outra coisa é falha; o texto do Moodle sai sem o token e curto. */
+  private exigirSemAvisos(m: MoodleAccess, avisos: unknown, acao: string): void {
+    if (!Array.isArray(avisos)) throw new SourceError('UNAVAILABLE', `O Moodle respondeu algo inesperado ao ${acao}`);
+    if (avisos.length === 0) return;
+    const token = m.token.reveal();
     const msg = avisos
       .map((w) => (w && typeof w === 'object' && typeof (w as { message?: unknown }).message === 'string' ? (w as { message: string }).message : ''))
       .filter(Boolean)
-      .join('; ');
+      .join('; ')
+      .split(token)
+      .join('***')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f\x7f]+/g, ' ')
+      .slice(0, 300);
     throw new SourceError('UNAVAILABLE', `O Moodle não aceitou ${acao}${msg ? `: ${msg}` : ''}`);
   }
 
-  private async lerEstadoEntrega(m: MoodleAccess, tarefa: number): Promise<EstadoEntrega> {
-    const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
-    return { estado: estadoDe(status.lastattempt?.submission?.status) };
+  /** Depois de uma escrita que deu certo, a falha da leitura não é falha da escrita: devolve o estado ausente. */
+  private async lerEstadoDepoisDeGravar(m: MoodleAccess, tarefa: number): Promise<EstadoEntrega> {
+    try {
+      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+      return { estado: estadoDe(status.lastattempt?.submission?.status) };
+    } catch {
+      return {};
+    }
   }
 
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent> {

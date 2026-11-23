@@ -116,7 +116,10 @@ export interface RequisitosEntrega {
   aceitaTexto: boolean;
   maxArquivos?: number;
   maxBytesPorArquivo?: number;
-  /** Extensões aceitas, em minúsculas e com ponto; `[]` = qualquer. */
+  /**
+   * Tipos aceitos como o Moodle guarda (`filetypeslist`), em minúsculas: extensões com ponto (`.pdf`), grupos (`document`),
+   * MIME (`image/png`) ou `*`. `[]` = qualquer. Só uma lista feita só de extensões é conferida localmente.
+   */
   extensoes: string[];
   abreEm?: Date;
   prazo?: Date;
@@ -127,6 +130,8 @@ export interface RequisitosEntrega {
   estado: 'nova' | 'rascunho' | 'entregue';
   podeEditar: boolean;
   arquivosAtuais: { nome: string; tamanhoBytes: number }[];
+  /** Se a entrega atual tem texto online (não o texto: só se existe). */
+  temTextoAtual: boolean;
 }
 
 export interface ArquivoParaEnvio {
@@ -146,7 +151,8 @@ export interface EntregaTarefa {
 }
 
 export interface EstadoEntrega {
-  estado: 'nova' | 'rascunho' | 'entregue';
+  /** Ausente = a escrita deu certo, mas a leitura do estado logo depois falhou (não é falha da escrita). */
+  estado?: 'nova' | 'rascunho' | 'entregue';
 }
 
 export interface PostagemFeita {
