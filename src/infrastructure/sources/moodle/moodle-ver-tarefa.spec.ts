@@ -24,8 +24,8 @@ const CMID = '4286503';
 const ASSIGN_ID = '288097';
 const PRAZO = 1791255540;
 
-function assignments(duedate = PRAZO) {
-  return { courses: [{ id: 359937, assignments: [{ id: 288097, cmid: 4286503, name: 'Avaliação 01', duedate, configs: [] }] }] };
+function assignments(duedate = PRAZO, extra: Record<string, unknown> = {}) {
+  return { courses: [{ id: 359937, assignments: [{ id: 288097, cmid: 4286503, name: 'Avaliação 01', duedate, configs: [], ...extra }] }] };
 }
 
 function submission(extra: Record<string, unknown> = {}) {
@@ -47,8 +47,8 @@ const feedbackAvaliado = (comentario = '<p>Excelente trabalho.</p>') => ({
   ],
 });
 
-const ver = (status: unknown, duedate?: number) => {
-  const m = moodle({ mod_assign_get_assignments: assignments(duedate), mod_assign_get_submission_status: status });
+const ver = (status: unknown, duedate?: number, extra: Record<string, unknown> = {}) => {
+  const m = moodle({ mod_assign_get_assignments: assignments(duedate, extra), mod_assign_get_submission_status: status });
   return { ...m, run: (cmid = CMID) => m.live.verTarefa!(ctx, CURSO, cmid) };
 };
 
@@ -109,5 +109,33 @@ describe('MoodleLive.verTarefa', () => {
     const e2 = await run('abc').then(() => new Error("não falhou"), (e: unknown) => e as SourceError);
     expect(e2).toMatchObject({ code: 'UNSUPPORTED_SCOPE', message: 'tarefaId inválido' });
     expect(`${e1.message}${e2.message}`).not.toContain('SEGREDO123');
+  });
+
+  it('comentário do professor sem nota ("-"): aparece, mas avaliada continua false e sem nota', async () => {
+    const fb = { gradefordisplay: '-', plugins: [{ type: 'comments', editorfields: [{ name: 'comments', text: '<p>Refaça a seção 2</p>' }] }] };
+    const t = await ver({ lastattempt: { graded: false, submission: submission() }, feedback: fb }).run();
+    expect(t.avaliacao).toEqual({ avaliada: false, comentarios: ['Refaça a seção 2'] });
+  });
+
+  it('graded sem feedback (nota ainda não liberada ao aluno): não afirma que foi avaliada', async () => {
+    const t = await ver({ lastattempt: { graded: true, submission: submission() } }).run();
+    expect(t.avaliacao).toEqual({ avaliada: false, comentarios: [] });
+  });
+
+  it('nova ou rascunho com timemodified depois do prazo: sem enviadoEm e não atrasada', async () => {
+    for (const status of ['new', 'draft', 'reopened']) {
+      const t = await ver({ lastattempt: { submission: submission({ status, timemodified: PRAZO + 60 }) } }).run();
+      expect(t).not.toHaveProperty('enviadoEm');
+      expect(t.atrasada).toBe(false);
+    }
+  });
+
+  it('tarefa em grupo: lê a entrega do grupo (teamsubmission), não a do aluno', async () => {
+    const t = await ver(
+      { lastattempt: { submission: { status: 'new', plugins: [] }, teamsubmission: submission() } },
+      PRAZO,
+      { teamsubmission: 1 },
+    ).run();
+    expect(t).toMatchObject({ estado: 'entregue', arquivosAtuais: [{ nome: 'a.pdf', tamanhoBytes: 10 }] });
   });
 });

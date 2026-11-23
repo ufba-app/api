@@ -10,7 +10,7 @@ O serviço expõe ferramentas MCP por **Streamable HTTP** em `POST /mcp` (sem se
 
 ## Ferramentas (Moodle, Classroom e SIGAA)
 
-Toda ferramenta de leitura aceita `fonte` (`moodle`, padrão, `classroom` ou `sigaa`) e `conta`. Cada consulta lê **uma conta de uma fonte**.
+Toda ferramenta de leitura aceita `fonte` (`moodle`, padrão, `classroom` ou `sigaa`) e `conta` (exceção: `ver_tarefa` é só do Moodle e não tem `fonte`). Cada consulta lê **uma conta de uma fonte**.
 
 | Ferramenta | O que faz | Chamadas: Moodle | Chamadas: Classroom | Requisições: SIGAA |
 |---|---|---|---|---|

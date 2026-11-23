@@ -52,22 +52,25 @@ interface MoodleAssignmentConfig {
   requiresubmissionstatement?: number;
   configs?: { plugin: string; subtype?: string; name: string; value: string }[];
 }
+interface MoodleSubmission {
+  status?: string;
+  timemodified?: number;
+  plugins?: {
+    type: string;
+    fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
+    editorfields?: { name?: string; text?: string }[];
+  }[];
+}
 interface MoodleSubmissionStatus {
   lastattempt?: {
     canedit?: boolean;
     graded?: boolean;
     extensionduedate?: number | null;
-    submission?: {
-      status?: string;
-      timemodified?: number;
-      plugins?: {
-        type: string;
-        fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
-        editorfields?: { name?: string; text?: string }[];
-      }[];
-    };
+    submission?: MoodleSubmission;
+    /** Em tarefa em grupo (`teamsubmission: 1`) a entrega vale a do grupo, que pode ser de outro membro. */
+    teamsubmission?: MoodleSubmission;
   };
-  /** Ausente enquanto não há nota. `gradefordisplay` vem em HTML (`100,00&nbsp;/&nbsp;100,00`). */
+  /** Ausente enquanto não há nota nem comentário. `gradefordisplay` vem em HTML (`100,00&nbsp;/&nbsp;100,00`; `-` sem nota). */
   feedback?: {
     gradefordisplay?: string;
     gradeddate?: number;
@@ -483,8 +486,10 @@ export class MoodleLive implements LiveSource {
   verTarefa(ctx: SourceContext, cursoId: string, cmid: string): Promise<TarefaVista> {
     return this.run(ctx, async (m) => {
       const { a, status } = await this.lerTarefaEStatus(m, cursoId, cmid);
-      const sub = status.lastattempt?.submission;
-      const enviadoEm = sub?.timemodified ? date(sub.timemodified) : undefined;
+      const ultima = status.lastattempt;
+      const sub = a.teamsubmission === 1 ? (ultima?.teamsubmission ?? ultima?.submission) : ultima?.submission;
+      // Só uma entrega enviada tem data de envio: em `new`/`draft`/`reopened` o `timemodified` é o da última edição.
+      const enviadoEm = sub?.status === 'submitted' && sub.timemodified ? date(sub.timemodified) : undefined;
       const limite = status.lastattempt?.extensionduedate || a.duedate;
       const arquivosAtuais = (sub?.plugins ?? [])
         .filter((p) => p.type === 'file')
@@ -495,13 +500,15 @@ export class MoodleLive implements LiveSource {
         (p) => p.type === 'onlinetext' && (p.editorfields ?? []).some((f) => typeof f.text === 'string' && f.text.trim() !== ''),
       );
       const fb = status.feedback;
-      const nota = htmlToText(fb?.gradefordisplay)?.replace(/\s+/g, ' ');
+      const textoNota = htmlToText(fb?.gradefordisplay)?.replace(/\s+/g, ' ');
+      const nota = textoNota === '-' ? undefined : textoNota;
       const comentarios = (fb?.plugins ?? [])
         .filter((p) => p.type === 'comments')
         .flatMap((p) => p.editorfields ?? [])
         .map((f) => htmlToText(f.text))
         .filter((t): t is string => t !== undefined);
-      const avaliada = status.lastattempt?.graded === true;
+      // Sem `feedback` a nota não foi liberada ao aluno (ou não existe): não afirmar que foi avaliada.
+      const avaliada = status.lastattempt?.graded === true && fb !== undefined;
       return {
         tarefaId: String(a.cmid),
         titulo: a.name,
@@ -515,7 +522,7 @@ export class MoodleLive implements LiveSource {
           avaliada,
           ...(avaliada && nota ? { nota } : {}),
           ...(avaliada && fb?.gradeddate ? { avaliadaEm: date(fb.gradeddate) } : {}),
-          comentarios: avaliada ? comentarios : [],
+          comentarios,
         },
       };
     });

@@ -72,8 +72,9 @@ Só leitura, sem a permissão `moodle.assignment_write`. `MoodleLive.verTarefa` 
 Formato real de `mod_assign_get_submission_status` (AVA da UFBA, conferido em leitura em 23/11/2026):
 
 - **Sem nota:** a chave `feedback` **não existe**; `lastattempt.graded` é `false` e `gradingstatus` é `"notgraded"`. Vira `avaliacao: { avaliada: false, comentarios: [] }`, sem `nota` (nunca `0`).
-- **Avaliada:** `lastattempt.graded: true`; `feedback.gradefordisplay` vem em HTML (`"100,00&nbsp;/&nbsp;100,00"`, vira `"100,00 / 100,00"`); `feedback.gradeddate` (segundos); comentário do professor em `feedback.plugins[type=comments].editorfields[name=comments].text` (HTML, ex. `<p>Excelente trabalho.</p>`). O plugin `editpdf` é ignorado. O plugin `comments` de `lastattempt.submission` é do aluno, não do professor.
-- `submission.timemodified` (segundos) é `enviadoEm`; `atrasada` = envio depois de `extensionduedate` (se houver) ou do `duedate`; sem prazo ou sem entrega, `false`.
+- **Avaliada:** `lastattempt.graded: true` **e** `feedback` presente (com `graded` mas sem `feedback`, a nota não foi liberada ao aluno: `avaliada: false`). `feedback.gradefordisplay` vem em HTML (`"100,00&nbsp;/&nbsp;100,00"`, vira `"100,00 / 100,00"`; `"-"` = sem nota, some); `feedback.gradeddate` (segundos); comentário do professor em `feedback.plugins[type=comments].editorfields[name=comments].text` (HTML, ex. `<p>Excelente trabalho.</p>`). O plugin `editpdf` é ignorado. Comentário sem nota (tarefa sem nota ou professor que só comentou) sai em `comentarios` com `avaliada: false`. O plugin `comments` de `lastattempt.submission` é do aluno, não do professor.
+- `submission.timemodified` (segundos) é `enviadoEm` **só com `status: submitted`** (em `new`/`draft`/`reopened` é a última edição); `atrasada` = envio depois de `extensionduedate` (se houver) ou do `duedate`; sem prazo ou sem entrega, `false`. Prazo sobrescrito por aluno/grupo (override) não é lido: usa o prazo base da tarefa.
+- **Tarefa em grupo** (`teamsubmission: 1`): vale `lastattempt.teamsubmission` (a entrega do grupo, que pode ser de outro membro).
 - Nada de ids do avaliador, `userid` ou id interno na saída.
 
 ## Como o token é obtido
