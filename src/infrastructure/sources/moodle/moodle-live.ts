@@ -11,6 +11,8 @@ import type {
   PostagemForum,
   RequisitosEntrega,
   PrazoVivo,
+  ArquivoParaEnvio,
+  RascunhoEnviado,
   TipoAtividade,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
@@ -18,7 +20,7 @@ import { DRIVE_KIND_NAME, extractDriveLinks, parseDriveLink } from '../../../dom
 import type { DriveRefs } from '../drive/drive-refs';
 import { accessOf, type MoodleAccess } from './moodle-access';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
-import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
+import { MoodleClient, MoodleError, nomeSeguro, type FetchFn } from './moodle-client';
 import { cleanUrl, type MoodleAssignment, type MoodleDiscussion, type MoodleFile } from './moodle-mapper';
 
 /** Teto de arquivos HTML (capítulos de livro, recursos HTML, páginas) baixados por `verCurso` só para achar links do Drive. */
@@ -468,6 +470,11 @@ export class MoodleLive implements LiveSource {
         arquivosAtuais,
       };
     });
+  }
+
+  /** Sobe os arquivos para o rascunho do aluno (um POST só); os nomes passam por `nomeSeguro`. */
+  subirArquivosEntrega(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado> {
+    return this.run(ctx, (m) => this.client.upload(m, arquivos.map((a) => ({ nome: nomeSeguro(a.nome), bytes: a.bytes }))));
   }
 
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent> {
