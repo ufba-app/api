@@ -652,7 +652,8 @@
                   "enum": [
                     "siasb.schedule_write",
                     "siasb.procedures_write",
-                    "moodle.forum_write"
+                    "moodle.forum_write",
+                    "moodle.assignment_write"
                   ]
                 },
                 "source": {
@@ -809,7 +810,8 @@
                   "enum": [
                     "siasb.schedule_write",
                     "siasb.procedures_write",
-                    "moodle.forum_write"
+                    "moodle.forum_write",
+                    "moodle.assignment_write"
                   ]
                 },
                 "source": {
@@ -4998,7 +5000,8 @@
                             "enum": [
                               "siasb.schedule_write",
                               "siasb.procedures_write",
-                              "moodle.forum_write"
+                              "moodle.forum_write",
+                              "moodle.assignment_write"
                             ]
                           },
                           "source": {
@@ -5123,10 +5126,11 @@
                       "enum": [
                         "siasb.schedule_write",
                         "siasb.procedures_write",
-                        "moodle.forum_write"
+                        "moodle.forum_write",
+                        "moodle.assignment_write"
                       ]
                     },
-                    "maxItems": 3
+                    "maxItems": 4
                   }
                 }
               }
@@ -5304,7 +5308,8 @@
                                   "enum": [
                                     "siasb.schedule_write",
                                     "siasb.procedures_write",
-                                    "moodle.forum_write"
+                                    "moodle.forum_write",
+                                    "moodle.assignment_write"
                                   ]
                                 },
                                 "source": {
@@ -5447,7 +5452,8 @@
               "enum": [
                 "siasb.schedule_write",
                 "siasb.procedures_write",
-                "moodle.forum_write"
+                "moodle.forum_write",
+                "moodle.assignment_write"
               ]
             },
             "required": true,
@@ -7979,7 +7985,8 @@
                             "enum": [
                               "siasb.schedule_write",
                               "siasb.procedures_write",
-                              "moodle.forum_write"
+                              "moodle.forum_write",
+                              "moodle.assignment_write"
                             ]
                           },
                           "source": {
@@ -8066,7 +8073,8 @@
               "enum": [
                 "siasb.schedule_write",
                 "siasb.procedures_write",
-                "moodle.forum_write"
+                "moodle.forum_write",
+                "moodle.assignment_write"
               ]
             },
             "required": true,
