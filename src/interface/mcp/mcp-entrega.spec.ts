@@ -40,6 +40,15 @@ describe('ferramentas de entrega de tarefa', () => {
     expect(t('preparar_envio_tarefa').description).toMatch(/curl/);
   });
 
+  it('descrições: preparar manda dizer o `motivo` quando podeEntregar=false; enviar explica ENTREGA_PARCIAL e estado desconhecido', async () => {
+    const tools = (await (await servidor(COM, {})).listTools()).tools;
+    const t = (n: string) => tools.find((x) => x.name === n)!;
+    expect(t('preparar_envio_tarefa').description).toMatch(/podeEntregar/);
+    expect(t('preparar_envio_tarefa').description).toMatch(/motivo/);
+    expect(t('enviar_tarefa').description).toMatch(/ENTREGA_PARCIAL/);
+    expect(t('enviar_tarefa').description).toMatch(/desconhecido/);
+  });
+
   it('preparar_envio_tarefa repassa os argumentos', async () => {
     const prepararEnvioTarefa = jest.fn(async () => ({ linkUpload: 'x' }));
     const c = await servidor(COM, { prepararEnvioTarefa });

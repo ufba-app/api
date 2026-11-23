@@ -337,7 +337,8 @@ function registerEntregaTools(server: McpServer, uc: McpUseCases, p: McpPrincipa
         'prazo e se já está atrasada, estado atual da entrega e se salvar JÁ ENTREGA (`salvarJaEntrega`) ou só grava rascunho. ' +
         'Se a tarefa aceita arquivo, devolve `linkUpload` de uso único (com `expiraEm`) e `comoEnviar`: mande TODOS os arquivos em UM só POST, ' +
         'ex.: curl -fS -F "file=@<caminho>" "<linkUpload>" (repita -F para mais arquivos), e depois use o `uploadId` em enviar_tarefa ou salvar_rascunho_tarefa. ' +
-        'Não grava nada na entrega.',
+        'Se `podeEntregar` vier false (tarefa que aceita arquivo E texto, em grupo, com declaração, fechada ou não editável), não há link: ' +
+        'diga o `motivo` à pessoa e oriente a entregar pelo AVA. Não grava nada na entrega.',
       inputSchema: TAREFA,
     },
     (args) => run(() => uc.prepararEnvioTarefa(p, args)),
@@ -363,7 +364,9 @@ function registerEntregaTools(server: McpServer, uc: McpUseCases, p: McpPrincipa
       annotations: { title: 'Enviar tarefa', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       description:
         'Entrega uma tarefa do Moodle (AVA) ao professor em nome da pessoa. Sem conteúdo novo, manda para avaliação o rascunho que já está no AVA. ' +
-        'O resultado final traz `enviado` (true quando ficou entregue) e `estado`. ' + AVISOS_ENTREGA,
+        'O resultado final traz `enviado` (true quando ficou entregue) e `estado`; `estado: "desconhecido"` = gravou, mas não deu para ler o estado: ' +
+        'diga para conferir no AVA. Erro ENTREGA_PARCIAL = ficou salvo como rascunho, mas não foi enviado: repita sem conteúdo para um novo resumo. ' +
+        AVISOS_ENTREGA,
       inputSchema: ENVIO,
     },
     (args) => run(() => uc.enviarTarefa(p, args)),

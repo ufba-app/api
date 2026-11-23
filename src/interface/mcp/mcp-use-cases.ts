@@ -85,24 +85,21 @@ export class McpUseCasesImpl implements McpUseCases {
   ) {}
 
   async prepararEnvioTarefa(p: McpPrincipal, i: PrepararEnvioInput) {
-    const { requisitos: r, uploadId, expiraEm } = await this.entrega.preparar(quem(p), { conta: i.conta, cursoId: i.cursoId, tarefaId: i.tarefaId });
+    const preparo = await this.entrega.preparar(quem(p), { conta: i.conta, cursoId: i.cursoId, tarefaId: i.tarefaId });
+    const { requisitos: r, uploadId, expiraEm, limitesArquivos: l } = preparo;
     const salvarJaEntrega = !r.exigeBotaoEnviar;
     const link = uploadId !== undefined ? `${baseUrl(p)}/upload/${uploadId}` : undefined;
     return {
       tarefaId: r.tarefaId,
       tarefa: r.titulo,
+      podeEntregar: preparo.podeEntregar,
+      ...(preparo.motivo !== undefined ? { motivo: preparo.motivo } : {}),
       aceita: { arquivos: r.aceitaArquivo, texto: r.aceitaTexto },
-      ...(r.aceitaArquivo
-        ? {
-            limitesArquivos: {
-              ...(r.maxArquivos !== undefined ? { maxArquivos: r.maxArquivos } : {}),
-              ...(r.maxBytesPorArquivo !== undefined ? { maxBytesPorArquivo: r.maxBytesPorArquivo } : {}),
-              extensoes: r.extensoes.length > 0 ? r.extensoes : 'qualquer',
-            },
-          }
-        : {}),
+      ...(l ? { limitesArquivos: { ...l, extensoes: l.extensoes.length > 0 ? l.extensoes : 'qualquer' } } : {}),
       ...(r.abreEm ? { abreEm: r.abreEm } : {}),
-      ...(r.prazo ? { prazo: r.prazo, atrasada: r.prazo.getTime() < Date.now() } : {}),
+      ...(r.prazo ? { prazo: r.prazo } : {}),
+      atrasada: preparo.atrasada,
+      fechada: preparo.fechada,
       ...(r.limite ? { limite: r.limite } : {}),
       estado: r.estado,
       podeEditar: r.podeEditar,
@@ -142,7 +139,13 @@ export class McpUseCasesImpl implements McpUseCases {
       if ((i.texto !== undefined && i.texto.trim() !== '') || i.uploadId !== undefined || (i.arquivos?.length ?? 0) > 0) {
         throw new EntregaInvalidaError('Com `confirmacaoId` não mande conteúdo: para mudar algo, peça um novo resumo sem `confirmacaoId`.');
       }
-      const feita = await this.entrega.confirmar(quem(p), acao, i.confirmacaoId);
+      const feita = await this.entrega.confirmar(quem(p), acao, i.confirmacaoId, {
+        ...(i.conta !== undefined ? { conta: i.conta } : {}),
+        cursoId: i.cursoId,
+        tarefaId: i.tarefaId,
+      });
+      // Gravou, mas o estado não pôde ser lido: nem "enviado" nem falha; o aviso manda conferir no AVA.
+      if (feita.estado === 'desconhecido') return { gravado: true, ...feita };
       return acao === 'enviar' ? { enviado: feita.entregue, ...feita } : { salvo: true, ...feita };
     }
     const arquivos = i.arquivos?.length ? decodificar(i.arquivos) : undefined;
