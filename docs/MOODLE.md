@@ -46,21 +46,22 @@ Ferramentas MCP `preparar_envio_tarefa`, `salvar_rascunho_tarefa` e `enviar_tare
 | Função do Moodle | Para quê |
 |---|---|
 | `mod_assign_get_assignments` | Configuração da tarefa: `submissiondrafts`, plugins `file` (`enabled`, `maxfilesubmissions`, `maxsubmissionsizebytes`, `filetypeslist`) e `onlinetext.enabled`, `allowsubmissionsfromdate`, `duedate`, `cutoffdate`, `teamsubmission`, `requiresubmissionstatement` |
-| `mod_assign_get_submission_status` | `status` (`new`/`draft`/`submitted`), `canedit` e os arquivos atuais |
+| `mod_assign_get_submission_status` | `status` (`new`/`draft`/`submitted`), `canedit`, os arquivos atuais e se há texto online (só se existe, nunca o texto) |
 | `POST /webservice/upload.php` (`token`, `filearea=draft`, `itemid=0`, `file_1`, `file_2`...) | Sobe os arquivos à área de rascunho do aluno (invisível ao professor) e devolve o `itemid` |
 | `mod_assign_save_submission` | Grava: `plugindata[files_filemanager]=<itemid>` e/ou `plugindata[onlinetext_editor][text\|format\|itemid]` (texto puro escapado para HTML) |
 | `mod_assign_submit_for_grading` | Manda para avaliação (só em tarefa com o botão de enviar) |
 
 - **Salvar pode ser entregar.** Com `submissiondrafts=0` (tarefa sem o botão "Enviar tarefa"), `save_submission` já deixa a entrega `submitted`: não existe rascunho, `salvar_rascunho_tarefa` recusa e `enviar_tarefa` só salva. Com `submissiondrafts=1`, salvar é rascunho e `enviar_tarefa` salva (se há conteúdo novo) e chama `submit_for_grading`.
-- **Regras antes de escrever:** fora da janela (`allowsubmissionsfromdate`/`cutoffdate`) recusa; depois do `duedate` e antes do `cutoffdate` segue, marcada "atrasada" no resumo; `canedit=false`, tarefa em grupo e declaração de autoria recusam (v1: entregar pelo AVA); arquivo ou texto que a tarefa não aceita recusa; quantidade, tamanho por arquivo e extensão conforme a tarefa.
-- **Limites:** link de upload de uso único, 15 min, até 20 arquivos e 100 MB por arquivo (ou o limite menor da tarefa); confirmação de uso único, 10 min; `arquivos` em base64 só para arquivo minúsculo, cerca de 64 KB somados (o corpo do `/mcp` passa pelo parser JSON padrão, 100 kb); maior que isso, o link de upload.
+- **Regras antes de escrever:** fora da janela (`allowsubmissionsfromdate`/`cutoffdate`) recusa; depois do `duedate` e antes do `cutoffdate` segue, marcada "atrasada" no resumo; `canedit=false`, tarefa em grupo, declaração de autoria e **tarefa que aceita arquivo E texto online** recusam (v1: entregar pelo AVA; `preparar_envio_tarefa` devolve `podeEntregar: false` com o `motivo` e não abre link); arquivo ou texto que a tarefa não aceita recusa; quantidade, tamanho por arquivo e extensão conforme a tarefa. O `filetypeslist` pode ter extensões (`.pdf`), grupos (`document`, `image`, `archive`), MIME ou `*`: só uma lista feita só de extensões é conferida aqui (no nome que o Moodle recebe); com grupo, MIME ou `*` a lista vai como informação e o Moodle julga.
+- **Depois de escrever:** a resposta da escrita tem de ser uma lista de avisos (`[]` = ok; outra coisa é falha; o texto do aviso sai sem o token e curto). Se a escrita deu certo e só a leitura do estado logo depois falhou, não é falha: o serviço devolve estado `desconhecido` (conferir no AVA); se salvou e o `submit_for_grading` falhou, o erro diz que ficou rascunho e NÃO foi enviado. Antes de gravar, a tarefa é relida e a confirmação é recusada se o estado ou os arquivos atuais mudaram desde o resumo. O POST do `upload.php` tem tempo limite de 120 s e não segue redirecionamento; ids com mais de 15 dígitos não chegam ao Moodle.
+- **Limites:** link de upload de uso único, 15 min, até 20 arquivos, 25 MB por arquivo e 50 MB por envio (ou o limite menor da tarefa; um envio por link de cada vez e no máximo 2 envios em andamento no servidor, o resto recebe 429); confirmação de uso único, 10 min; `arquivos` em base64 só para arquivo minúsculo, cerca de 64 KB somados (o corpo do `/mcp` passa pelo parser JSON padrão, 100 kb); maior que isso, o link de upload.
 - **Salvar substitui:** os arquivos novos substituem o conjunto atual da entrega (é como o `files_filemanager` funciona); o resumo avisa.
 - **Validado no AVA real (2026-11-22, ED1):** `upload.php` → `save_submission` só com arquivos, em tarefa sem o botão de enviar, **entregou** (status `submitted`).
 
 **Não validado no AVA real:**
 
-1. O `itemid` do texto online (`onlinetext_editor[itemid]=0`): a única tarefa testada, a ED1, só aceita arquivo.
-2. Se `save_submission` só com texto apaga os arquivos já entregues, ou só com arquivos apaga o texto já entregue.
+1. O `itemid` do texto online (`onlinetext_editor[itemid]=0`): a única tarefa testada, a ED1, só aceita arquivo. Tarefa só de texto segue liberada com essa ressalva.
+2. Se `save_submission` só com texto apaga os arquivos já entregues, ou só com arquivos apaga o texto já entregue. Por isso tarefa que aceita **arquivo e texto** é recusada em v1 (rascunho e envio), até isso ser verificado; tarefa só de arquivo (validada) e só de texto não são afetadas.
 3. O caminho do rascunho em tarefa com o botão de enviar (`submissiondrafts=1`): `save_submission` como rascunho e depois `submit_for_grading`.
 
 ## Como o token é obtido
