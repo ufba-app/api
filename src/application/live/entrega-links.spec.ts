@@ -1,8 +1,8 @@
 import { ConfirmacoesEntrega, UploadLinks } from './entrega-links';
 
 const requisitos = { arquivos: true, texto: false } as never;
-const ticket = { userId: 'u1', conta: 'c1', cursoId: '10', tarefaId: '20', requisitos };
-const rascunho = { userId: 'u1', conta: 'c1', tarefaId: '20', itemId: '99', arquivos: [{ nome: 'a.pdf', tamanhoBytes: 3 }] };
+const ticket = { userId: 'u1', conta: 'c1', cursoId: '10', cmid: '20', requisitos };
+const rascunho = { userId: 'u1', conta: 'c1', cmid: '20', itemId: '99', arquivos: [{ nome: 'a.pdf', tamanhoBytes: 3 }] };
 
 describe('UploadLinks', () => {
   let t = 1_000;
@@ -70,7 +70,7 @@ describe('UploadLinks', () => {
 describe('ConfirmacoesEntrega', () => {
   let t = 1_000;
   const now = () => t;
-  const conf = { userId: 'u1', acao: 'enviar' as const, conta: 'c1', cursoId: '10', tarefaId: '20', estado: 'nova' as const, arquivosAtuais: '' };
+  const conf = { userId: 'u1', acao: 'enviar' as const, conta: 'c1', cursoId: '10', cmid: '20', assignId: '30', estado: 'nova' as const, arquivosAtuais: '' };
   beforeEach(() => {
     t = 1_000;
   });

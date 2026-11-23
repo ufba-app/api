@@ -110,7 +110,13 @@ export interface PostagemForum {
 
 /** O que uma tarefa pede para ser entregue e o estado atual da entrega do aluno. */
 export interface RequisitosEntrega {
+  /**
+   * Id INTERNO da tarefa no Moodle (assign id, ex.: `286293`): o que as escritas (`salvarEntrega`, `finalizarEntrega`)
+   * e o `mod_assign_get_submission_status` recebem. Não é o id que a pessoa/agente vê em `ver_curso`.
+   */
   tarefaId: string;
+  /** Id da ATIVIDADE (módulo do curso, `cmid`, ex.: `4258935`): o `tarefaId` público de `ver_curso` e das ferramentas MCP. */
+  cmid: string;
   titulo: string;
   aceitaArquivo: boolean;
   aceitaTexto: boolean;
@@ -145,6 +151,7 @@ export interface RascunhoEnviado {
 }
 
 export interface EntregaTarefa {
+  /** Id INTERNO da tarefa (assign id, o `RequisitosEntrega.tarefaId`), nunca o `cmid` de `ver_curso`. */
   tarefaId: string;
   itemId?: string;
   texto?: string;
@@ -201,12 +208,14 @@ export interface LiveSource {
   /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
   postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
   /** Lê o que a tarefa pede e o estado da entrega do aluno. Hoje só o Moodle. */
-  requisitosEntrega?(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega>;
+  /** `cmid`: o id da atividade em `ver_curso` (o `tarefaId` público). Devolve também o id interno (`tarefaId`). */
+  requisitosEntrega?(ctx: SourceContext, cursoId: string, cmid: string): Promise<RequisitosEntrega>;
   /** Sobe arquivos para a área de rascunho do aluno. */
   subirArquivosEntrega?(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado>;
   /** Grava a entrega (arquivos e/ou texto) como rascunho ou envio, conforme a tarefa. */
   salvarEntrega?(ctx: SourceContext, e: EntregaTarefa): Promise<EstadoEntrega>;
   /** Confirma o envio de um rascunho (botão "Enviar tarefa"). */
+  /** `tarefaId`: o id INTERNO da tarefa (assign id, `RequisitosEntrega.tarefaId`). */
   finalizarEntrega?(ctx: SourceContext, tarefaId: string): Promise<EstadoEntrega>;
 }
 

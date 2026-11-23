@@ -296,7 +296,9 @@ const MAX_BASE64 = 90_000;
 const TAREFA = {
   conta: CONTA,
   cursoId: z.string().describe('O `id` da matéria em `listar_cursos` (ou o `cursoId` de `prazos`).'),
-  tarefaId: z.string().describe('O id da tarefa (atividade `tipo: tarefa`) em `ver_curso`.'),
+  tarefaId: z
+    .string()
+    .describe('O `id` da atividade `tipo: tarefa` em `ver_curso` (o id do módulo no AVA, como está lá; não é outro id interno do Moodle).'),
 };
 
 const ENVIO = {

@@ -21,6 +21,7 @@ export interface LimitesArquivos {
   extensoes: string[];
 }
 
+/** `tarefaId` nos pedidos e alvos é sempre o id público da atividade em `ver_curso` (cmid), nunca o id interno do Moodle. */
 export interface PedidoEntrega {
   conta?: string;
   cursoId: string;
@@ -117,7 +118,7 @@ export class EntregaService {
       ...(requisitos.aceitaArquivo ? { limitesArquivos: limitesEfetivos(requisitos) } : {}),
     };
     if (motivo !== undefined || !requisitos.aceitaArquivo) return preparo;
-    const link = this.uploads.abrir({ userId: quem.userId, conta, cursoId: i.cursoId, tarefaId: i.tarefaId, requisitos });
+    const link = this.uploads.abrir({ userId: quem.userId, conta, cursoId: i.cursoId, cmid: i.tarefaId, requisitos });
     return { ...preparo, uploadId: link.id, expiraEm: link.expiresAt };
   }
 
@@ -150,7 +151,7 @@ export class EntregaService {
     this.uploads.guardar(uploadId, {
       userId: ticket.userId,
       conta: ticket.conta,
-      tarefaId: ticket.tarefaId,
+      cmid: ticket.cmid,
       itemId: subido.itemId,
       arquivos: subido.arquivos,
     });
@@ -187,7 +188,7 @@ export class EntregaService {
     let arquivos: ArquivoResumo[] = [];
     if (p.uploadId !== undefined) {
       const guardado = this.uploads.ler(p.uploadId, quem.userId);
-      if (!guardado || guardado.tarefaId !== p.tarefaId || guardado.conta !== conta) {
+      if (!guardado || guardado.cmid !== p.tarefaId || guardado.conta !== conta) {
         throw new EntregaInvalidaError('Upload não encontrado para esta tarefa (expirado ou de outra tarefa): envie os arquivos de novo.');
       }
       itemId = guardado.itemId;
@@ -208,7 +209,8 @@ export class EntregaService {
       acao,
       conta,
       cursoId: p.cursoId,
-      tarefaId: p.tarefaId,
+      cmid: p.tarefaId,
+      assignId: r.tarefaId,
       ...(itemId !== undefined ? { itemId } : {}),
       ...(texto !== undefined ? { texto } : {}),
       estado: r.estado,
@@ -239,13 +241,13 @@ export class EntregaService {
     // Sem `await` entre ler e consumir: duas confirmações simultâneas não gravam duas vezes.
     const lida = this.confirmacoes.ler(confirmacaoId, quem.userId, acao);
     if (!lida) throw new EntregaInvalidaError('Confirmação inválida, expirada ou já usada: peça o resumo de novo.');
-    if (lida.cursoId !== alvo.cursoId || lida.tarefaId !== alvo.tarefaId || (contaAlvo !== undefined && contaAlvo !== lida.conta)) {
+    if (lida.cursoId !== alvo.cursoId || lida.cmid !== alvo.tarefaId || (contaAlvo !== undefined && contaAlvo !== lida.conta)) {
       throw new EntregaInvalidaError('Essa confirmação é de outra tarefa: peça um novo resumo.');
     }
     const c = this.confirmacoes.consumir(confirmacaoId, quem.userId, acao)!;
-    const r = await this.consulta.requisitosEntrega(quem, c.conta, c.cursoId, c.tarefaId);
+    const r = await this.consulta.requisitosEntrega(quem, c.conta, c.cursoId, c.cmid);
     this.validarTarefa(r, acao);
-    if (r.estado !== c.estado || digital(r.arquivosAtuais) !== c.arquivosAtuais) {
+    if (r.tarefaId !== c.assignId || r.estado !== c.estado || digital(r.arquivosAtuais) !== c.arquivosAtuais) {
       throw new EntregaInvalidaError('A entrega mudou no AVA desde o resumo: peça um novo resumo.');
     }
 
@@ -254,7 +256,7 @@ export class EntregaService {
     if (salva) {
       estado = (
         await this.consulta.salvarEntrega(quem, c.conta, {
-          tarefaId: c.tarefaId,
+          tarefaId: c.assignId,
           ...(c.itemId !== undefined ? { itemId: c.itemId } : {}),
           ...(c.texto !== undefined ? { texto: c.texto } : {}),
         })
@@ -262,7 +264,7 @@ export class EntregaService {
     }
     if (acao === 'enviar' && r.exigeBotaoEnviar) {
       try {
-        estado = (await this.consulta.finalizarEntrega(quem, c.conta, c.tarefaId)).estado;
+        estado = (await this.consulta.finalizarEntrega(quem, c.conta, c.assignId)).estado;
       } catch (e) {
         // Salvou agora e o envio falhou: dizer só "falhou" faria a pessoa achar que nada foi gravado.
         if (salva) throw new EntregaParcialError(SALVO_SEM_ENVIAR);

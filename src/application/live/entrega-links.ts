@@ -5,7 +5,8 @@ export interface UploadTicket {
   userId: string;
   conta: string;
   cursoId: string;
-  tarefaId: string;
+  /** Id público da tarefa (atividade de `ver_curso`), como o caller mandou. O id interno está em `requisitos.tarefaId`. */
+  cmid: string;
   requisitos: RequisitosEntrega;
   expiresAt: number;
 }
@@ -13,7 +14,8 @@ export interface UploadTicket {
 export interface RascunhoGuardado {
   userId: string;
   conta: string;
-  tarefaId: string;
+  /** Id público da tarefa (cmid): o upload só vale para um pedido com este mesmo `tarefaId`. */
+  cmid: string;
   itemId: string;
   arquivos: { nome: string; tamanhoBytes: number }[];
   expiresAt: number;
@@ -111,7 +113,10 @@ export interface ConfirmacaoEntrega {
   acao: 'rascunho' | 'enviar';
   conta: string;
   cursoId: string;
-  tarefaId: string;
+  /** Id público da tarefa (cmid), comparado com o `tarefaId` do caller na confirmação. */
+  cmid: string;
+  /** Id interno da tarefa no Moodle (assign id), o que a gravação recebe. */
+  assignId: string;
   itemId?: string;
   texto?: string;
   /** Estado da entrega e impressão digital dos arquivos atuais (nomes e tamanhos) quando o resumo foi feito. */

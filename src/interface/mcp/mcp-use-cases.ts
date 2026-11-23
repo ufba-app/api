@@ -90,7 +90,8 @@ export class McpUseCasesImpl implements McpUseCases {
     const salvarJaEntrega = !r.exigeBotaoEnviar;
     const link = uploadId !== undefined ? `${baseUrl(p)}/upload/${uploadId}` : undefined;
     return {
-      tarefaId: r.tarefaId,
+      // O id público (cmid de `ver_curso`), o mesmo que o agente manda; o id interno do Moodle fica só no servidor.
+      tarefaId: r.cmid,
       tarefa: r.titulo,
       podeEntregar: preparo.podeEntregar,
       ...(preparo.motivo !== undefined ? { motivo: preparo.motivo } : {}),

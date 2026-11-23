@@ -141,7 +141,7 @@ export interface BaixarAnexoInput extends Alvo {
   anexos?: { ref: string; nome?: string }[];
 }
 
-/** Uma tarefa do Moodle (o `cursoId` de `listar_cursos` e o `tarefaId` de `ver_curso`). */
+/** Uma tarefa do Moodle: o `cursoId` de `listar_cursos` e, como `tarefaId`, o `id` da atividade em `ver_curso` (o cmid do Moodle). */
 export interface PrepararEnvioInput {
   conta?: string;
   cursoId: string;
