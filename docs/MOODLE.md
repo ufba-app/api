@@ -65,6 +65,17 @@ Ferramentas MCP `preparar_envio_tarefa`, `salvar_rascunho_tarefa` e `enviar_tare
 2. Se `save_submission` só com texto apaga os arquivos já entregues, ou só com arquivos apaga o texto já entregue. Por isso tarefa que aceita **arquivo e texto** é recusada em v1 (rascunho e envio), até isso ser verificado; tarefa só de arquivo (validada) e só de texto não são afetadas.
 3. O caminho do rascunho em tarefa com o botão de enviar (`submissiondrafts=1`): `save_submission` como rascunho e depois `submit_for_grading`.
 
+## Leitura da tarefa: entrega, nota e feedback (`ver_tarefa`)
+
+Só leitura, sem a permissão `moodle.assignment_write`. `MoodleLive.verTarefa` usa as mesmas 2 chamadas e a mesma resolução `cmid` → assign id da entrega (helper `lerTarefaEStatus`); o `tarefaId` é sempre o `cmid` de `ver_curso`.
+
+Formato real de `mod_assign_get_submission_status` (AVA da UFBA, conferido em leitura em 23/11/2026):
+
+- **Sem nota:** a chave `feedback` **não existe**; `lastattempt.graded` é `false` e `gradingstatus` é `"notgraded"`. Vira `avaliacao: { avaliada: false, comentarios: [] }`, sem `nota` (nunca `0`).
+- **Avaliada:** `lastattempt.graded: true`; `feedback.gradefordisplay` vem em HTML (`"100,00&nbsp;/&nbsp;100,00"`, vira `"100,00 / 100,00"`); `feedback.gradeddate` (segundos); comentário do professor em `feedback.plugins[type=comments].editorfields[name=comments].text` (HTML, ex. `<p>Excelente trabalho.</p>`). O plugin `editpdf` é ignorado. O plugin `comments` de `lastattempt.submission` é do aluno, não do professor.
+- `submission.timemodified` (segundos) é `enviadoEm`; `atrasada` = envio depois de `extensionduedate` (se houver) ou do `duedate`; sem prazo ou sem entrega, `false`.
+- Nada de ids do avaliador, `userid` ou id interno na saída.
+
 ## Como o token é obtido
 
 O token é obtido pelo login no navegador da pessoa e colado **só na tela de conexão** do /authorize (link de redirecionamento `moodlemobile://token=...`); nunca entra por ferramenta MCP. O mecanismo é o `launch.php` do Moodle (`admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<p>&urlscheme=moodlemobile`), que termina num redirect `moodlemobile://token=<base64>` com `<assinatura>:::<wstoken>[:::<privatetoken>]`. As funções puras de `token-launch.ts` (`buildLaunchUrl`, `newPassport`, `extractReturnedToken`, `parseReturnedToken`, `verifyPassport` = `md5(siteUrl + passport)`) montam a URL, interpretam o retorno e conferem a assinatura **antes** de confiar no token. O que muda é quem executa o login:
@@ -120,4 +131,5 @@ Se funcionar, o fluxo vira um caso de uso do servidor (credencial `segredo-por-r
 
 ## Pendências
 
-- Paginação de discussões de fórum (`page`/`perpage`) e `state` de entrega das tarefas na leitura (`ver_curso`/`prazos`) ficaram fora deste primeiro corte (`mod_assign_get_submission_status` só é usado na entrega).
+- Paginação de discussões de fórum (`page`/`perpage`) ficou fora deste primeiro corte.
+- `ver_curso`/`prazos` não trazem o estado da entrega (custaria 1 chamada por tarefa): ele sai de `ver_tarefa`, uma tarefa por vez. Nota do curso inteiro (`notas(cursoId)`, `gradereport_user_get_grade_items`, que dá 504 em alguns cursos) não existe: só a nota por tarefa, dentro de `ver_tarefa`.
