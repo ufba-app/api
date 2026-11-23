@@ -30,11 +30,20 @@ describe('PermissionsService (permissões por app)', () => {
     }
   });
 
+  it('moodle.assignment_write: alto risco, fonte moodle, texto claro para o aluno', () => {
+    const d = PERMISSION_CATALOG['moodle.assignment_write'];
+    expect(d.risk).toBe('high');
+    expect(d.source).toBe('moodle');
+    expect(d.title).toBe('Enviar tarefas do AVA pelo app');
+    expect(d.description).toContain('não pode ser desfeita');
+    expect(d.description).toContain('confirmação');
+  });
+
   describe('oferta (offered)', () => {
     it('com a fonte conectada: tudo oferecido e disponível', async () => {
       const { service } = make();
       const items = await service.offered(U);
-      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write', 'moodle.forum_write']);
+      expect(items.map((i) => i.key)).toEqual(['siasb.schedule_write', 'siasb.procedures_write', 'moodle.forum_write', 'moodle.assignment_write']);
       expect(items.every((i) => i.available && i.unavailableReason === null)).toBe(true);
     });
 
@@ -63,7 +72,7 @@ describe('PermissionsService (permissões por app)', () => {
     it('com acesso mas sem conexão: oferecido, porém indisponível (source_not_connected)', async () => {
       const { service } = make({ connected: false, access: true });
       const items = await service.offered(U);
-      expect(items).toHaveLength(3);
+      expect(items).toHaveLength(4);
       expect(items.every((i) => !i.available && i.unavailableReason === 'source_not_connected')).toBe(true);
     });
 

@@ -108,6 +108,53 @@ export interface PostagemForum {
   mensagem: string;
 }
 
+/** O que uma tarefa pede para ser entregue e o estado atual da entrega do aluno. */
+export interface RequisitosEntrega {
+  tarefaId: string;
+  titulo: string;
+  aceitaArquivo: boolean;
+  aceitaTexto: boolean;
+  maxArquivos?: number;
+  maxBytesPorArquivo?: number;
+  /**
+   * Tipos aceitos como o Moodle guarda (`filetypeslist`), em minúsculas: extensões com ponto (`.pdf`), grupos (`document`),
+   * MIME (`image/png`) ou `*`. `[]` = qualquer. Só uma lista feita só de extensões é conferida localmente.
+   */
+  extensoes: string[];
+  abreEm?: Date;
+  prazo?: Date;
+  limite?: Date;
+  exigeBotaoEnviar: boolean;
+  emGrupo: boolean;
+  exigeDeclaracao: boolean;
+  estado: 'nova' | 'rascunho' | 'entregue';
+  podeEditar: boolean;
+  arquivosAtuais: { nome: string; tamanhoBytes: number }[];
+  /** Se a entrega atual tem texto online (não o texto: só se existe). */
+  temTextoAtual: boolean;
+}
+
+export interface ArquivoParaEnvio {
+  nome: string;
+  bytes: Uint8Array;
+}
+
+export interface RascunhoEnviado {
+  itemId: string;
+  arquivos: { nome: string; tamanhoBytes: number }[];
+}
+
+export interface EntregaTarefa {
+  tarefaId: string;
+  itemId?: string;
+  texto?: string;
+}
+
+export interface EstadoEntrega {
+  /** Ausente = a escrita deu certo, mas a leitura do estado logo depois falhou (não é falha da escrita). */
+  estado?: 'nova' | 'rascunho' | 'entregue';
+}
+
 export interface PostagemFeita {
   discussaoId?: string;
   postId?: string;
@@ -153,6 +200,14 @@ export interface LiveSource {
   listarParticipantes?(ctx: SourceContext, cursoId: string): Promise<ParticipanteVivo[]>;
   /** Publica em um fórum (nova discussão ou resposta). Hoje só o Moodle. Escrita: só com a permissão `moodle.forum_write`. */
   postarForum?(ctx: SourceContext, post: PostagemForum): Promise<PostagemFeita>;
+  /** Lê o que a tarefa pede e o estado da entrega do aluno. Hoje só o Moodle. */
+  requisitosEntrega?(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega>;
+  /** Sobe arquivos para a área de rascunho do aluno. */
+  subirArquivosEntrega?(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado>;
+  /** Grava a entrega (arquivos e/ou texto) como rascunho ou envio, conforme a tarefa. */
+  salvarEntrega?(ctx: SourceContext, e: EntregaTarefa): Promise<EstadoEntrega>;
+  /** Confirma o envio de um rascunho (botão "Enviar tarefa"). */
+  finalizarEntrega?(ctx: SourceContext, tarefaId: string): Promise<EstadoEntrega>;
 }
 
 /** Fontes com leitura ao vivo disponíveis neste servidor. */

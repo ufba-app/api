@@ -20,6 +20,7 @@ import { HealthController } from "../src/interface/rest/health.controller";
 import { UsuariosController } from "../src/interface/rest/usuarios.controller";
 import { FontesController } from "../src/interface/rest/fontes.controller";
 import { DownloadController } from "../src/interface/rest/download.controller";
+import { UploadController } from "../src/interface/rest/upload.controller";
 import { McpController } from "../src/interface/mcp/mcp.controller";
 import { OAuthController } from "../src/interface/mcp/oauth/oauth.controller";
 import { MemoryInstallerController } from "../src/interface/memory/memory.controllers";
@@ -35,6 +36,7 @@ const OUTSIDE_CONTRACT: Type[] = [
   UsuariosController,
   FontesController,
   DownloadController,
+  UploadController,
   OpenApiController,
   MemoryInstallerController,
   SigaaLaunchController,

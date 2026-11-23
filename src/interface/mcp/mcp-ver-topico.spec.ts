@@ -11,7 +11,7 @@ function uc() {
     verForum: jest.fn(async () => [{ id: '612607', titulo: 'Apresentação dos Projetos', anexos: [] }]),
     verTopico: jest.fn(async () => [{ postId: '7', anexos: [] }]),
   };
-  return { impl: new McpUseCasesImpl(consulta as never, {} as never), consulta };
+  return { impl: new McpUseCasesImpl(consulta as never, {} as never, {} as never), consulta };
 }
 
 describe('ver_forum (lista de tópicos) e ver_topico (mensagens de um tópico)', () => {

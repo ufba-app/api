@@ -7,9 +7,14 @@ import type {
   LiveSource,
   MensagemViva,
   ParticipanteVivo,
+  EntregaTarefa,
+  EstadoEntrega,
   PostagemFeita,
   PostagemForum,
+  RequisitosEntrega,
   PrazoVivo,
+  ArquivoParaEnvio,
+  RascunhoEnviado,
   TipoAtividade,
 } from '../../../application/ports/live-source';
 import { SourceError, type Provider, type SourceContext } from '../../../application/ports/source-gateway';
@@ -17,7 +22,7 @@ import { DRIVE_KIND_NAME, extractDriveLinks, parseDriveLink } from '../../../dom
 import type { DriveRefs } from '../drive/drive-refs';
 import { accessOf, type MoodleAccess } from './moodle-access';
 import { MoodleAttachmentReader } from './moodle-attachment-reader';
-import { MoodleClient, MoodleError, type FetchFn } from './moodle-client';
+import { MoodleClient, MoodleError, nomeSeguro, type FetchFn } from './moodle-client';
 import { cleanUrl, type MoodleAssignment, type MoodleDiscussion, type MoodleFile } from './moodle-mapper';
 
 /** Teto de arquivos HTML (capítulos de livro, recursos HTML, páginas) baixados por `verCurso` só para achar links do Drive. */
@@ -29,6 +34,31 @@ const PARALELO_HTML = 4;
 interface MoodlePageRow {
   coursemodule?: number;
   content?: string;
+}
+
+interface MoodleAssignmentConfig {
+  id: number;
+  name: string;
+  duedate?: number;
+  cutoffdate?: number;
+  allowsubmissionsfromdate?: number;
+  submissiondrafts?: number;
+  teamsubmission?: number;
+  requiresubmissionstatement?: number;
+  configs?: { plugin: string; subtype?: string; name: string; value: string }[];
+}
+interface MoodleSubmissionStatus {
+  lastattempt?: {
+    canedit?: boolean;
+    submission?: {
+      status?: string;
+      plugins?: {
+        type: string;
+        fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
+        editorfields?: { name?: string; text?: string }[];
+      }[];
+    };
+  };
 }
 
 interface TimelineCourse {
@@ -122,6 +152,16 @@ export function textoParaHtml(texto: string): string {
     .filter((l) => l.trim() !== '')
     .map((l) => `<p>${esc(l)}</p>`)
     .join('');
+}
+
+/** Id do Moodle: só dígitos, sem zero à esquerda nem zero (barra '', '0', '1e3', '-1', '0x10'). */
+function idMoodle(valor: string, nome: string): number {
+  if (!/^[1-9]\d{0,14}$/.test(valor)) throw new SourceError('UNSUPPORTED_SCOPE', `${nome} inválido`);
+  return Number(valor);
+}
+
+function estadoDe(status?: string): RequisitosEntrega['estado'] {
+  return status === 'submitted' ? 'entregue' : status === 'draft' ? 'rascunho' : 'nova';
 }
 
 function anexo(f: MoodleFile): AnexoVivo {
@@ -385,6 +425,137 @@ export class MoodleLive implements LiveSource {
       });
       return { discussaoId: res.discussionid !== undefined ? String(res.discussionid) : undefined };
     });
+  }
+
+  /**
+   * Lê o que a tarefa pede (`mod_assign_get_assignments` do curso) e o estado da entrega do aluno
+   * (`mod_assign_get_submission_status`). 2 chamadas. Timestamps do Moodle são em segundos; `0` = ausente.
+   */
+  requisitosEntrega(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
+    return this.run(ctx, async (m) => {
+      const curso = idMoodle(cursoId, 'cursoId');
+      const tarefa = idMoodle(tarefaId, 'tarefaId');
+      const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
+        m,
+        'mod_assign_get_assignments',
+        { 'courseids[0]': curso },
+      );
+      let a: MoodleAssignmentConfig | undefined;
+      for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.id === tarefa);
+      if (!a) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefa não encontrada neste curso');
+      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+
+      const cfg = (plugin: string, name: string): string | undefined =>
+        (a.configs ?? []).find((c) => c.plugin === plugin && c.name === name)?.value;
+      const segundos = (v?: number): Date | undefined => (v ? new Date(v * 1000) : undefined);
+      const num = (v?: string): number | undefined => {
+        const n = v === undefined || v === '' ? NaN : Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const sub = status.lastattempt?.submission;
+      const estado = estadoDe(sub?.status);
+      const arquivosAtuais: { nome: string; tamanhoBytes: number }[] = [];
+      // Só se existe texto online: o texto em si não sai daqui.
+      const temTextoAtual = (sub?.plugins ?? []).some(
+        (p) => p.type === 'onlinetext' && (p.editorfields ?? []).some((f) => typeof f.text === 'string' && f.text.trim() !== ''),
+      );
+      for (const p of sub?.plugins ?? []) {
+        if (p.type !== 'file') continue;
+        for (const area of p.fileareas ?? []) {
+          if (area.area !== 'submission_files') continue;
+          for (const f of area.files ?? []) arquivosAtuais.push({ nome: f.filename, tamanhoBytes: f.filesize });
+        }
+      }
+      return {
+        tarefaId: String(a.id),
+        titulo: a.name,
+        aceitaArquivo: cfg('file', 'enabled') === '1',
+        aceitaTexto: cfg('onlinetext', 'enabled') === '1',
+        maxArquivos: num(cfg('file', 'maxfilesubmissions')),
+        maxBytesPorArquivo: num(cfg('file', 'maxsubmissionsizebytes')) || undefined, // 0 = limite do site/curso
+        // Extensões, grupos (`document`) ou MIME, como o Moodle guarda: quem confere é o EntregaService (só extensões).
+        extensoes: (cfg('file', 'filetypeslist') ?? '')
+          .split(/[\s,;]+/)
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean),
+        abreEm: segundos(a.allowsubmissionsfromdate),
+        prazo: segundos(a.duedate),
+        limite: segundos(a.cutoffdate),
+        exigeBotaoEnviar: a.submissiondrafts === 1,
+        emGrupo: a.teamsubmission === 1,
+        exigeDeclaracao: a.requiresubmissionstatement === 1,
+        estado,
+        podeEditar: status.lastattempt?.canedit === true,
+        arquivosAtuais,
+        temTextoAtual,
+      };
+    });
+  }
+
+  /** Sobe os arquivos para o rascunho do aluno (um POST só); os nomes passam por `nomeSeguro`. */
+  subirArquivosEntrega(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado> {
+    return this.run(ctx, (m) => this.client.upload(m, arquivos.map((a) => ({ nome: nomeSeguro(a.nome), bytes: a.bytes }))));
+  }
+
+  /** Grava a entrega (arquivos e/ou texto). `[]` = ok; lista não vazia = avisos do Moodle = falha. Devolve o estado lido depois. */
+  salvarEntrega(ctx: SourceContext, e: EntregaTarefa): Promise<EstadoEntrega> {
+    return this.run(ctx, async (m) => {
+      const tarefa = idMoodle(e.tarefaId, 'tarefaId');
+      // Sem arquivos nem texto o Moodle trataria como entrega vazia e poderia apagar o que já existe.
+      if (e.itemId === undefined && e.texto === undefined) {
+        throw new SourceError('UNSUPPORTED_SCOPE', 'A entrega precisa de arquivos ou texto');
+      }
+      const params: Record<string, string | number> = { assignmentid: tarefa };
+      if (e.itemId !== undefined) params['plugindata[files_filemanager]'] = idMoodle(e.itemId, 'itemId');
+      if (e.texto !== undefined) {
+        params['plugindata[onlinetext_editor][text]'] = textoParaHtml(e.texto);
+        params['plugindata[onlinetext_editor][format]'] = 1;
+        params['plugindata[onlinetext_editor][itemid]'] = 0;
+      }
+      const avisos = await this.client.call<unknown>(m, 'mod_assign_save_submission', params);
+      this.exigirSemAvisos(m, avisos, 'salvar a entrega');
+      return this.lerEstadoDepoisDeGravar(m, tarefa);
+    });
+  }
+
+  /** Confirma o envio do rascunho ("Enviar tarefa"). */
+  finalizarEntrega(ctx: SourceContext, tarefaId: string): Promise<EstadoEntrega> {
+    return this.run(ctx, async (m) => {
+      const tarefa = idMoodle(tarefaId, 'tarefaId');
+      const avisos = await this.client.call<unknown>(m, 'mod_assign_submit_for_grading', {
+        assignmentid: tarefa,
+        acceptsubmissionstatement: 0,
+      });
+      this.exigirSemAvisos(m, avisos, 'enviar a tarefa');
+      return this.lerEstadoDepoisDeGravar(m, tarefa);
+    });
+  }
+
+  /** A escrita responde uma lista de avisos: `[]` = ok. Outra coisa é falha; o texto do Moodle sai sem o token e curto. */
+  private exigirSemAvisos(m: MoodleAccess, avisos: unknown, acao: string): void {
+    if (!Array.isArray(avisos)) throw new SourceError('UNAVAILABLE', `O Moodle respondeu algo inesperado ao ${acao}`);
+    if (avisos.length === 0) return;
+    const token = m.token.reveal();
+    const msg = avisos
+      .map((w) => (w && typeof w === 'object' && typeof (w as { message?: unknown }).message === 'string' ? (w as { message: string }).message : ''))
+      .filter(Boolean)
+      .join('; ')
+      .split(token)
+      .join('***')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f\x7f]+/g, ' ')
+      .slice(0, 300);
+    throw new SourceError('UNAVAILABLE', `O Moodle não aceitou ${acao}${msg ? `: ${msg}` : ''}`);
+  }
+
+  /** Depois de uma escrita que deu certo, a falha da leitura não é falha da escrita: devolve o estado ausente. */
+  private async lerEstadoDepoisDeGravar(m: MoodleAccess, tarefa: number): Promise<EstadoEntrega> {
+    try {
+      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+      return { estado: estadoDe(status.lastattempt?.submission?.status) };
+    } catch {
+      return {};
+    }
   }
 
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent> {

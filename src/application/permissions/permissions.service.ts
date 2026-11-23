@@ -55,6 +55,13 @@ export const PERMISSION_CATALOG: Record<PermissionKey, PermissionDef> = {
       'Permite que o app publique mensagens em fóruns do AVA em seu nome: abrir uma discussão nova ou responder a uma existente. Quem vê são os colegas e os professores, e a publicação não pode ser desfeita pelo app. Cada publicação pede a sua confirmação antes de ser enviada.',
     risk: 'high',
   },
+  'moodle.assignment_write': {
+    source: 'moodle',
+    title: 'Enviar tarefas do AVA pelo app',
+    description:
+      'Permite que o app entregue trabalhos no AVA em seu nome: enviar o arquivo ou o texto de uma tarefa. O professor passa a ver a entrega, e ela não pode ser desfeita pelo app. Cada envio pede a sua confirmação antes de ser feito.',
+    risk: 'high',
+  },
 };
 
 /** O que a pessoa tem em cada fonte: conexão (em qualquer estado, inclusive reconectar) e acesso (a fonte é oferecida a ela). */

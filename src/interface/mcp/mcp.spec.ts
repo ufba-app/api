@@ -84,7 +84,7 @@ describe('ferramentas MCP com o SIGAA (casos de uso reais, fonte e cofre falsos)
     await cofre.gravar({ userId: 'u1', clientId: 'c1' }, { login: 'aluno', senha: Secret.of('senha-falsa') }, K);
     const accounts = { findByUserAndProvider: async () => [], listByUser: async () => [], setStatus: jest.fn() } as never;
     const consulta = new ConsultaService(live, accounts, { decrypt: () => 'x' } as never, cofre);
-    return { uc: new McpUseCasesImpl(consulta, new DownloadLinks()), chamadas };
+    return { uc: new McpUseCasesImpl(consulta, new DownloadLinks(), {} as never), chamadas };
   }
 
   const texto = (res: unknown) => ((res as { content: { text: string }[] }).content)[0].text;

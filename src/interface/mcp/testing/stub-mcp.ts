@@ -32,4 +32,13 @@ export class StubMcpUseCases implements McpUseCases {
   async listarAlunos() {
     return { alunos: [] };
   }
+  async prepararEnvioTarefa() {
+    return { aceita: { arquivos: false, texto: false } };
+  }
+  async salvarRascunhoTarefa() {
+    return { confirmacaoPendente: true };
+  }
+  async enviarTarefa() {
+    return { confirmacaoPendente: true };
+  }
 }

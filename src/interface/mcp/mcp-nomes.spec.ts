@@ -29,7 +29,7 @@ describe('listar_alunos devolve os nomes normalizados', () => {
         { nome: 'PROF. X', papeis: ['editingteacher'] },
       ]),
     };
-    const impl = new McpUseCasesImpl(consulta as never, {} as never);
+    const impl = new McpUseCasesImpl(consulta as never, {} as never, {} as never);
     const r = (await impl.listarAlunos({ userId: 'u1' }, { cursoId: '1' })) as { alunos: string[] };
     expect(r.alunos).toEqual(['Ana Souza', 'Zelia da Silva']);
   });

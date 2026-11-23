@@ -3,6 +3,8 @@ import { Global, Module } from '@nestjs/common';
 import { IdentityService } from './application/identity/identity.service';
 import { ConsultaService } from './application/live/consulta.service';
 import { DownloadLinks } from './application/live/download-links';
+import { ConfirmacoesEntrega, UploadLinks } from './application/live/entrega-links';
+import { EntregaService } from './application/live/entrega.service';
 import { DbProjectRegistry, OpenMemoryAccess } from './application/memory/memory-defaults';
 import { GrantReconciler } from './application/memory/grant-reconciler';
 import { AccountDeparture, MemoryDeparture } from './application/memory/memory-departure';
@@ -57,6 +59,7 @@ import { MemoryMcpClient } from './infrastructure/memory/memory-mcp.client';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { BearerGuard } from './interface/rest/auth.guard';
 import { DownloadController } from './interface/rest/download.controller';
+import { UploadController } from './interface/rest/upload.controller';
 import { FontesController } from './interface/rest/fontes.controller';
 import { HealthController } from './interface/rest/health.controller';
 import { UsuariosController } from './interface/rest/usuarios.controller';
@@ -143,13 +146,20 @@ export function buildLiveSources(
 @Global()
 @Module({
   imports: [PersistenceModule, McpModule, WebModule, MemoryModule, CalendarModule],
-  controllers: [HealthController, UsuariosController, FontesController, DownloadController],
+  controllers: [HealthController, UsuariosController, FontesController, DownloadController, UploadController],
   providers: [
     IdentityService,
     BearerGuard,
     ConsultaService,
     { provide: SourceHealthRecorder, useFactory: (repo: SourceHealthRepository) => new SourceHealthRecorder(repo), inject: [SourceHealthRepository] },
     { provide: DownloadLinks, useFactory: () => new DownloadLinks() },
+    { provide: UploadLinks, useFactory: () => new UploadLinks() },
+    { provide: ConfirmacoesEntrega, useFactory: () => new ConfirmacoesEntrega() },
+    {
+      provide: EntregaService,
+      useFactory: (consulta: ConsultaService, uploads: UploadLinks, confirmacoes: ConfirmacoesEntrega) => new EntregaService(consulta, uploads, confirmacoes),
+      inject: [ConsultaService, UploadLinks, ConfirmacoesEntrega],
+    },
     {
       // Arquivos do Drive linkados no Moodle: token da pessoa (Classroom) e, sem acesso, link público; só hosts do Google.
       provide: DriveDownloader,
@@ -491,6 +501,9 @@ export function buildLiveSources(
     CalendarWatcher,
     AccountDeparture,
     DownloadLinks,
+    UploadLinks,
+    ConfirmacoesEntrega,
+    EntregaService,
     LiveSources,
     AcademicImports,
     ...mcpExports,
