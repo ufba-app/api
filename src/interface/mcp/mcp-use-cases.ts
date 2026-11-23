@@ -145,7 +145,7 @@ export class McpUseCasesImpl implements McpUseCases {
         cursoId: i.cursoId,
         tarefaId: i.tarefaId,
       });
-      // Gravou, mas o estado não pôde ser lido: nem "enviado" nem falha; o aviso manda conferir no AVA.
+      // Gravou, mas o estado não pôde ser lido: nem "enviado" nem falha; o aviso manda conferir no AVA e `motivoLeitura` (se veio) diz o código.
       if (feita.estado === 'desconhecido') return { gravado: true, ...feita };
       return acao === 'enviar' ? { enviado: feita.entregue, ...feita } : { salvo: true, ...feita };
     }

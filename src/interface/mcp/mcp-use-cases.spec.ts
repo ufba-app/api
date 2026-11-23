@@ -160,6 +160,13 @@ describe('entrega de tarefa: adaptador fino sobre o EntregaService', () => {
     expect(r3).toMatchObject({ salvo: true });
   });
 
+  it('estado desconhecido com motivoLeitura: o código chega no JSON do agente, junto do aviso', async () => {
+    const e = entrega();
+    e.confirmar.mockResolvedValueOnce({ estado: 'desconhecido', aviso: 'A entrega foi gravada no AVA, mas... confira o estado no AVA.', motivoLeitura: 'HTTP_504' });
+    const r = (await montar(e).uc.enviarTarefa(base, { cursoId: '10', tarefaId: '20', confirmacaoId: 'c1' })) as any;
+    expect(r).toEqual({ gravado: true, estado: 'desconhecido', aviso: expect.stringMatching(/confira/), motivoLeitura: 'HTTP_504' });
+  });
+
   it('a confirmação leva conta, cursoId e tarefaId ao serviço (I4)', async () => {
     const { uc, e } = montar();
     await uc.enviarTarefa(base, { conta: 'x@ufba.br', cursoId: '10', tarefaId: '20', confirmacaoId: 'c1' });

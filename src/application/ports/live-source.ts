@@ -160,6 +160,11 @@ export interface EntregaTarefa {
 export interface EstadoEntrega {
   /** Ausente = a escrita deu certo, mas a leitura do estado logo depois falhou (não é falha da escrita). */
   estado?: 'nova' | 'rascunho' | 'entregue';
+  /**
+   * Com o estado ausente: SÓ um código curto do porquê da leitura falhar (o `errorcode` do Moodle, `HTTP_<status>`, `REDE`,
+   * `RESPOSTA_INVALIDA` ou `DESCONHECIDO`). Nunca mensagem, token, id ou conteúdo.
+   */
+  motivoLeitura?: string;
 }
 
 export interface PostagemFeita {

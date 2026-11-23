@@ -60,10 +60,13 @@ export interface ResumoEntrega {
   temTextoAtual?: boolean;
 }
 
-/** `desconhecido`: a escrita deu certo, mas a leitura do estado logo depois falhou (o `aviso` manda conferir no AVA). */
+/**
+ * `desconhecido`: a escrita deu certo, mas a leitura do estado logo depois falhou (o `aviso` manda conferir no AVA);
+ * `motivoLeitura`, quando a fonte deu, é só o código do porquê (`EstadoEntrega.motivoLeitura`).
+ */
 export type EntregaFeita =
   | { estado: 'nova' | 'rascunho' | 'entregue'; entregue: boolean }
-  | { estado: 'desconhecido'; aviso: string };
+  | { estado: 'desconhecido'; aviso: string; motivoLeitura?: string };
 
 export interface AlvoConfirmacao {
   conta?: string;
@@ -252,26 +255,28 @@ export class EntregaService {
     }
 
     let estado: 'nova' | 'rascunho' | 'entregue' | undefined = r.estado;
+    // O motivo vale só para a ÚLTIMA leitura: se o envio leu o estado, a falha da leitura depois do salvar não importa mais.
+    let motivoLeitura: string | undefined;
     const salva = c.itemId !== undefined || c.texto !== undefined;
     if (salva) {
-      estado = (
-        await this.consulta.salvarEntrega(quem, c.conta, {
-          tarefaId: c.assignId,
-          ...(c.itemId !== undefined ? { itemId: c.itemId } : {}),
-          ...(c.texto !== undefined ? { texto: c.texto } : {}),
-        })
-      ).estado;
+      ({ estado, motivoLeitura } = await this.consulta.salvarEntrega(quem, c.conta, {
+        tarefaId: c.assignId,
+        ...(c.itemId !== undefined ? { itemId: c.itemId } : {}),
+        ...(c.texto !== undefined ? { texto: c.texto } : {}),
+      }));
     }
     if (acao === 'enviar' && r.exigeBotaoEnviar) {
       try {
-        estado = (await this.consulta.finalizarEntrega(quem, c.conta, c.assignId)).estado;
+        ({ estado, motivoLeitura } = await this.consulta.finalizarEntrega(quem, c.conta, c.assignId));
       } catch (e) {
         // Salvou agora e o envio falhou: dizer só "falhou" faria a pessoa achar que nada foi gravado.
         if (salva) throw new EntregaParcialError(SALVO_SEM_ENVIAR);
         throw e;
       }
     }
-    if (estado === undefined) return { estado: 'desconhecido', aviso: GRAVADO_SEM_ESTADO };
+    if (estado === undefined) {
+      return { estado: 'desconhecido', aviso: GRAVADO_SEM_ESTADO, ...(motivoLeitura !== undefined ? { motivoLeitura } : {}) };
+    }
     return { estado, entregue: estado === 'entregue' };
   }
 

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Secret } from '../../../application/shared/secret';
 import { SourceError, type SourceContext } from '../../../application/ports/source-gateway';
 import { MoodleLive } from './moodle-live';
@@ -349,19 +350,19 @@ function moodleLeituraFalha(escrita: string) {
     if (f === escrita) return new Response('[]', { status: 200 });
     return new Response('erro', { status: 503 });
   }) as unknown as typeof fetch;
-  return { live: new MoodleLive(fetchFn), calls };
+  return { live: new MoodleLive(fetchFn, undefined, { esperar: async () => undefined }), calls };
 }
 
 describe('MoodleLive: leitura do estado falha depois de uma escrita que deu certo', () => {
   it('salvarEntrega devolve estado ausente (não lança) e grava uma vez só', async () => {
     const { live, calls } = moodleLeituraFalha('mod_assign_save_submission');
-    await expect(live.salvarEntrega!(ctx, { tarefaId: '5', itemId: '9' })).resolves.toEqual({});
+    await expect(live.salvarEntrega!(ctx, { tarefaId: '5', itemId: '9' })).resolves.toEqual({ motivoLeitura: 'HTTP_503' });
     expect(calls.filter((c) => c === 'mod_assign_save_submission')).toHaveLength(1);
   });
 
   it('finalizarEntrega devolve estado ausente (não lança) e envia uma vez só', async () => {
     const { live, calls } = moodleLeituraFalha('mod_assign_submit_for_grading');
-    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({});
+    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({ motivoLeitura: 'HTTP_503' });
     expect(calls.filter((c) => c === 'mod_assign_submit_for_grading')).toHaveLength(1);
   });
 });
@@ -420,5 +421,115 @@ describe('nomeSeguro', () => {
     const r = nomeSeguro('x'.repeat(300) + '.pdf');
     expect(r).toHaveLength(255);
     expect(r.endsWith('.pdf')).toBe(true);
+  });
+});
+
+describe('MoodleLive.subirArquivosEntrega: tamanho vem dos bytes enviados', () => {
+  it('resposta do upload.php SEM filesize devolve o tamanho local de cada arquivo, na ordem', async () => {
+    const { live } = moodleUpload([
+      { filename: 'a.zip', itemid: 7 },
+      { filename: 'b.pdf', itemid: 7 },
+    ]);
+    const r = await live.subirArquivosEntrega!(ctx, [
+      { nome: 'a.zip', bytes: bytes(1, 2, 3) },
+      { nome: 'b.pdf', bytes: bytes(1, 2, 3, 4, 5) },
+    ]);
+    expect(r.arquivos).toEqual([
+      { nome: 'a.zip', tamanhoBytes: 3 },
+      { nome: 'b.pdf', tamanhoBytes: 5 },
+    ]);
+  });
+
+  it('filesize do Moodle que não bate é ignorado: vale o tamanho local', async () => {
+    const { live } = moodleUpload([{ filename: 'a.zip', filesize: 0, itemid: 7 }, { filename: 'b.pdf', filesize: 999, itemid: 7 }]);
+    const r = await live.subirArquivosEntrega!(ctx, [
+      { nome: 'a.zip', bytes: bytes(1, 2) },
+      { nome: 'b.pdf', bytes: bytes(9) },
+    ]);
+    expect(r.arquivos.map((a) => a.tamanhoBytes)).toEqual([2, 1]);
+  });
+});
+
+/**
+ * Moodle falso para a leitura do estado depois da escrita: `leituras` diz, em ordem, o que cada get_submission_status responde
+ * (`{ http }` = erro HTTP; `{ corpo }` = JSON 200; `'rede'` = fetch lança). A espera entre tentativas é injetada (sem dormir de verdade).
+ */
+function moodleLeituras(escrita: string, leituras: ({ http: number } | { corpo: unknown } | 'rede')[]) {
+  const calls: string[] = [];
+  const esperas: number[] = [];
+  let i = 0;
+  const fetchFn = (async (_url: string, init: RequestInit) => {
+    const f = (init.body as URLSearchParams).get('wsfunction') as string;
+    calls.push(f);
+    if (f === escrita) return new Response('[]', { status: 200 });
+    const l = leituras[Math.min(i++, leituras.length - 1)];
+    if (l === 'rede') throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+    if ('http' in l) return new Response('erro', { status: l.http });
+    return new Response(JSON.stringify(l.corpo), { status: 200 });
+  }) as unknown as typeof fetch;
+  const live = new MoodleLive(fetchFn, undefined, {
+    esperar: async (ms: number) => {
+      esperas.push(ms);
+    },
+  });
+  const leiturasFeitas = () => calls.filter((c) => c === 'mod_assign_get_submission_status').length;
+  return { live, calls, esperas, leiturasFeitas };
+}
+
+const entregue = { corpo: { lastattempt: { submission: { status: 'submitted' } } } };
+
+describe('MoodleLive: leitura do estado depois da escrita tenta de novo e diz o motivo', () => {
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warn.mockRestore());
+
+  it('falha duas vezes e na terceira lê: devolve o estado, sem motivoLeitura, sem log; espera ~400 ms e ~1200 ms', async () => {
+    const { live, esperas, leiturasFeitas } = moodleLeituras('mod_assign_submit_for_grading', [{ http: 504 }, { http: 502 }, entregue]);
+    const r = await live.finalizarEntrega!(ctx, '5');
+    expect(r).toEqual({ estado: 'entregue' });
+    expect(leiturasFeitas()).toBe(3);
+    expect(esperas).toEqual([400, 1200]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('três HTTP 504: estado ausente com motivoLeitura HTTP_504; a escrita foi chamada uma vez só; um aviso no log', async () => {
+    const { live, calls, leiturasFeitas } = moodleLeituras('mod_assign_save_submission', [{ http: 504 }]);
+    const r = await live.salvarEntrega!(ctx, { tarefaId: '286293', itemId: '137294331' });
+    expect(r).toEqual({ motivoLeitura: 'HTTP_504' });
+    expect(r.estado).toBeUndefined();
+    expect(calls.filter((c) => c === 'mod_assign_save_submission')).toHaveLength(1);
+    expect(leiturasFeitas()).toBe(3);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const linha = String(warn.mock.calls[0][0]);
+    expect(linha).toContain('HTTP_504');
+    expect(linha).toContain('3');
+    for (const proibido of ['SEGREDO123', '286293', '137294331', 'ava.test', 'u1', 'http']) expect(linha).not.toContain(proibido);
+  });
+
+  it('errorcode do Moodle vira o motivo (e só o código, sem a mensagem)', async () => {
+    const corpo = { exception: 'moodle_exception', errorcode: 'nopermission', message: 'Sem permissão SEGREDO123 conteúdo' };
+    const { live } = moodleLeituras('mod_assign_submit_for_grading', [{ corpo }]);
+    const r = await live.finalizarEntrega!(ctx, '5');
+    expect(r).toEqual({ motivoLeitura: 'nopermission' });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('SEGREDO123');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('Sem permissão');
+  });
+
+  it('corpo null não lança TypeError: RESPOSTA_INVALIDA', async () => {
+    const { live, leiturasFeitas } = moodleLeituras('mod_assign_submit_for_grading', [{ corpo: null }]);
+    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({ motivoLeitura: 'RESPOSTA_INVALIDA' });
+    expect(leiturasFeitas()).toBe(3);
+  });
+
+  it('erro de rede vira REDE', async () => {
+    const { live } = moodleLeituras('mod_assign_submit_for_grading', ['rede']);
+    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({ motivoLeitura: 'REDE' });
+  });
+
+  it('o motivo é o da última tentativa', async () => {
+    const { live } = moodleLeituras('mod_assign_submit_for_grading', [{ http: 503 }, 'rede', { corpo: 'ok' }]);
+    await expect(live.finalizarEntrega!(ctx, '5')).resolves.toEqual({ motivoLeitura: 'RESPOSTA_INVALIDA' });
   });
 });

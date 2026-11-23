@@ -75,16 +75,17 @@ export class MoodleClient {
       const e = erro as { error?: string; errorcode?: string };
       throw new MoodleError(scrub(`Moodle upload: ${e.error ?? 'erro'}`, token), e.errorcode);
     }
-    const itens = Array.isArray(json) ? (json as { filename?: unknown; filesize?: unknown; itemid?: unknown }[]) : [];
+    const itens = Array.isArray(json) ? (json as { filename?: unknown; itemid?: unknown }[]) : [];
     if (itens.length === 0 || itens.some((i) => !i || i.itemid === undefined || i.itemid === null || typeof i.filename !== 'string')) {
       throw new MoodleError('Moodle upload: resposta inesperada');
     }
     if (itens.length !== arquivos.length || itens.some((i) => String(i.itemid) !== String(itens[0].itemid))) {
       throw new MoodleError('Moodle upload: resposta inconsistente');
     }
+    // O upload.php não traz `filesize` (visto em produção: vinha 0); o tamanho é o dos bytes que enviamos, na mesma ordem (file_1..n).
     return {
       itemId: String(itens[0].itemid),
-      arquivos: itens.map((i) => ({ nome: i.filename as string, tamanhoBytes: Number(i.filesize ?? 0) })),
+      arquivos: itens.map((i, n) => ({ nome: i.filename as string, tamanhoBytes: arquivos[n].bytes.byteLength })),
     };
   }
 }
