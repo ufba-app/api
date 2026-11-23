@@ -9,6 +9,7 @@ import type {
   ParticipanteVivo,
   PostagemFeita,
   PostagemForum,
+  RequisitosEntrega,
   PrazoVivo,
   TipoAtividade,
 } from '../../../application/ports/live-source';
@@ -29,6 +30,27 @@ const PARALELO_HTML = 4;
 interface MoodlePageRow {
   coursemodule?: number;
   content?: string;
+}
+
+interface MoodleAssignmentConfig {
+  id: number;
+  name: string;
+  duedate?: number;
+  cutoffdate?: number;
+  allowsubmissionsfromdate?: number;
+  submissiondrafts?: number;
+  teamsubmission?: number;
+  requiresubmissionstatement?: number;
+  configs?: { plugin: string; subtype?: string; name: string; value: string }[];
+}
+interface MoodleSubmissionStatus {
+  lastattempt?: {
+    canedit?: boolean;
+    submission?: {
+      status?: string;
+      plugins?: { type: string; fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[] }[];
+    };
+  };
 }
 
 interface TimelineCourse {
@@ -384,6 +406,67 @@ export class MoodleLive implements LiveSource {
         message: mensagem,
       });
       return { discussaoId: res.discussionid !== undefined ? String(res.discussionid) : undefined };
+    });
+  }
+
+  /**
+   * Lê o que a tarefa pede (`mod_assign_get_assignments` do curso) e o estado da entrega do aluno
+   * (`mod_assign_get_submission_status`). 2 chamadas. Timestamps do Moodle são em segundos; `0` = ausente.
+   */
+  requisitosEntrega(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
+    return this.run(ctx, async (m) => {
+      const curso = Number(cursoId);
+      const tarefa = Number(tarefaId);
+      if (!Number.isInteger(curso)) throw new SourceError('UNSUPPORTED_SCOPE', 'cursoId inválido');
+      if (!Number.isInteger(tarefa)) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefaId inválido');
+      const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
+        m,
+        'mod_assign_get_assignments',
+        { 'courseids[0]': curso },
+      );
+      let a: MoodleAssignmentConfig | undefined;
+      for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.id === tarefa);
+      if (!a) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefa não encontrada neste curso');
+      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+
+      const cfg = (plugin: string, name: string): string | undefined =>
+        (a.configs ?? []).find((c) => c.plugin === plugin && c.name === name)?.value;
+      const segundos = (v?: number): Date | undefined => (v ? new Date(v * 1000) : undefined);
+      const num = (v?: string): number | undefined => {
+        const n = v === undefined || v === '' ? NaN : Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const sub = status.lastattempt?.submission;
+      const estado = sub?.status === 'submitted' ? 'entregue' : sub?.status === 'draft' ? 'rascunho' : 'nova';
+      const arquivosAtuais: { nome: string; tamanhoBytes: number }[] = [];
+      for (const p of sub?.plugins ?? []) {
+        if (p.type !== 'file') continue;
+        for (const area of p.fileareas ?? []) {
+          if (area.area !== 'submission_files') continue;
+          for (const f of area.files ?? []) arquivosAtuais.push({ nome: f.filename, tamanhoBytes: f.filesize });
+        }
+      }
+      return {
+        tarefaId: String(a.id),
+        titulo: a.name,
+        aceitaArquivo: cfg('file', 'enabled') === '1',
+        aceitaTexto: cfg('onlinetext', 'enabled') === '1',
+        maxArquivos: num(cfg('file', 'maxfilesubmissions')),
+        maxBytesPorArquivo: num(cfg('file', 'maxsubmissionsizebytes')),
+        extensoes: (cfg('file', 'filetypeslist') ?? '')
+          .split(/[\s,]+/)
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean),
+        abreEm: segundos(a.allowsubmissionsfromdate),
+        prazo: segundos(a.duedate),
+        limite: segundos(a.cutoffdate),
+        exigeBotaoEnviar: a.submissiondrafts === 1,
+        emGrupo: a.teamsubmission === 1,
+        exigeDeclaracao: a.requiresubmissionstatement === 1,
+        estado,
+        podeEditar: status.lastattempt?.canedit === true,
+        arquivosAtuais,
+      };
     });
   }
 
