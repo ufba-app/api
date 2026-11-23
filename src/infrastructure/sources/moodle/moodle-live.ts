@@ -7,6 +7,8 @@ import type {
   LiveSource,
   MensagemViva,
   ParticipanteVivo,
+  EntregaTarefa,
+  EstadoEntrega,
   PostagemFeita,
   PostagemForum,
   RequisitosEntrega,
@@ -146,6 +148,16 @@ export function textoParaHtml(texto: string): string {
     .filter((l) => l.trim() !== '')
     .map((l) => `<p>${esc(l)}</p>`)
     .join('');
+}
+
+/** Id do Moodle: só dígitos, sem zero à esquerda nem zero (barra '', '0', '1e3', '-1', '0x10'). */
+function idMoodle(valor: string, nome: string): number {
+  if (!/^[1-9]\d*$/.test(valor)) throw new SourceError('UNSUPPORTED_SCOPE', `${nome} inválido`);
+  return Number(valor);
+}
+
+function estadoDe(status?: string): EstadoEntrega['estado'] {
+  return status === 'submitted' ? 'entregue' : status === 'draft' ? 'rascunho' : 'nova';
 }
 
 function anexo(f: MoodleFile): AnexoVivo {
@@ -417,10 +429,8 @@ export class MoodleLive implements LiveSource {
    */
   requisitosEntrega(ctx: SourceContext, cursoId: string, tarefaId: string): Promise<RequisitosEntrega> {
     return this.run(ctx, async (m) => {
-      const curso = Number(cursoId);
-      const tarefa = Number(tarefaId);
-      if (!Number.isInteger(curso)) throw new SourceError('UNSUPPORTED_SCOPE', 'cursoId inválido');
-      if (!Number.isInteger(tarefa)) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefaId inválido');
+      const curso = idMoodle(cursoId, 'cursoId');
+      const tarefa = idMoodle(tarefaId, 'tarefaId');
       const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
         m,
         'mod_assign_get_assignments',
@@ -439,7 +449,7 @@ export class MoodleLive implements LiveSource {
         return Number.isFinite(n) ? n : undefined;
       };
       const sub = status.lastattempt?.submission;
-      const estado = sub?.status === 'submitted' ? 'entregue' : sub?.status === 'draft' ? 'rascunho' : 'nova';
+      const estado = estadoDe(sub?.status);
       const arquivosAtuais: { nome: string; tamanhoBytes: number }[] = [];
       for (const p of sub?.plugins ?? []) {
         if (p.type !== 'file') continue;
@@ -454,7 +464,7 @@ export class MoodleLive implements LiveSource {
         aceitaArquivo: cfg('file', 'enabled') === '1',
         aceitaTexto: cfg('onlinetext', 'enabled') === '1',
         maxArquivos: num(cfg('file', 'maxfilesubmissions')),
-        maxBytesPorArquivo: num(cfg('file', 'maxsubmissionsizebytes')),
+        maxBytesPorArquivo: num(cfg('file', 'maxsubmissionsizebytes')) || undefined, // 0 = limite do site/curso
         extensoes: (cfg('file', 'filetypeslist') ?? '')
           .split(/[\s,]+/)
           .map((e) => e.trim().toLowerCase())
@@ -475,6 +485,50 @@ export class MoodleLive implements LiveSource {
   /** Sobe os arquivos para o rascunho do aluno (um POST só); os nomes passam por `nomeSeguro`. */
   subirArquivosEntrega(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado> {
     return this.run(ctx, (m) => this.client.upload(m, arquivos.map((a) => ({ nome: nomeSeguro(a.nome), bytes: a.bytes }))));
+  }
+
+  /** Grava a entrega (arquivos e/ou texto). `[]` = ok; lista não vazia = avisos do Moodle = falha. Devolve o estado lido depois. */
+  salvarEntrega(ctx: SourceContext, e: EntregaTarefa): Promise<EstadoEntrega> {
+    return this.run(ctx, async (m) => {
+      const tarefa = idMoodle(e.tarefaId, 'tarefaId');
+      const params: Record<string, string | number> = { assignmentid: tarefa };
+      if (e.itemId !== undefined) params['plugindata[files_filemanager]'] = idMoodle(e.itemId, 'itemId');
+      if (e.texto !== undefined) {
+        params['plugindata[onlinetext_editor][text]'] = textoParaHtml(e.texto);
+        params['plugindata[onlinetext_editor][format]'] = 1;
+        params['plugindata[onlinetext_editor][itemid]'] = 0;
+      }
+      const avisos = await this.client.call<unknown>(m, 'mod_assign_save_submission', params);
+      this.exigirSemAvisos(avisos, 'salvar a entrega');
+      return this.lerEstadoEntrega(m, tarefa);
+    });
+  }
+
+  /** Confirma o envio do rascunho ("Enviar tarefa"). */
+  finalizarEntrega(ctx: SourceContext, tarefaId: string): Promise<EstadoEntrega> {
+    return this.run(ctx, async (m) => {
+      const tarefa = idMoodle(tarefaId, 'tarefaId');
+      const avisos = await this.client.call<unknown>(m, 'mod_assign_submit_for_grading', {
+        assignmentid: tarefa,
+        acceptsubmissionstatement: 0,
+      });
+      this.exigirSemAvisos(avisos, 'enviar a tarefa');
+      return this.lerEstadoEntrega(m, tarefa);
+    });
+  }
+
+  private exigirSemAvisos(avisos: unknown, acao: string): void {
+    if (!Array.isArray(avisos) || avisos.length === 0) return;
+    const msg = avisos
+      .map((w) => (w && typeof w === 'object' && typeof (w as { message?: unknown }).message === 'string' ? (w as { message: string }).message : ''))
+      .filter(Boolean)
+      .join('; ');
+    throw new SourceError('UNAVAILABLE', `O Moodle não aceitou ${acao}${msg ? `: ${msg}` : ''}`);
+  }
+
+  private async lerEstadoEntrega(m: MoodleAccess, tarefa: number): Promise<EstadoEntrega> {
+    const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: tarefa });
+    return { estado: estadoDe(status.lastattempt?.submission?.status) };
   }
 
   baixar(ctx: SourceContext, ref: string): Promise<AttachmentContent> {

@@ -104,7 +104,34 @@ describe('MoodleLive.requisitosEntrega', () => {
     const { live, calls } = moodle({});
     await expect(live.requisitosEntrega!(ctx, '1;2', '5')).rejects.toBeInstanceOf(SourceError);
     await expect(live.requisitosEntrega!(ctx, '1', 'abc')).rejects.toBeInstanceOf(SourceError);
+    for (const ruim of ['', '0', '1e3', '-1', '0x10', ' ', '01']) {
+      for (const [c, t] of [[ruim, '5'], ['1', ruim]]) {
+        const e = (await live.requisitosEntrega!(ctx, c, t).catch((x) => x)) as SourceError;
+        expect(e).toBeInstanceOf(SourceError);
+        expect(e.code).toBe('UNSUPPORTED_SCOPE');
+      }
+    }
     expect(calls).toHaveLength(0);
+  });
+
+  it('maxsubmissionsizebytes 0 (limite do site) vira undefined', async () => {
+    const a = assignments();
+    a.courses[0].assignments[0].configs[2] = cfg('file', 'maxsubmissionsizebytes', '0');
+    const { live } = moodle({ mod_assign_get_assignments: a, mod_assign_get_submission_status: statusNovo });
+    expect((await live.requisitosEntrega!(ctx, '359934', '286293')).maxBytesPorArquivo).toBeUndefined();
+  });
+
+  it('mapeia texto, datas, grupo e declaração', async () => {
+    const a = assignments({ allowsubmissionsfromdate: 1700000000, cutoffdate: 1800000000, teamsubmission: 1, requiresubmissionstatement: 1 });
+    a.courses[0].assignments[0].configs[4] = cfg('onlinetext', 'enabled', '1');
+    const { live } = moodle({ mod_assign_get_assignments: a, mod_assign_get_submission_status: statusNovo });
+    expect(await live.requisitosEntrega!(ctx, '359934', '286293')).toMatchObject({
+      aceitaTexto: true,
+      abreEm: new Date(1700000000 * 1000),
+      limite: new Date(1800000000 * 1000),
+      emGrupo: true,
+      exigeDeclaracao: true,
+    });
   });
 });
 
@@ -164,6 +191,111 @@ describe('MoodleLive.subirArquivosEntrega', () => {
       expect(e).toBeInstanceOf(SourceError);
       expect(e.code).toBe('UNAVAILABLE');
     }
+  });
+});
+
+describe('MoodleLive.subirArquivosEntrega (guardas)', () => {
+  it('lista vazia falha sem chamar a rede', async () => {
+    const { live, reqs } = moodleUpload([]);
+    const e = await live.subirArquivosEntrega!(ctx, []).catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(reqs).toHaveLength(0);
+  });
+
+  it('invalidtoken no upload vira REAUTH_NEEDED', async () => {
+    const { live } = moodleUpload({ error: 'token ruim', errorcode: 'invalidtoken' });
+    const e = await live.subirArquivosEntrega!(ctx, [{ nome: 'a', bytes: bytes(1) }]).catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.code).toBe('REAUTH_NEEDED');
+  });
+
+  it('item de erro dentro da lista é detectado', async () => {
+    const { live } = moodleUpload([{ filename: 'a', filesize: 1, itemid: 5 }, { error: 'quota', errorcode: 'x' }]);
+    const e = await live.subirArquivosEntrega!(ctx, [{ nome: 'a', bytes: bytes(1) }, { nome: 'b', bytes: bytes(1) }]).catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.code).toBe('UNAVAILABLE');
+  });
+
+  it('itemids diferentes ou quantidade diferente do enviado falham', async () => {
+    const dois = [{ nome: 'a', bytes: bytes(1) }, { nome: 'b', bytes: bytes(1) }];
+    for (const resp of [
+      [{ filename: 'a', filesize: 1, itemid: 1 }, { filename: 'b', filesize: 1, itemid: 2 }],
+      [{ filename: 'a', filesize: 1, itemid: 1 }],
+    ]) {
+      const { live } = moodleUpload(resp);
+      const e = await live.subirArquivosEntrega!(ctx, dois).catch((x) => x);
+      expect(e).toBeInstanceOf(SourceError);
+      expect(e.code).toBe('UNAVAILABLE');
+    }
+  });
+});
+
+describe('MoodleLive.salvarEntrega', () => {
+  const statusDe = (status: string) => ({ lastattempt: { canedit: true, submission: { status, plugins: [] } } });
+
+  it('com arquivos: save_submission com plugindata[files_filemanager]=itemId', async () => {
+    const { live, calls } = moodle({ mod_assign_save_submission: [], mod_assign_get_submission_status: statusDe('submitted') });
+    const r = await live.salvarEntrega!(ctx, { tarefaId: '286293', itemId: '137294331' });
+    const save = calls.find((c) => c.get('wsfunction') === 'mod_assign_save_submission')!;
+    expect(save.get('assignmentid')).toBe('286293');
+    expect(save.get('plugindata[files_filemanager]')).toBe('137294331');
+    expect(calls[calls.length - 1].get('wsfunction')).toBe('mod_assign_get_submission_status');
+    expect(calls[calls.length - 1].get('assignid')).toBe('286293');
+    expect(r).toEqual({ estado: 'entregue' });
+  });
+
+  it('com texto: plugindata[onlinetext_editor][text] em HTML escapado, [format]=1 e [itemid]', async () => {
+    const { live, calls } = moodle({ mod_assign_save_submission: [], mod_assign_get_submission_status: statusDe('draft') });
+    const r = await live.salvarEntrega!(ctx, { tarefaId: '5', texto: '<script>x</script>' });
+    const save = calls.find((c) => c.get('wsfunction') === 'mod_assign_save_submission')!;
+    expect(save.get('plugindata[onlinetext_editor][text]')).toBe('<p>&lt;script&gt;x&lt;/script&gt;</p>');
+    expect(save.get('plugindata[onlinetext_editor][format]')).toBe('1');
+    expect(save.get('plugindata[onlinetext_editor][itemid]')).toBe('0');
+    expect(save.get('plugindata[files_filemanager]')).toBeNull();
+    expect(r).toEqual({ estado: 'rascunho' });
+  });
+
+  it('resposta com warnings não vazio é SourceError com a mensagem do Moodle', async () => {
+    const { live } = moodle({ mod_assign_save_submission: [{ item: 'x', warningcode: '1', message: 'Prazo encerrado' }] });
+    const e = await live.salvarEntrega!(ctx, { tarefaId: '5', itemId: '9' }).catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.message).toContain('Prazo encerrado');
+  });
+
+  it('id não inteiro não chega ao Moodle', async () => {
+    const { live, calls } = moodle({});
+    for (const id of ['', '0', '1e3', '-1', '0x10', 'abc']) {
+      const e = (await live.salvarEntrega!(ctx, { tarefaId: id, itemId: '9' }).catch((x) => x)) as SourceError;
+      expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    }
+    const e = (await live.salvarEntrega!(ctx, { tarefaId: '5', itemId: 'x;1' }).catch((x) => x)) as SourceError;
+    expect(e.code).toBe('UNSUPPORTED_SCOPE');
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('MoodleLive.finalizarEntrega', () => {
+  it('chama mod_assign_submit_for_grading com assignmentid e acceptsubmissionstatement=0 e devolve o estado lido', async () => {
+    const { live, calls } = moodle({
+      mod_assign_submit_for_grading: [],
+      mod_assign_get_submission_status: { lastattempt: { submission: { status: 'submitted' } } },
+    });
+    const r = await live.finalizarEntrega!(ctx, '286293');
+    const c = calls.find((x) => x.get('wsfunction') === 'mod_assign_submit_for_grading')!;
+    expect(c.get('assignmentid')).toBe('286293');
+    expect(c.get('acceptsubmissionstatement')).toBe('0');
+    expect(r).toEqual({ estado: 'entregue' });
+  });
+
+  it('warnings não vazio é falha; id ruim não chega ao Moodle', async () => {
+    const { live, calls } = moodle({ mod_assign_submit_for_grading: [{ message: 'Não pode enviar' }] });
+    const e = await live.finalizarEntrega!(ctx, '5').catch((x) => x);
+    expect(e).toBeInstanceOf(SourceError);
+    expect(e.message).toContain('Não pode enviar');
+    const n = calls.length;
+    const e2 = (await live.finalizarEntrega!(ctx, '0').catch((x) => x)) as SourceError;
+    expect(e2.code).toBe('UNSUPPORTED_SCOPE');
+    expect(calls).toHaveLength(n);
   });
 });
 

@@ -64,6 +64,7 @@ export class MoodleClient {
     ctx: MoodleAccess,
     arquivos: { nome: string; bytes: Uint8Array }[],
   ): Promise<{ itemId: string; arquivos: { nome: string; tamanhoBytes: number }[] }> {
+    if (arquivos.length === 0) throw new MoodleError('Moodle upload: nenhum arquivo para enviar');
     const token = ctx.token.reveal();
     const body = new FormData();
     body.set('token', token);
@@ -84,6 +85,9 @@ export class MoodleClient {
     const itens = Array.isArray(json) ? (json as { filename?: unknown; filesize?: unknown; itemid?: unknown }[]) : [];
     if (itens.length === 0 || itens.some((i) => !i || i.itemid === undefined || i.itemid === null || typeof i.filename !== 'string')) {
       throw new MoodleError('Moodle upload: resposta inesperada');
+    }
+    if (itens.length !== arquivos.length || itens.some((i) => String(i.itemid) !== String(itens[0].itemid))) {
+      throw new MoodleError('Moodle upload: resposta inconsistente');
     }
     return {
       itemId: String(itens[0].itemid),
