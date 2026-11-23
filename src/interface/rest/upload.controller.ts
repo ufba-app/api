@@ -1,6 +1,5 @@
-import { Controller, HttpCode, Param, Post, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import { Controller, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { EntregaInvalidaError, FonteNaoConectadaError } from '../../application/live/consulta.service';
 import { EntregaService, LinkUploadInvalidoError } from '../../application/live/entrega.service';
 import { SourceError } from '../../application/ports/source-gateway';
@@ -11,11 +10,34 @@ interface ArquivoRecebido {
   buffer: Buffer;
 }
 
+/** Parte mínima do multer usada aqui (sem `@types/multer` instalado). */
+interface MulterLike {
+  (opts: { storage: unknown; limits: { fileSize: number; files: number } }): {
+    any(): (req: Request, res: Response, cb: (err?: unknown) => void) => void;
+  };
+  memoryStorage(): unknown;
+  MulterError: new (...a: never[]) => Error & { code: string };
+}
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const multer = require('multer') as MulterLike;
+
+const MAX_BYTES_ARQUIVO = 100 * 1024 * 1024;
+const MAX_ARQUIVOS = 20;
+/** Folga de multipart (fronteiras, cabeçalhos das partes e campos) sobre o total de arquivos. */
+const FOLGA_MULTIPART = 64 * 1024;
+
 /** Mesmos cabeçalhos dos downloads: nada de cache, indexação nem referer (o id é a credencial). */
 function headersSeguros(res: Response): void {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   res.setHeader('Referrer-Policy', 'no-referrer');
+}
+
+function lerArquivos(req: Request, res: Response, limits: { fileSize: number; files: number }): Promise<ArquivoRecebido[]> {
+  const mw = multer({ storage: multer.memoryStorage(), limits }).any();
+  return new Promise((resolve, reject) => {
+    mw(req, res, (err: unknown) => (err ? reject(err) : resolve(((req as Request & { files?: ArquivoRecebido[] }).files) ?? [])));
+  });
 }
 
 /**
@@ -28,17 +50,42 @@ export class UploadController {
 
   @Post(':id')
   @HttpCode(200)
-  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 100 * 1024 * 1024, files: 20 } }))
-  async enviar(@Param('id') id: string, @UploadedFiles() files: ArquivoRecebido[] | undefined, @Res() res: Response): Promise<void> {
+  async enviar(@Param('id') id: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     headersSeguros(res);
-    if (!files || files.length === 0) {
+    // Recusa antes de ler o corpo: link desconhecido não faz o servidor guardar nada em memória.
+    const limites = this.entrega.espiarUpload(id);
+    if (!limites) {
+      res.status(404).json({ erro: 'LINK_INVALIDO', mensagem: 'Link expirado, já usado ou inexistente: peça outro.' });
+      return;
+    }
+    const fileSize = Math.min(limites.maxBytesPorArquivo && limites.maxBytesPorArquivo > 0 ? limites.maxBytesPorArquivo : MAX_BYTES_ARQUIVO, MAX_BYTES_ARQUIVO);
+    const files = Math.min(limites.maxArquivos && limites.maxArquivos > 0 ? limites.maxArquivos : MAX_ARQUIVOS, MAX_ARQUIVOS);
+    const declarado = Number(req.headers['content-length']);
+    if (Number.isFinite(declarado) && declarado > files * fileSize + FOLGA_MULTIPART) {
+      res.status(413).json({ erro: 'ARQUIVO_GRANDE_DEMAIS', mensagem: 'O envio passa do limite desta tarefa.' });
+      return;
+    }
+    let recebidos: ArquivoRecebido[];
+    try {
+      recebidos = await lerArquivos(req, res, { fileSize, files });
+    } catch (e) {
+      if (e instanceof multer.MulterError && e.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({ erro: 'ARQUIVO_GRANDE_DEMAIS', mensagem: 'Algum arquivo passa do limite desta tarefa.' });
+      } else if (e instanceof multer.MulterError) {
+        res.status(400).json({ erro: 'ENVIO_INVALIDO', mensagem: 'Envio fora dos limites desta tarefa (arquivos demais ou campos inesperados).' });
+      } else {
+        res.status(400).json({ erro: 'ENVIO_INVALIDO', mensagem: 'Envio multipart inválido.' });
+      }
+      return;
+    }
+    if (recebidos.length === 0) {
       res.status(400).json({ erro: 'SEM_ARQUIVO', mensagem: 'Nenhum arquivo recebido: envie ao menos um arquivo (multipart).' });
       return;
     }
     try {
       const r = await this.entrega.receberUpload(
         id,
-        files.map((f) => ({ nome: f.originalname, bytes: new Uint8Array(f.buffer) })),
+        recebidos.map((f) => ({ nome: f.originalname, bytes: new Uint8Array(f.buffer) })),
       );
       res.status(200).json({ arquivos: r.arquivos });
     } catch (e) {

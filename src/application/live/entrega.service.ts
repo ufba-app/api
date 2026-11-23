@@ -70,6 +70,13 @@ export class EntregaService {
     return { requisitos, uploadId: link.id, expiraEm: link.expiresAt };
   }
 
+  /** Limites do link de upload, sem gastá-lo (a interface recusa cedo, antes de ler o corpo). `undefined` = link inválido. */
+  espiarUpload(uploadId: string): { maxArquivos?: number; maxBytesPorArquivo?: number } | undefined {
+    const t = this.uploads.espiar(uploadId);
+    if (!t) return undefined;
+    return { maxArquivos: t.requisitos.maxArquivos, maxBytesPorArquivo: t.requisitos.maxBytesPorArquivo };
+  }
+
   /** Arquivos chegados pelo link de upload: valida contra a tarefa, sobe à área de rascunho do Moodle e guarda o resultado. */
   async receberUpload(uploadId: string, arquivos: ArquivoParaEnvio[]): Promise<{ arquivos: ArquivoResumo[] }> {
     const ticket = this.uploads.consumir(uploadId);

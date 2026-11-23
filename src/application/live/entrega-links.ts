@@ -51,6 +51,17 @@ export class UploadLinks {
     return { ...t };
   }
 
+  /** Confere o ticket SEM gastar o uso (para recusar cedo, antes de ler o corpo). `undefined` se não existe ou expirou. */
+  espiar(id: string): UploadTicket | undefined {
+    const t = this.tickets.get(id);
+    if (!t) return undefined;
+    if (t.expiresAt <= this.now()) {
+      this.tickets.delete(id);
+      return undefined;
+    }
+    return { ...t };
+  }
+
   guardar(id: string, r: Omit<RascunhoGuardado, 'expiresAt'>): void {
     this.limpar();
     this.rascunhos.set(id, { ...r, expiresAt: this.now() + this.ttlMs });
