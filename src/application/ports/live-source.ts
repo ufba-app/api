@@ -108,6 +108,22 @@ export interface PostagemForum {
   mensagem: string;
 }
 
+/** Situação de uma tarefa para o aluno: entrega, nota e feedback do professor. `tarefaId` é o cmid público de `ver_curso`. */
+export interface TarefaVista {
+  tarefaId: string;
+  titulo: string;
+  prazo?: Date;
+  estado: 'nova' | 'rascunho' | 'entregue';
+  enviadoEm?: Date;
+  /** Envio depois do prazo (considera a prorrogação). Sem prazo ou sem entrega: `false`. */
+  atrasada: boolean;
+  arquivosAtuais: { nome: string; tamanhoBytes: number }[];
+  /** Se a entrega atual tem texto online (não o texto: só se existe). */
+  temTextoAtual: boolean;
+  /** Sem nota ainda: `avaliada: false`, sem `nota` (nunca `0`) e sem comentários. */
+  avaliacao: { avaliada: boolean; nota?: string; avaliadaEm?: Date; comentarios: string[] };
+}
+
 /** O que uma tarefa pede para ser entregue e o estado atual da entrega do aluno. */
 export interface RequisitosEntrega {
   /**
@@ -215,6 +231,8 @@ export interface LiveSource {
   /** Lê o que a tarefa pede e o estado da entrega do aluno. Hoje só o Moodle. */
   /** `cmid`: o id da atividade em `ver_curso` (o `tarefaId` público). Devolve também o id interno (`tarefaId`). */
   requisitosEntrega?(ctx: SourceContext, cursoId: string, cmid: string): Promise<RequisitosEntrega>;
+  /** Estado da entrega, nota e feedback do professor de uma tarefa. Só leitura. Hoje só o Moodle. `cmid`: o id público de `ver_curso`. */
+  verTarefa?(ctx: SourceContext, cursoId: string, cmid: string): Promise<TarefaVista>;
   /** Sobe arquivos para a área de rascunho do aluno. */
   subirArquivosEntrega?(ctx: SourceContext, arquivos: ArquivoParaEnvio[]): Promise<RascunhoEnviado>;
   /** Grava a entrega (arquivos e/ou texto) como rascunho ou envio, conforme a tarefa. */

@@ -15,6 +15,7 @@ import type {
   PostarForumInput,
   PrazosInput,
   PrepararEnvioInput,
+  VerTarefaInput,
   ListarAlunosInput,
   VerAvisoInput,
   VerTopicoInput,
@@ -194,6 +195,10 @@ export class McpUseCasesImpl implements McpUseCases {
       .map((x) => normalizarNome(x.nome))
       .sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return { cursoId: i.cursoId, total: alunos.length, alunos };
+  }
+
+  async verTarefa(p: McpPrincipal, i: VerTarefaInput) {
+    return this.consulta.verTarefa(quem(p), i.conta, i.cursoId, i.tarefaId);
   }
 
   async verTopico(p: McpPrincipal, i: VerTopicoInput) {

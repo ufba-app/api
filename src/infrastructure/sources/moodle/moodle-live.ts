@@ -13,6 +13,7 @@ import type {
   PostagemFeita,
   PostagemForum,
   RequisitosEntrega,
+  TarefaVista,
   PrazoVivo,
   ArquivoParaEnvio,
   RascunhoEnviado,
@@ -51,17 +52,29 @@ interface MoodleAssignmentConfig {
   requiresubmissionstatement?: number;
   configs?: { plugin: string; subtype?: string; name: string; value: string }[];
 }
+interface MoodleSubmission {
+  status?: string;
+  timemodified?: number;
+  plugins?: {
+    type: string;
+    fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
+    editorfields?: { name?: string; text?: string }[];
+  }[];
+}
 interface MoodleSubmissionStatus {
   lastattempt?: {
     canedit?: boolean;
-    submission?: {
-      status?: string;
-      plugins?: {
-        type: string;
-        fileareas?: { area: string; files?: { filename: string; filesize: number }[] }[];
-        editorfields?: { name?: string; text?: string }[];
-      }[];
-    };
+    graded?: boolean;
+    extensionduedate?: number | null;
+    submission?: MoodleSubmission;
+    /** Em tarefa em grupo (`teamsubmission: 1`) a entrega vale a do grupo, que pode ser de outro membro. */
+    teamsubmission?: MoodleSubmission;
+  };
+  /** Ausente enquanto não há nota nem comentário. `gradefordisplay` vem em HTML (`100,00&nbsp;/&nbsp;100,00`; `-` sem nota). */
+  feedback?: {
+    gradefordisplay?: string;
+    gradeddate?: number;
+    plugins?: { type: string; editorfields?: { name?: string; text?: string }[] }[];
   };
 }
 
@@ -452,6 +465,69 @@ export class MoodleLive implements LiveSource {
     });
   }
 
+  /** Acha a tarefa do curso pelo `cmid` (nunca pelo id interno) e lê o status da entrega do aluno. 2 chamadas. */
+  private async lerTarefaEStatus(m: MoodleAccess, cursoId: string, cmid: string) {
+    const curso = idMoodle(cursoId, 'cursoId');
+    const modulo = idMoodle(cmid, 'tarefaId');
+    const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
+      m,
+      'mod_assign_get_assignments',
+      { 'courseids[0]': curso },
+    );
+    let a: MoodleAssignmentConfig | undefined;
+    for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.cmid === modulo);
+    if (!a) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefa não encontrada neste curso');
+    // Daqui em diante o Moodle quer o id interno da tarefa (assign id), não o cmid.
+    const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: a.id });
+    return { a, status };
+  }
+
+  /** Estado da entrega, nota e feedback do professor. Só lê (2 chamadas). `cmid` = id da atividade em `ver_curso`. */
+  verTarefa(ctx: SourceContext, cursoId: string, cmid: string): Promise<TarefaVista> {
+    return this.run(ctx, async (m) => {
+      const { a, status } = await this.lerTarefaEStatus(m, cursoId, cmid);
+      const ultima = status.lastattempt;
+      const sub = a.teamsubmission === 1 ? (ultima?.teamsubmission ?? ultima?.submission) : ultima?.submission;
+      // Só uma entrega enviada tem data de envio: em `new`/`draft`/`reopened` o `timemodified` é o da última edição.
+      const enviadoEm = sub?.status === 'submitted' && sub.timemodified ? date(sub.timemodified) : undefined;
+      const limite = status.lastattempt?.extensionduedate || a.duedate;
+      const arquivosAtuais = (sub?.plugins ?? [])
+        .filter((p) => p.type === 'file')
+        .flatMap((p) => p.fileareas ?? [])
+        .filter((area) => area.area === 'submission_files')
+        .flatMap((area) => (area.files ?? []).map((f) => ({ nome: f.filename, tamanhoBytes: f.filesize })));
+      const temTextoAtual = (sub?.plugins ?? []).some(
+        (p) => p.type === 'onlinetext' && (p.editorfields ?? []).some((f) => typeof f.text === 'string' && f.text.trim() !== ''),
+      );
+      const fb = status.feedback;
+      const textoNota = htmlToText(fb?.gradefordisplay)?.replace(/\s+/g, ' ');
+      const nota = textoNota === '-' ? undefined : textoNota;
+      const comentarios = (fb?.plugins ?? [])
+        .filter((p) => p.type === 'comments')
+        .flatMap((p) => p.editorfields ?? [])
+        .map((f) => htmlToText(f.text))
+        .filter((t): t is string => t !== undefined);
+      // Sem `feedback` a nota não foi liberada ao aluno (ou não existe): não afirmar que foi avaliada.
+      const avaliada = status.lastattempt?.graded === true && fb !== undefined;
+      return {
+        tarefaId: String(a.cmid),
+        titulo: a.name,
+        ...(a.duedate ? { prazo: date(a.duedate) } : {}),
+        estado: estadoDe(sub?.status),
+        ...(enviadoEm ? { enviadoEm } : {}),
+        atrasada: enviadoEm !== undefined && !!limite && enviadoEm.getTime() > limite * 1000,
+        arquivosAtuais,
+        temTextoAtual,
+        avaliacao: {
+          avaliada,
+          ...(avaliada && nota ? { nota } : {}),
+          ...(avaliada && fb?.gradeddate ? { avaliadaEm: date(fb.gradeddate) } : {}),
+          comentarios,
+        },
+      };
+    });
+  }
+
   /**
    * Lê o que a tarefa pede (`mod_assign_get_assignments` do curso) e o estado da entrega do aluno
    * (`mod_assign_get_submission_status`). 2 chamadas. Timestamps do Moodle são em segundos; `0` = ausente.
@@ -459,18 +535,7 @@ export class MoodleLive implements LiveSource {
    */
   requisitosEntrega(ctx: SourceContext, cursoId: string, cmid: string): Promise<RequisitosEntrega> {
     return this.run(ctx, async (m) => {
-      const curso = idMoodle(cursoId, 'cursoId');
-      const modulo = idMoodle(cmid, 'tarefaId');
-      const res = await this.client.call<{ courses?: { assignments?: MoodleAssignmentConfig[] }[] }>(
-        m,
-        'mod_assign_get_assignments',
-        { 'courseids[0]': curso },
-      );
-      let a: MoodleAssignmentConfig | undefined;
-      for (const c of res.courses ?? []) a ??= (c.assignments ?? []).find((x) => x.cmid === modulo);
-      if (!a) throw new SourceError('UNSUPPORTED_SCOPE', 'tarefa não encontrada neste curso');
-      // Daqui em diante o Moodle quer o id interno da tarefa (assign id), não o cmid.
-      const status = await this.client.call<MoodleSubmissionStatus>(m, 'mod_assign_get_submission_status', { assignid: a.id });
+      const { a, status } = await this.lerTarefaEStatus(m, cursoId, cmid);
 
       const cfg = (plugin: string, name: string): string | undefined =>
         (a.configs ?? []).find((c) => c.plugin === plugin && c.name === name)?.value;

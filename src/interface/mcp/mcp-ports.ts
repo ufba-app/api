@@ -148,6 +148,9 @@ export interface PrepararEnvioInput {
   tarefaId: string;
 }
 
+/** Uma tarefa do Moodle, só para ler (entrega, nota, feedback): mesmos ids de `PrepararEnvioInput`. */
+export type VerTarefaInput = PrepararEnvioInput;
+
 /**
  * Entrega de tarefa em duas chamadas: sem `confirmacaoId` só devolve o resumo (não grava); com ele, grava.
  * Arquivos pelo link de upload (`uploadId`) ou pequenos em base64 (`arquivos`).
@@ -170,6 +173,8 @@ export interface McpUseCases {
   verTopico(p: McpPrincipal, input: VerTopicoInput): Promise<unknown>;
   /** Nomes dos alunos de uma matéria (só o nome; sem contato). */
   listarAlunos(p: McpPrincipal, input: ListarAlunosInput): Promise<unknown>;
+  /** Estado da entrega, nota e feedback do professor de UMA tarefa do Moodle. Só lê (sem permissão de escrita). */
+  verTarefa(p: McpPrincipal, input: VerTarefaInput): Promise<unknown>;
   /** Texto completo de um aviso (hoje só SIGAA). */
   verAviso(p: McpPrincipal, input: VerAvisoInput): Promise<unknown>;
   /** Devolve um link temporário (uso único) para baixar o anexo na máquina de quem chama. */

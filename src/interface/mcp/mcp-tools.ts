@@ -60,6 +60,7 @@ export const FERRAMENTAS = [
   'listar_cursos',
   'prazos',
   'ver_curso',
+  'ver_tarefa',
   'ver_forum',
   'ver_topico',
   'listar_alunos',
@@ -193,6 +194,22 @@ ${memoryInstructionsFor(p.clientName)}` : academicas },
       inputSchema: { fonte: FONTE, conta: CONTA, cursoId: z.string() },
     },
     (args) => run(() => uc.listarAlunos(p, args)),
+  );
+
+  server.registerTool(
+    'ver_tarefa',
+    {
+      title: 'Ver tarefa',
+      annotations: { title: 'Ver tarefa', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      description:
+        'Situação de UMA tarefa do Moodle (AVA): se foi entregue (`estado`: nova, rascunho ou entregue), quando (`enviadoEm`), se foi ' +
+        'enviada fora do prazo (`atrasada`), os arquivos atuais e, em `avaliacao`, se já foi avaliada, a `nota` (como o AVA mostra, ' +
+        'ex.: "100,00 / 100,00") e os `comentarios` do professor. Sem nota ainda: `avaliada: false` (não é zero). Use para "entreguei?", ' +
+        '"qual foi a minha nota?" e "o que o professor comentou?". `tarefaId` é o `id` da atividade `tipo: tarefa` em `ver_curso`. ' +
+        'Só lê; para entregar, use `preparar_envio_tarefa` (exige permissão de escrita). Moodle: 2 chamadas. ' + AO_VIVO,
+      inputSchema: TAREFA,
+    },
+    (args) => run(() => uc.verTarefa(p, args)),
   );
 
   server.registerTool(

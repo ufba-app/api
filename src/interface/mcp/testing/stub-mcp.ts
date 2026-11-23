@@ -26,6 +26,9 @@ export class StubMcpUseCases implements McpUseCases {
   async postarForum() {
     return { postado: true };
   }
+  async verTarefa() {
+    return { tarefaId: '1', avaliacao: { avaliada: false, comentarios: [] } };
+  }
   async verTopico() {
     return { mensagens: [] };
   }

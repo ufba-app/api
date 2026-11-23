@@ -23,6 +23,7 @@ import type {
   PrazoVivo,
   RascunhoEnviado,
   RequisitosEntrega,
+  TarefaVista,
 } from '../ports/live-source';
 import { LiveSources } from '../ports/live-source';
 import { SourceAccountRecord, SourceAccountRepository } from '../ports/repositories';
@@ -192,6 +193,13 @@ export class ConsultaService {
     const source = this.sources.get('MOODLE');
     if (!source?.requisitosEntrega) throw new FonteSemLeituraError('Moodle: entrega de tarefa ainda não disponível');
     return this.com(quem, 'MOODLE', conta, (s, ctx) => s.requisitosEntrega!(ctx, cursoId, cmid));
+  }
+
+  /** Estado da entrega, nota e feedback do professor de uma tarefa. Só lê. Só o Moodle. `cmid`: o id público de `ver_curso`. */
+  async verTarefa(quem: Quem, conta: string | undefined, cursoId: string, cmid: string): Promise<TarefaVista> {
+    const source = this.sources.get('MOODLE');
+    if (!source?.verTarefa) throw new FonteSemLeituraError('Moodle: leitura de tarefa ainda não disponível');
+    return this.com(quem, 'MOODLE', conta, (s, ctx) => s.verTarefa!(ctx, cursoId, cmid));
   }
 
   /** Sobe arquivos para a área de rascunho do Moodle (invisível ao professor). Quem valida é o `EntregaService`. */
